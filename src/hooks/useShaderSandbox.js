@@ -354,7 +354,7 @@ export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, pal
       if (resizeObserver && container) {
         try {
           resizeObserver.disconnect();
-        } catch (_) { /* noop */ }
+        } catch { /* noop */ }
       }
       window.removeEventListener('resize', resize);
       if (mouseHandlers) {
@@ -367,7 +367,7 @@ export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, pal
       if (patternTexture) gl.deleteTexture(patternTexture);
       if (program) gl.deleteProgram(program);
     };
-  }, [palette, warpShade, weftShade, rectAspect, patterns]);
+  }, [palette, warpShade, weftShade, patterns]);
 
   useEffect(() => {
     const cleanup = run();
