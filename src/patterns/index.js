@@ -16,13 +16,6 @@ function row8(v) {
   return a;
 }
 
-/** Row as 10-bit number → array of 0|1 for cols 0..9 */
-function row10(v) {
-  const a = [];
-  for (let c = 0; c < 10; c++) a.push((v >> c) & 1);
-  return a;
-}
-
 export const PATTERNS = [
   // --- Row 1: basic & matt ---
   {
@@ -66,7 +59,8 @@ export const PATTERNS = [
     name: 'Sateen Weave',
     tileW: 5,
     tileH: 5,
-    rows: [17, 136, 34, 80, 12, 17, 136, 34, 80, 12].map((v) => row8(v)),
+    // 5-end sateen, step 3: weft at (i*3) mod 5 → rows 1,8,2,16,4
+    rows: [17, 136, 34, 80, 4, 17, 136, 34, 80, 4].map((v) => row8(v)),
   },
   {
     id: 'twill-2-2',
@@ -139,6 +133,15 @@ export const PATTERNS = [
     tileW: 8,
     tileH: 8,
     rows: [51, 102, 204, 153, 153, 204, 102, 51].map((v) => row8(v)),
+  },
+  // --- ENS Figma: diagonal plus + dots (pattern 738) ---
+  {
+    id: 'pattern-738',
+    name: '738 (Diagonal Plus & Dots)',
+    tileW: 6,
+    tileH: 6,
+    // Diagonal plus shapes (5-cell cross) and single dots; 1 = weft (light). 6×6 repeat.
+    rows: [6, 7, 18, 17, 56, 20].map((v) => row8(v)),
   },
   // --- ENS (legacy) ---
   {

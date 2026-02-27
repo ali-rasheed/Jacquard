@@ -40,14 +40,9 @@ export const ShaderEditor = forwardRef(function ShaderEditor(
     scheduleRun();
   };
 
-  const handleRun = () => {
-    const { vertex: v, fragment: f } = sourcesRef.current;
-    onChange?.({ vertex: v, fragment: f });
-    onRun?.();
-  };
-
   useEffect(() => {
     onChange?.({ vertex, fragment });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional init-only
   }, []);
 
   useImperativeHandle(ref, () => () => {

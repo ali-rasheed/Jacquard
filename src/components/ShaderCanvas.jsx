@@ -8,7 +8,7 @@ import { useShaderSandbox } from '../hooks/useShaderSandbox';
 import fragmentSource from '../shaders/fragment.glsl?raw';
 import vertexSource from '../shaders/vertex.glsl?raw';
 
-function ShaderCanvasInner({ patternIndex, palette, bgShade, warpShade, weftShade, gridSize, patterns, onFpsChange }) {
+function ShaderCanvasInner({ patternIndex, palette, bgShade, warpShade, weftShade, gridSize, falloffCurve, warpGradient, weftGradient, patterns, onFpsChange }) {
   const { canvasRef, containerRef, error, fps } = useShaderSandbox(
     vertexSource,
     fragmentSource,
@@ -18,6 +18,9 @@ function ShaderCanvasInner({ patternIndex, palette, bgShade, warpShade, weftShad
     warpShade ?? 1,
     weftShade ?? 3,
     gridSize ?? 32,
+    falloffCurve ?? 0,
+    warpGradient ?? null,
+    weftGradient ?? null,
     patterns ?? [],
     onFpsChange
   );
@@ -25,7 +28,7 @@ function ShaderCanvasInner({ patternIndex, palette, bgShade, warpShade, weftShad
   return (
     <div
       ref={containerRef}
-      className="relative flex  flex-initial flex-col overflow-hidden rounded-md border border-border-subtle bg-surface-secondary w-100"
+      className="relative flex  flex-initial flex-col overflow-hidden rounded-md border border-border-subtle bg-surface-secondary w-full"
       style={{ aspectRatio: '1 / 1' }}
     >
       <canvas ref={canvasRef} className="block flex-1 bg-surface" />

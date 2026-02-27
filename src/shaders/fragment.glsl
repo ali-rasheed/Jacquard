@@ -12,6 +12,22 @@ uniform float u_bgShade;
 uniform float u_warpShade;
 uniform float u_weftShade;
 uniform float u_gridSize;
+// 2-stop gradient: start/end colors, direction (0=normal 1=flip), range (startPos,endPos in 0..1).
+uniform vec3 u_warpStart;
+uniform vec3 u_warpEnd;
+uniform vec3 u_weftStart;
+uniform vec3 u_weftEnd;
+uniform float u_warpDir;
+uniform float u_weftDir;
+uniform float u_warpStartPos;
+uniform float u_warpEndPos;
+uniform float u_weftStartPos;
+uniform float u_weftEndPos;
+uniform vec2 u_mouse;
+uniform float u_mouseRadius;
+uniform float u_mouseStrength;
+uniform float u_mouseDown;
+uniform float u_falloffCurve;
 
 
 // ============================================================
@@ -109,6 +125,13 @@ vec3 getPaletteColor(float palette, float shade) {
     return vec3(0.51, 0.816, 0.561);                 // 400
 }
 
+// 2-stop gradient: t in [0,1], direction flips t, range maps to startPos..endPos.
+vec3 sampleGradient2(vec3 startColor, vec3 endColor, float dir, float startPos, float endPos, float tRaw) {
+    float t = (dir > 0.5) ? (1.0 - tRaw) : tRaw;
+    float span = endPos - startPos;
+    float tGrad = (span < 0.001) ? 0.5 : clamp((t - startPos) / span, 0.0, 1.0);
+    return mix(startColor, endColor, tGrad);
+}
 
 void main() {
     // --- GRID SETUP ---
@@ -119,9 +142,29 @@ void main() {
     float aspect = u_resolution.x / u_resolution.y;
     uv.x *= aspect;
 
+    // --- FABRIC WARP (finger-on-taut-cloth) ---
+    // Displace UV toward mouse so the grid appears to sink under the press.
+    // Raw falloff 0..1 from distance; u_falloffCurve: 0=linear, 1=ease, 2=ease-in, 3=ease-out.
+    vec2 toMouse = u_mouse - uv;
+    float dist = length(toMouse);
+    float raw = 1.0 - smoothstep(0.0, u_mouseRadius, dist);
+    float t = clamp(raw, 0.0, 1.0);
+    float falloff;
+    if (u_falloffCurve < 0.5) {
+      falloff = t;
+    } else if (u_falloffCurve < 1.5) {
+      falloff = t * t * (3.0 - 2.0 * t);
+    } else if (u_falloffCurve < 2.5) {
+      falloff = t * t;
+    } else {
+      falloff = 1.0 - (1.0 - t) * (1.0 - t);
+    }
+    falloff *= u_mouseStrength * u_mouseDown;
+    uv += toMouse * falloff;
+
     // Scale: u_gridSize = number of cells along the vertical axis (8–64).
     // Higher = smaller tiles (finer weave), lower = larger tiles.
-    float gridSize = clamp(u_gridSize, 8.0, 64.0);
+    float gridSize = clamp(u_gridSize, 2.0, 64.0);
     vec2 gridUV = uv * gridSize;
 
     // fract = local position within this cell (0..1)
@@ -141,8 +184,8 @@ void main() {
     vec2 p = cellUV - 0.5;
 
     float halfY = 0.5;       // full cell half-height (spacing unchanged)
-    float halfX = halfY * (36.0 / 40.0);  // 36:40 aspect
-    float cornerRadius = 0.15;              // ~6/40 from Figma
+    float halfX = halfY * (34.0 / 40.0);  // 36:40 aspect
+    float cornerRadius = 0.18;              // ~6/40 from Figma
     vec2 halfSize = isWeft > 0.5 ? vec2(halfY, halfX) : vec2(halfX, halfY);
     float d = roundedRect(p, halfSize, cornerRadius);
 
@@ -151,13 +194,12 @@ void main() {
     float cell = 1.0 - smoothstep(0.0, 0.01, d);
 
     // --- COLORING ---
-    // One colorway (u_palette); pick which shade for BG, warp, and weft (u_bgShade, u_warpShade, u_weftShade).
-    // Shade 0–3 = 950, 500, 100, 400 (ENS Figma tokens).
     vec3 bgColor = getPaletteColor(u_palette, u_bgShade);
-    vec3 warpColor = getPaletteColor(u_palette, u_warpShade);
-    vec3 weftColor = getPaletteColor(u_palette, u_weftShade);
+    float tWarp = fract(cellID.y / gridSize);
+    float tWeft = fract(cellID.x / gridSize);
+    vec3 warpColor = sampleGradient2(u_warpStart, u_warpEnd, u_warpDir, u_warpStartPos, u_warpEndPos, tWarp);
+    vec3 weftColor = sampleGradient2(u_weftStart, u_weftEnd, u_weftDir, u_weftStartPos, u_weftEndPos, tWeft);
 
-    // Select thread color based on warp/weft
     vec3 threadColor = mix(warpColor, weftColor, isWeft);
 
     // --- ANIMATION ---
@@ -173,8 +215,8 @@ void main() {
     // The * 0.3 controls wave speed, the 2.0 width controls
     // how gradual the reveal edge is.
 
-    float wave = (cellID.x + cellID.y)  - u_time * 20.0;
-    float reveal = smoothstep(4.0, 0.0, wave);
+    float wave = (cellID.x + cellID.y)  - u_time * 2.0 * gridSize/1.8;
+    float reveal = smoothstep(1.0, 0.0, wave);
 
     // Apply reveal to the cell mask
     cell *= reveal;
