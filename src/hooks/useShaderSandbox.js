@@ -42,6 +42,7 @@ function getUniformLocs(gl, program) {
     warpEndPos: gl.getUniformLocation(program, 'u_warpEndPos'),
     weftStartPos: gl.getUniformLocation(program, 'u_weftStartPos'),
     weftEndPos: gl.getUniformLocation(program, 'u_weftEndPos'),
+    gradSteps: gl.getUniformLocation(program, 'u_gradSteps'),
   };
 }
 
@@ -93,7 +94,7 @@ function getPaletteColor(paletteIndex, shadeIndex) {
   return PALETTE_RGB[p][s];
 }
 
-export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, palette, bgShade, warpShade, weftShade, gridSize, falloffCurve, warpGradient, weftGradient, patterns, onFpsChange) {
+export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, palette, bgShade, warpShade, weftShade, gridSize, falloffCurve, warpGradient, weftGradient, gradSteps, patterns, onFpsChange) {
   const canvasRef = useRef(null);
   const containerRef = useRef(null);
   const mouseRef = useRef({ x: MOUSE_OFF, y: MOUSE_OFF, down: 0, pressStartTime: 0 });
@@ -120,7 +121,7 @@ export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, pal
     const container = containerRef.current;
     if (!canvas || !container) return;
 
-    const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+    const gl = canvas.getContext('webgl', { preserveDrawingBuffer: true }) || canvas.getContext('experimental-webgl', { preserveDrawingBuffer: true });
     if (!gl) {
       setError('WebGL is not supported');
       return;
@@ -209,6 +210,7 @@ export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, pal
       gl.uniform1f(uniformLocs.warpEndPos, Math.max(wr[0], wr[1]) / 100);
       gl.uniform1f(uniformLocs.weftStartPos, Math.min(wfr[0], wfr[1]) / 100);
       gl.uniform1f(uniformLocs.weftEndPos, Math.max(wfr[0], wfr[1]) / 100);
+      gl.uniform1f(uniformLocs.gradSteps, gradSteps ?? 0);
 
       gl.clearColor(0, 0, 0, 1);
       gl.clear(gl.COLOR_BUFFER_BIT);
@@ -318,7 +320,7 @@ export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, pal
       if (patternTexture) gl.deleteTexture(patternTexture);
       if (program) gl.deleteProgram(program);
     };
-  }, [patternIndex, palette, bgShade, warpShade, weftShade, gridSize, falloffCurve, warpGradient, weftGradient, patterns]);
+  }, [patternIndex, palette, bgShade, warpShade, weftShade, gridSize, falloffCurve, warpGradient, weftGradient, gradSteps, patterns]);
 
   useEffect(() => {
     const cleanup = run();

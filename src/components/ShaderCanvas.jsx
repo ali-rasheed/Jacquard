@@ -8,7 +8,7 @@ import { useShaderSandbox } from '../hooks/useShaderSandbox';
 import fragmentSource from '../shaders/fragment.glsl?raw';
 import vertexSource from '../shaders/vertex.glsl?raw';
 
-function ShaderCanvasInner({ patternIndex, palette, bgShade, warpShade, weftShade, gridSize, falloffCurve, warpGradient, weftGradient, patterns, onFpsChange }) {
+function ShaderCanvasInner({ patternIndex, palette, bgShade, warpShade, weftShade, gridSize, falloffCurve, warpGradient, weftGradient, gradSteps, patterns, onFpsChange, onCanvasRef }) {
   const { canvasRef, containerRef, error, fps } = useShaderSandbox(
     vertexSource,
     fragmentSource,
@@ -21,6 +21,7 @@ function ShaderCanvasInner({ patternIndex, palette, bgShade, warpShade, weftShad
     falloffCurve ?? 0,
     warpGradient ?? null,
     weftGradient ?? null,
+    gradSteps ?? 0,
     patterns ?? [],
     onFpsChange
   );
@@ -31,7 +32,7 @@ function ShaderCanvasInner({ patternIndex, palette, bgShade, warpShade, weftShad
       className="relative flex  flex-initial flex-col overflow-hidden rounded-md border border-border-subtle bg-surface-secondary w-full"
       style={{ aspectRatio: '1 / 1' }}
     >
-      <canvas ref={canvasRef} className="block flex-1 bg-surface" />
+      <canvas ref={(el) => { canvasRef.current = el; onCanvasRef?.(el); }} className="block flex-1 bg-surface" />
       <div className="absolute right-2 top-2 rounded-full border border-border-subtle bg-surface-elevated px-2.5 py-0.5 font-mono text-[12px] font-medium text-text-secondary">
         {fps || '--'} fps
       </div>

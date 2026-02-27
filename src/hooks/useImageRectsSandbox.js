@@ -58,7 +58,7 @@ function uploadImageToTexture(gl, texture, image) {
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
 }
 
-export function useImageRectsSandbox(vertexSource, fragmentSource, imageSource, gridSize, onFpsChange) {
+export function useImageRectsSandbox(vertexSource, fragmentSource, imageSource, gridSize, palette, bgShade, colorizeMode, quantizeSteps, rectShade, onFpsChange) {
   const canvasRef = useRef(null);
   const containerRef = useRef(null);
   const onFpsChangeRef = useRef(onFpsChange);
@@ -117,6 +117,11 @@ export function useImageRectsSandbox(vertexSource, fragmentSource, imageSource, 
       gl.uniform1i(uniformLocs.imageSampler, 0);
       gl.uniform2f(uniformLocs.resolution, canvas.width, canvas.height);
       gl.uniform1f(uniformLocs.gridSize, gridSize);
+      gl.uniform1f(uniformLocs.palette, palette);
+      gl.uniform1f(uniformLocs.bgShade, bgShade);
+      gl.uniform1f(uniformLocs.colorizeMode, colorizeMode);
+      gl.uniform1f(uniformLocs.quantizeSteps, quantizeSteps);
+      gl.uniform1f(uniformLocs.rectShade, rectShade);
       gl.clearColor(0.1, 0.1, 0.12, 1);
       gl.clear(gl.COLOR_BUFFER_BIT);
       gl.drawArrays(gl.TRIANGLES, 0, 6);
@@ -142,6 +147,11 @@ export function useImageRectsSandbox(vertexSource, fragmentSource, imageSource, 
         resolution: gl.getUniformLocation(program, 'u_resolution'),
         gridSize: gl.getUniformLocation(program, 'u_gridSize'),
         imageSampler: gl.getUniformLocation(program, 'u_imageSampler'),
+        palette: gl.getUniformLocation(program, 'u_palette'),
+        bgShade: gl.getUniformLocation(program, 'u_bgShade'),
+        colorizeMode: gl.getUniformLocation(program, 'u_colorizeMode'),
+        quantizeSteps: gl.getUniformLocation(program, 'u_quantizeSteps'),
+        rectShade: gl.getUniformLocation(program, 'u_rectShade'),
       };
 
       imageTexture = createPlaceholderTexture(gl);
@@ -177,7 +187,7 @@ export function useImageRectsSandbox(vertexSource, fragmentSource, imageSource, 
       if (imageTexture) gl.deleteTexture(imageTexture);
       if (program) gl.deleteProgram(program);
     };
-  }, [vertexSource, fragmentSource, imageSource, gridSize]);
+  }, [vertexSource, fragmentSource, imageSource, gridSize, palette, bgShade, colorizeMode, quantizeSteps, rectShade]);
 
   useEffect(() => {
     const cleanup = run();

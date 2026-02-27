@@ -23,6 +23,7 @@ uniform float u_warpStartPos;
 uniform float u_warpEndPos;
 uniform float u_weftStartPos;
 uniform float u_weftEndPos;
+uniform float u_gradSteps;
 uniform vec2 u_mouse;
 uniform float u_mouseRadius;
 uniform float u_mouseStrength;
@@ -126,10 +127,15 @@ vec3 getPaletteColor(float palette, float shade) {
 }
 
 // 2-stop gradient: t in [0,1], direction flips t, range maps to startPos..endPos.
+// u_gradSteps: 0 or 1 = smooth; >= 2 = discrete bands (gradation steps).
 vec3 sampleGradient2(vec3 startColor, vec3 endColor, float dir, float startPos, float endPos, float tRaw) {
     float t = (dir > 0.5) ? (1.0 - tRaw) : tRaw;
     float span = endPos - startPos;
     float tGrad = (span < 0.001) ? 0.5 : clamp((t - startPos) / span, 0.0, 1.0);
+    if (u_gradSteps >= 2.0) {
+        float steps = floor(u_gradSteps);
+        tGrad = floor(tGrad * steps) / max(steps - 1.0, 1.0);
+    }
     return mix(startColor, endColor, tGrad);
 }
 

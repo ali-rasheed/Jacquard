@@ -1,3 +1,6 @@
 node_modules
 dist
 *.local
+
+# Local Netlify folder
+.netlify

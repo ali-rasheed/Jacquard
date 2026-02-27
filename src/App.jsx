@@ -2,7 +2,7 @@
  * Shader Sandbox — ENS Weaving Draft.
  * WebGL canvas reads shaders from src/shaders/*.glsl. Controls: Radix Select + Slider.
  */
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import * as Select from '@radix-ui/react-select';
 import * as Slider from '@radix-ui/react-slider';
 import * as Label from '@radix-ui/react-label';
@@ -22,26 +22,31 @@ const grad = (wStart, wEnd, wfStart, wfEnd, wDir = 0, wfDir = 0) => ({
 
 /**
  * Presets: weave + colorway + shades + grad/no-grad. Selecting one applies all state.
+ * ~Half use bg = warp, half use bg = weft. Contrast: the other thread is tuned so the weave reads clearly (avoid muddy mid-on-mid).
  */
 const PRESETS = [
-  { id: 'citrine-plain-flat', label: 'Citrine · Plain · Flat', pattern: 0, palette: 0, bgShade: 2, warpShade: 1, weftShade: 3, warpGradient: flatGrad(1), weftGradient: flatGrad(3) },
-  { id: 'garnet-twill-flat', label: 'Garnet · 2/2 Twill · Flat', pattern: 6, palette: 1, bgShade: 2, warpShade: 0, weftShade: 3, warpGradient: flatGrad(0), weftGradient: flatGrad(3) },
-  { id: 'lapis-satin-flat', label: 'Lapis · Satin · Flat', pattern: 4, palette: 2, bgShade: 0, warpShade: 1, weftShade: 2, warpGradient: flatGrad(1), weftGradient: flatGrad(2) },
-  { id: 'peridot-houndstooth-flat', label: 'Peridot · Houndstooth · Flat', pattern: 11, palette: 3, bgShade: 2, warpShade: 0, weftShade: 1, warpGradient: flatGrad(0), weftGradient: flatGrad(1) },
-  { id: 'citrine-plain-grad', label: 'Citrine · Plain · Grad', pattern: 0, palette: 0, bgShade: 2, warpShade: 1, weftShade: 3, ...grad(0, 3, 1, 2) },
-  { id: 'garnet-twill-grad', label: 'Garnet · 2/2 Twill · Grad', pattern: 6, palette: 1, bgShade: 2, warpShade: 0, weftShade: 3, ...grad(0, 3, 1, 2) },
-  { id: 'lapis-satin-grad', label: 'Lapis · Satin · Grad', pattern: 4, palette: 2, bgShade: 0, warpShade: 1, weftShade: 2, ...grad(0, 2, 2, 3, 1, 1) },
-  { id: 'peridot-houndstooth-grad', label: 'Peridot · Houndstooth · Grad', pattern: 11, palette: 3, bgShade: 2, warpShade: 0, weftShade: 1, ...grad(0, 3, 1, 3, 0, 1) },
+  { id: 'citrine-plain-flat', label: 'Citrine · Plain · Flat', pattern: 0, palette: 0, bgShade: 1, warpShade: 1, weftShade: 3, warpGradient: flatGrad(1), weftGradient: flatGrad(3) },
+  { id: 'garnet-twill-flat', label: 'Garnet · 2/2 Twill · Flat', pattern: 6, palette: 1, bgShade: 3, warpShade: 0, weftShade: 3, warpGradient: flatGrad(0), weftGradient: flatGrad(3) },
+  { id: 'lapis-satin-flat', label: 'Lapis · Satin · Flat', pattern: 4, palette: 2, bgShade: 1, warpShade: 1, weftShade: 3, warpGradient: flatGrad(1), weftGradient: flatGrad(3) },
+  { id: 'peridot-houndstooth-flat', label: 'Peridot · Houndstooth · Flat', pattern: 11, palette: 3, bgShade: 0, warpShade: 0, weftShade: 2, warpGradient: flatGrad(0), weftGradient: flatGrad(2) },
+  { id: 'citrine-plain-grad', label: 'Citrine · Plain · Grad', pattern: 0, palette: 0, bgShade: 3, warpShade: 1, weftShade: 3, ...grad(0, 3, 1, 2) },
+  { id: 'garnet-twill-grad', label: 'Garnet · 2/2 Twill · Grad', pattern: 6, palette: 1, bgShade: 0, warpShade: 0, weftShade: 3, ...grad(0, 3, 1, 2) },
+  { id: 'lapis-satin-grad', label: 'Lapis · Satin · Grad', pattern: 4, palette: 2, bgShade: 2, warpShade: 1, weftShade: 2, ...grad(0, 2, 2, 3, 1, 1) },
+  { id: 'peridot-houndstooth-grad', label: 'Peridot · Houndstooth · Grad', pattern: 11, palette: 3, bgShade: 1, warpShade: 0, weftShade: 1, ...grad(0, 3, 1, 3, 0, 1) },
 ];
 
 const btnGhost =
-  'inline-flex h-7 items-center gap-1.5 rounded-md border border-border-subtle bg-transparent px-2.5 py-1 text-[13px] font-medium text-text-secondary outline-none transition-colors hover:border-border hover:bg-surface-hover hover:text-text focus:border-accent focus:outline-none';
+  'inline-flex h-7 items-center gap-1.5 rounded-md border border-border-subtle bg-transparent px-2.5 py-1 text-[9px] font-medium text-text-secondary outline-none transition-colors hover:border-border hover:bg-surface-hover hover:text-text focus:border-accent focus:outline-none';
 const selectTrigger =
-  'inline-flex h-7 min-w-[4rem] items-center justify-between gap-2 rounded-md border border-border-subtle bg-surface-input px-2.5 py-1 text-[13px] text-text outline-none transition-colors hover:border-border focus:border-accent focus:ring-1 focus:ring-accent/20 data-[placeholder]:text-text-secondary';
+  'inline-flex h-7 min-w-[4rem] items-center justify-between gap-2 rounded-md border border-border-subtle bg-surface-input px-2 py-0.5 text-[11px] text-text outline-none transition-colors hover:border-border focus:border-accent focus:ring-1 focus:ring-accent/20 data-[placeholder]:text-text-secondary';
 const selectContent = 'z-50 min-w-[var(--radix-select-trigger-width)] overflow-hidden rounded-md border border-border-subtle bg-surface-elevated shadow-md';
 const selectItem =
   'relative flex cursor-default select-none items-center rounded py-1.5 pl-2.5 pr-8 text-[13px] outline-none data-[highlighted]:bg-surface-hover data-[highlighted]:text-text';
-const pill = 'inline-flex items-center rounded-full bg-surface-elevated border border-border-subtle px-2.5 py-0.5 text-[12px] font-medium text-text-secondary';
+const pill = 'inline-flex items-center rounded-full tracking-wide bg-surface-elevated border border-border-subtle px-2 py-0.5 text-[9px] uppercase font-mono font-medium text-text-secondary';
+/** Small uppercase label for a control group. */
+const groupLabel = 'shrink-0 text-[10px] font-medium uppercase tracking-wider text-text-muted';
+/** Vertical divider between header sections. */
+const SectionDivider = () => <span className="h-4 w-px shrink-0 bg-border-subtle" aria-hidden />;
 
 function AppSelect({ value, onValueChange, options, placeholder, title }) {
   return (
@@ -77,7 +82,26 @@ export default function App() {
   const [falloffCurve, setFalloffCurve] = useState(1);
   const [warpGradient, setWarpGradient] = useState({ startShade: 0, endShade: 3, direction: 0, range: [0, 100] });
   const [weftGradient, setWeftGradient] = useState({ startShade: 0, endShade: 3, direction: 0, range: [0, 100] });
+  const [gradSteps, setGradSteps] = useState(0); // 0 = smooth; 2–16 = discrete bands
   const [fps, setFps] = useState(0);
+  const canvasRef = useRef(null);
+
+  /** Capture canvas at 2× resolution as PNG and copy to clipboard. */
+  const handleCopy2xPng = useCallback(async () => {
+    const canvas = canvasRef.current;
+    if (!canvas || !canvas.width || !canvas.height) return;
+    const scale = 2;
+    const w = canvas.width * scale;
+    const h = canvas.height * scale;
+    const off = document.createElement('canvas');
+    off.width = w;
+    off.height = h;
+    const ctx = off.getContext('2d');
+    if (!ctx) return;
+    ctx.drawImage(canvas, 0, 0, w, h);
+    const blob = await new Promise((resolve) => off.toBlob(resolve, 'image/png'));
+    if (blob) await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+  }, []);
 
   const applyPreset = useCallback((index) => {
     if (index == null || index < 0 || index >= PRESETS.length) return;
@@ -126,39 +150,52 @@ export default function App() {
         <h1 className="min-w-0 truncate text-[13px] font-semibold tracking-[-0.01em] text-text">
           Shader Sandbox
         </h1>
-        <div className="flex flex-wrap items-center gap-2">
-          <button type="button" className={btnGhost} onClick={handleReload}>
-            Reload
-          </button>
-          <span className="h-4 w-px bg-border" aria-hidden />
-          <Select.Root
-            value={presetIndex != null ? String(presetIndex) : 'custom'}
-            onValueChange={(v) => (v === 'custom' ? setPresetIndex(null) : applyPreset(Number(v)))}
-          >
-            <Select.Trigger className={selectTrigger} title="Preset (weave + colorway + shades + grad)" aria-label="Preset">
-              <Select.Value placeholder="Preset…" />
-              <Select.Icon className="opacity-60" />
-            </Select.Trigger>
-            <Select.Portal>
-              <Select.Content className={selectContent} position="popper" sideOffset={4}>
-                <Select.Viewport>
-                  {presetOptions.map((opt) => (
-                    <Select.Item key={opt.value} className={selectItem} value={opt.value}>
-                      <Select.ItemText>{opt.label}</Select.ItemText>
-                      <Select.ItemIndicator className="absolute right-2 inline-flex items-center" />
-                    </Select.Item>
-                  ))}
-                </Select.Viewport>
-              </Select.Content>
-            </Select.Portal>
-          </Select.Root>
-          <AppSelect value={pattern} onValueChange={(v) => { setPattern(v); setPresetIndex(null); }} options={patternOptions} placeholder="Pattern" />
-          <AppSelect value={palette} onValueChange={(v) => { setPalette(v); setPresetIndex(null); }} options={paletteOptions} title="Colorway" placeholder="Colorway" />
-          <AppSelect value={bgShade} onValueChange={(v) => { setBgShade(v); setPresetIndex(null); }} options={shadeOptions('BG')} title="Background shade" placeholder="BG" />
-          <AppSelect value={warpShade} onValueChange={(v) => { setWarpShade(v); setPresetIndex(null); }} options={shadeOptions('Warp')} title="Warp shade" placeholder="Warp" />
-          <AppSelect value={weftShade} onValueChange={(v) => { setWeftShade(v); setPresetIndex(null); }} options={shadeOptions('Weft')} title="Weft shade" placeholder="Weft" />
-          <div className="flex items-center gap-1.5">
-            <Label.Root className="text-[13px] text-text-secondary shrink-0" htmlFor="warp-range">Warp</Label.Root>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+          <div className="flex items-center gap-2">
+            <button type="button" className={btnGhost} onClick={handleReload}>
+              Reload
+            </button>
+            <button type="button" className={btnGhost} onClick={handleCopy2xPng} title="Copy canvas at 2× resolution as PNG">
+              Copy 2× PNG
+            </button>
+          </div>
+          <SectionDivider />
+          <div className="flex items-center gap-2">
+            <span className={groupLabel}>Preset</span>
+            <Select.Root
+              value={presetIndex != null ? String(presetIndex) : 'custom'}
+              onValueChange={(v) => (v === 'custom' ? setPresetIndex(null) : applyPreset(Number(v)))}
+            >
+              <Select.Trigger className={selectTrigger} title="Preset (weave + colorway + shades + grad)" aria-label="Preset">
+                <Select.Value placeholder="Preset…" />
+                <Select.Icon className="opacity-60" />
+              </Select.Trigger>
+              <Select.Portal>
+                <Select.Content className={selectContent} position="popper" sideOffset={4}>
+                  <Select.Viewport>
+                    {presetOptions.map((opt) => (
+                      <Select.Item key={opt.value} className={selectItem} value={opt.value}>
+                        <Select.ItemText>{opt.label}</Select.ItemText>
+                        <Select.ItemIndicator className="absolute right-2 inline-flex items-center" />
+                      </Select.Item>
+                    ))}
+                  </Select.Viewport>
+                </Select.Content>
+              </Select.Portal>
+            </Select.Root>
+            <AppSelect value={pattern} onValueChange={(v) => { setPattern(v); setPresetIndex(null); }} options={patternOptions} placeholder="Pattern" />
+            <AppSelect value={palette} onValueChange={(v) => { setPalette(v); setPresetIndex(null); }} options={paletteOptions} title="Colorway" placeholder="Colorway" />
+          </div>
+          <SectionDivider />
+          <div className="flex items-center gap-2">
+            <span className={groupLabel}>Shades</span>
+            <AppSelect value={bgShade} onValueChange={(v) => { setBgShade(v); setPresetIndex(null); }} options={shadeOptions('BG')} title="Background shade" placeholder="BG" />
+            <AppSelect value={warpShade} onValueChange={(v) => { setWarpShade(v); setPresetIndex(null); }} options={shadeOptions('Warp')} title="Warp shade" placeholder="Warp" />
+            <AppSelect value={weftShade} onValueChange={(v) => { setWeftShade(v); setPresetIndex(null); }} options={shadeOptions('Weft')} title="Weft shade" placeholder="Weft" />
+          </div>
+          <SectionDivider />
+          <div className="flex items-center gap-2">
+            <span className={groupLabel}>Warp grad</span>
             <Slider.Root
               id="warp-range"
               className="relative flex w-24 shrink-0 touch-none items-center"
@@ -179,8 +216,9 @@ export default function App() {
             <AppSelect value={warpGradient.endShade} onValueChange={(s) => { setPresetIndex(null); setWarpGradient((g) => ({ ...g, endShade: s })); }} options={shadeOptions()} title="Warp end" placeholder="End" />
             <AppSelect value={warpGradient.direction} onValueChange={(d) => { setPresetIndex(null); setWarpGradient((g) => ({ ...g, direction: Number(d) })); }} options={directionOptions} title="Warp direction" placeholder="Dir" />
           </div>
-          <div className="flex items-center gap-1.5">
-            <Label.Root className="text-[13px] text-text-secondary shrink-0" htmlFor="weft-range">Weft</Label.Root>
+          <SectionDivider />
+          <div className="flex items-center gap-2">
+            <span className={groupLabel}>Weft grad</span>
             <Slider.Root
               id="weft-range"
               className="relative flex w-24 shrink-0 touch-none items-center"
@@ -201,10 +239,10 @@ export default function App() {
             <AppSelect value={weftGradient.endShade} onValueChange={(s) => { setPresetIndex(null); setWeftGradient((g) => ({ ...g, endShade: s })); }} options={shadeOptions()} title="Weft end" placeholder="End" />
             <AppSelect value={weftGradient.direction} onValueChange={(d) => { setPresetIndex(null); setWeftGradient((g) => ({ ...g, direction: Number(d) })); }} options={directionOptionsWeft} title="Weft direction" placeholder="Dir" />
           </div>
+          <SectionDivider />
           <div className="flex items-center gap-2">
-            <Label.Root className="text-[13px] text-text-secondary shrink-0" htmlFor="grid-slider">
-              Tile size
-            </Label.Root>
+            <span className={groupLabel}>Tile</span>
+            <Label.Root className="sr-only" htmlFor="grid-slider">Tile size</Label.Root>
             <Slider.Root
               id="grid-slider"
               className="relative flex w-20 shrink-0 touch-none select-none items-center"
@@ -221,13 +259,30 @@ export default function App() {
               <Slider.Thumb className="block h-4 w-4 rounded-full border border-border bg-surface shadow focus:outline-none focus:ring-2 focus:ring-accent/40" />
             </Slider.Root>
             <span className="w-6 tabular-nums text-[13px] text-text">{gridSize}</span>
+            <AppSelect value={falloffCurve} onValueChange={setFalloffCurve} options={falloffOptions} placeholder="Falloff" title="Warp falloff curve" />
+            <Label.Root className="sr-only" htmlFor="grad-steps-slider">Gradation steps</Label.Root>
+            <Slider.Root
+              id="grad-steps-slider"
+              className="relative flex w-20 shrink-0 touch-none select-none items-center"
+              value={[gradSteps]}
+              onValueChange={([v]) => setGradSteps(v)}
+              min={0}
+              max={16}
+              step={1}
+              aria-label={`Gradation steps: ${gradSteps === 0 ? 'smooth' : gradSteps}`}
+            >
+              <Slider.Track className="relative h-1.5 grow rounded-full bg-surface-input">
+                <Slider.Range className="absolute h-full rounded-full bg-accent" />
+              </Slider.Track>
+              <Slider.Thumb className="block h-4 w-4 rounded-full border border-border bg-surface shadow focus:outline-none focus:ring-2 focus:ring-accent/40" />
+            </Slider.Root>
+            <span className="w-8 tabular-nums text-[13px] text-text" title="0 = smooth gradient">{gradSteps === 0 ? 'Smooth' : gradSteps}</span>
           </div>
-          <AppSelect value={falloffCurve} onValueChange={setFalloffCurve} options={falloffOptions} placeholder="Falloff" title="Warp falloff curve" />
         </div>
       </header>
 
       <main className="flex min-h-0 flex-1 items-center justify-center overflow-auto p-4">
-        <ShaderCanvas patternIndex={pattern} palette={palette} bgShade={bgShade} warpShade={warpShade} weftShade={weftShade} gridSize={gridSize} falloffCurve={falloffCurve} warpGradient={warpGradient} weftGradient={weftGradient} patterns={PATTERNS} onFpsChange={setFps} />
+        <ShaderCanvas patternIndex={pattern} palette={palette} bgShade={bgShade} warpShade={warpShade} weftShade={weftShade} gridSize={gridSize} falloffCurve={falloffCurve} warpGradient={warpGradient} weftGradient={weftGradient} gradSteps={gradSteps} patterns={PATTERNS} onFpsChange={setFps} onCanvasRef={(el) => { canvasRef.current = el; }} />
       </main>
 
       <footer className="flex min-h-9 shrink-0 flex-wrap items-center gap-2 border-t border-border-subtle bg-surface-elevated px-3 py-2">
@@ -240,6 +295,7 @@ export default function App() {
         <span className={pill}>Weft: {SHADE_NAMES[weftGradient.startShade]}→{SHADE_NAMES[weftGradient.endShade]}</span>
         <span className={pill}>Grid: {gridSize}</span>
         <span className={pill}>{falloffOptions[falloffCurve]?.label ?? 'Falloff'}</span>
+        <span className={pill}>Steps: {gradSteps === 0 ? 'Smooth' : gradSteps}</span>
         <div className="ml-auto flex items-center gap-2">
           <span className={pill}>{fps || '--'} fps</span>
           <span className={pill}>WebGL 1</span>
