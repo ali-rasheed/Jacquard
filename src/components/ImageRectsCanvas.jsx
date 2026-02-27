@@ -1,13 +1,14 @@
 /**
  * ImageRectsCanvas — V2 only. Renders the image-to-colored-rects shader.
- * Uses useImageRectsSandbox; accepts imageSource (URL string) and gridSize.
+ * Weave pattern (from patterns/index.js) sets rect orientation per cell (warp/weft).
  */
 import { memo } from 'react';
 import { useImageRectsSandbox } from '../hooks/useImageRectsSandbox';
 import fragmentSource from '../shaders/fragmentImageRects.glsl?raw';
 import vertexSource from '../shaders/vertex.glsl?raw';
+import { PATTERNS } from '../patterns';
 
-function ImageRectsCanvasInner({ imageSource, gridSize, palette, bgShade, colorizeMode, quantizeSteps, rectShade, shadeFrom, onFpsChange }) {
+function ImageRectsCanvasInner({ imageSource, gridSize, palette, bgShade, colorizeMode, quantizeSteps, rectShade, shadeFrom, patternIndex, patterns, onFpsChange }) {
   const { canvasRef, containerRef, error, fps } = useImageRectsSandbox(
     vertexSource,
     fragmentSource,
@@ -19,6 +20,8 @@ function ImageRectsCanvasInner({ imageSource, gridSize, palette, bgShade, colori
     quantizeSteps ?? 0,
     rectShade ?? 1,
     shadeFrom ?? 0,
+    patternIndex ?? 0,
+    patterns ?? PATTERNS,
     onFpsChange
   );
 

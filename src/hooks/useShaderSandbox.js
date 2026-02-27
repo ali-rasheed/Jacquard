@@ -102,6 +102,8 @@ export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, pal
   const fragmentSourceRef = useRef(fragmentSource);
   const recompileRef = useRef(null);
   const prevShaderRef = useRef({ vertex: null, fragment: null });
+  const warpGradientRef = useRef(warpGradient);
+  const weftGradientRef = useRef(weftGradient);
   // When patterns is omitted, callers pass (..., onFpsChange) so the 7th arg is the callback
   const callback = typeof patterns === 'function' ? patterns : onFpsChange;
   const onFpsChangeRef = useRef(callback);
@@ -111,6 +113,8 @@ export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, pal
   vertexSourceRef.current = vertexSource;
   fragmentSourceRef.current = fragmentSource;
   onFpsChangeRef.current = callback;
+  warpGradientRef.current = warpGradient;
+  weftGradientRef.current = weftGradient;
 
   useEffect(() => {
     onFpsChangeRef.current?.(fps);
@@ -192,8 +196,8 @@ export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, pal
       gl.uniform1f(uniformLocs.mouseDown, down);
       gl.uniform1f(uniformLocs.falloffCurve, falloffCurve);
 
-      const wg = warpGradient || { startShade: warpShade, endShade: warpShade, direction: 0, range: [0, 100] };
-      const wf = weftGradient || { startShade: weftShade, endShade: weftShade, direction: 0, range: [0, 100] };
+      const wg = warpGradientRef.current || { startShade: warpShade, endShade: warpShade, direction: 0, range: [0, 100] };
+      const wf = weftGradientRef.current || { startShade: weftShade, endShade: weftShade, direction: 0, range: [0, 100] };
       const warpStart = getPaletteColor(palette, wg.startShade);
       const warpEnd = getPaletteColor(palette, wg.endShade);
       const weftStart = getPaletteColor(palette, wf.startShade);

@@ -43,17 +43,57 @@ const selectContent = 'z-50 min-w-[var(--radix-select-trigger-width)] overflow-h
 const selectItem =
   'relative flex cursor-default select-none items-center rounded py-1.5 pl-2.5 pr-8 text-[13px] outline-none data-[highlighted]:bg-surface-hover data-[highlighted]:text-text';
 const pill = 'inline-flex items-center rounded-full tracking-wide bg-surface-elevated border border-border-subtle px-2 py-0.5 text-[9px] uppercase font-mono font-medium text-text-secondary';
-/** Small uppercase label for a control group. */
-const groupLabel = 'shrink-0 text-[10px] font-medium uppercase tracking-wider text-text-muted';
-/** Vertical divider between header sections. */
+/** Icon-only group header; use title for tooltip. */
+const GroupIcon = ({ name, title, className = '' }) => (
+  <span title={title} className={`shrink-0 ${className}`}>
+    <Icon name={name} className="text-[18px] text-text-muted" />
+  </span>
+);
+/** Vertical divider between sidebar sections (when horizontal). */
 const SectionDivider = () => <span className="h-4 w-px shrink-0 bg-border-subtle" aria-hidden />;
+
+/** Material Symbol icon — pass symbol name (e.g. refresh, arrow_downward). */
+const Icon = ({ name, className = '' }) => (
+  <span className={`icon inline-block shrink-0 ${className}`} aria-hidden>{name}</span>
+);
+
+/** Two-option switch for gradient direction (0 = first arrow, 1 = second). */
+const directionSwitch =
+  'inline-flex h-7 shrink-0 rounded-md border border-border-subtle bg-surface-input overflow-hidden';
+const directionSwitchBtn =
+  'flex h-full min-w-[28px] items-center justify-center px-2 text-[13px] text-text-secondary transition-colors hover:bg-surface-hover hover:text-text data-[state=on]:bg-accent/15 data-[state=on]:text-accent border-r border-border-subtle last:border-r-0';
+
+function DirectionSwitch({ value, onValueChange, options, title, ariaLabel }) {
+  return (
+    <div
+      className={directionSwitch}
+      role="group"
+      aria-label={ariaLabel ?? title}
+      title={title}
+    >
+      {options.map((opt) => (
+        <button
+          key={opt.value}
+          type="button"
+          className={directionSwitchBtn}
+          aria-pressed={value === opt.value}
+          aria-label={`${title}: ${opt.label}`}
+          data-state={value === opt.value ? 'on' : 'off'}
+          onClick={() => { onValueChange(opt.value); }}
+        >
+          {opt.icon ? <Icon name={opt.icon} className="text-[18px]" /> : opt.label}
+        </button>
+      ))}
+    </div>
+  );
+}
 
 function AppSelect({ value, onValueChange, options, placeholder, title }) {
   return (
     <Select.Root value={String(value)} onValueChange={(v) => onValueChange(Number(v))}>
       <Select.Trigger className={selectTrigger} title={title} aria-label={title ?? placeholder}>
         <Select.Value placeholder={placeholder} />
-        <Select.Icon className="opacity-60" />
+        <Icon name="expand_more" className="text-[18px] opacity-60" />
       </Select.Trigger>
       <Select.Portal>
         <Select.Content className={selectContent} position="popper" sideOffset={4}>
@@ -135,33 +175,33 @@ export default function App() {
     { value: 3, label: 'Ease out' },
   ];
   const directionOptions = [
-    { value: 0, label: '↓' },
-    { value: 1, label: '↑' },
+    { value: 0, label: 'Down', icon: 'arrow_downward' },
+    { value: 1, label: 'Up', icon: 'arrow_upward' },
   ];
   const directionOptionsWeft = [
-    { value: 0, label: '→' },
-    { value: 1, label: '←' },
+    { value: 0, label: 'Right', icon: 'arrow_forward' },
+    { value: 1, label: 'Left', icon: 'arrow_back' },
   ];
 
   return (
-
-    <div className="flex h-full min-h-0 flex-col overflow-hidden bg-surface">
-      <header className="flex min-h-9 shrink-0 flex-wrap items-center justify-between gap-2 border-b border-border-subtle bg-surface px-3 py-2">
-        <h1 className="min-w-0 truncate text-[13px] font-semibold tracking-[-0.01em] text-text">
+    <div className="flex h-full min-h-0 flex-row overflow-hidden bg-surface">
+      <aside className="flex w-72 shrink-0 flex-col gap-3 overflow-y-auto border-r border-border-subtle bg-surface px-3 py-3">
+        <h1 className="shrink-0 text-[13px] font-semibold tracking-[-0.01em] text-text">
           Shader Sandbox
         </h1>
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-          <div className="flex items-center gap-2">
-            <button type="button" className={btnGhost} onClick={handleReload}>
-              Reload
+        <div className="flex flex-col gap-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <button type="button" className={btnGhost} onClick={handleReload} aria-label="Reload">
+              <Icon name="refresh" className="text-[16px]" />
+              <span>Reload</span>
             </button>
-            <button type="button" className={btnGhost} onClick={handleCopy2xPng} title="Copy canvas at 2× resolution as PNG">
-              Copy 2× PNG
+            <button type="button" className={btnGhost} onClick={handleCopy2xPng} title="Copy canvas at 2× resolution as PNG" aria-label="Copy 2× PNG">
+              <Icon name="content_copy" className="text-[16px]" />
+              <span>Copy 2× PNG</span>
             </button>
           </div>
-          <SectionDivider />
-          <div className="flex items-center gap-2">
-            <span className={groupLabel}>Preset</span>
+          <div className="flex flex-wrap items-center gap-2">
+            <GroupIcon name="tune" title="Preset" />
             <Select.Root
               value={presetIndex != null ? String(presetIndex) : 'custom'}
               onValueChange={(v) => (v === 'custom' ? setPresetIndex(null) : applyPreset(Number(v)))}
@@ -186,9 +226,8 @@ export default function App() {
             <AppSelect value={pattern} onValueChange={(v) => { setPattern(v); setPresetIndex(null); }} options={patternOptions} placeholder="Pattern" />
             <AppSelect value={palette} onValueChange={(v) => { setPalette(v); setPresetIndex(null); }} options={paletteOptions} title="Colorway" placeholder="Colorway" />
           </div>
-          <SectionDivider />
-          <div className="flex items-center gap-2">
-            <span className={groupLabel}>Shades</span>
+          <div className="flex flex-wrap items-center gap-2">
+            <GroupIcon name="palette" title="Shades" />
             <AppSelect value={bgShade} onValueChange={(v) => { setBgShade(v); setPresetIndex(null); }} options={shadeOptions('BG')} title="Background shade" placeholder="BG" />
             <AppSelect
               value={warpShade}
@@ -215,9 +254,8 @@ export default function App() {
               placeholder="Weft"
             />
           </div>
-          <SectionDivider />
-          <div className="flex items-center gap-2">
-            <span className={groupLabel}>Warp grad</span>
+          <div className="flex flex-wrap items-center gap-2">
+            <GroupIcon name="gradient" title="Warp gradient" />
             <Slider.Root
               id="warp-range"
               className="relative flex w-24 shrink-0 touch-none items-center"
@@ -236,11 +274,10 @@ export default function App() {
             </Slider.Root>
             <AppSelect value={warpGradient.startShade} onValueChange={(s) => { setPresetIndex(null); setWarpGradient((g) => ({ ...g, startShade: s })); }} options={shadeOptions()} title="Warp start" placeholder="Start" />
             <AppSelect value={warpGradient.endShade} onValueChange={(s) => { setPresetIndex(null); setWarpGradient((g) => ({ ...g, endShade: s })); }} options={shadeOptions()} title="Warp end" placeholder="End" />
-            <AppSelect value={warpGradient.direction} onValueChange={(d) => { setPresetIndex(null); setWarpGradient((g) => ({ ...g, direction: Number(d) })); }} options={directionOptions} title="Warp direction" placeholder="Dir" />
+            <DirectionSwitch value={warpGradient.direction} onValueChange={(d) => { setPresetIndex(null); setWarpGradient((g) => ({ ...g, direction: d })); }} options={directionOptions} title="Warp direction" ariaLabel="Warp gradient direction" />
           </div>
-          <SectionDivider />
-          <div className="flex items-center gap-2">
-            <span className={groupLabel}>Weft grad</span>
+          <div className="flex flex-wrap items-center gap-2">
+            <GroupIcon name="gradient" title="Weft gradient" />
             <Slider.Root
               id="weft-range"
               className="relative flex w-24 shrink-0 touch-none items-center"
@@ -259,11 +296,10 @@ export default function App() {
             </Slider.Root>
             <AppSelect value={weftGradient.startShade} onValueChange={(s) => { setPresetIndex(null); setWeftGradient((g) => ({ ...g, startShade: s })); }} options={shadeOptions()} title="Weft start" placeholder="Start" />
             <AppSelect value={weftGradient.endShade} onValueChange={(s) => { setPresetIndex(null); setWeftGradient((g) => ({ ...g, endShade: s })); }} options={shadeOptions()} title="Weft end" placeholder="End" />
-            <AppSelect value={weftGradient.direction} onValueChange={(d) => { setPresetIndex(null); setWeftGradient((g) => ({ ...g, direction: Number(d) })); }} options={directionOptionsWeft} title="Weft direction" placeholder="Dir" />
+            <DirectionSwitch value={weftGradient.direction} onValueChange={(d) => { setPresetIndex(null); setWeftGradient((g) => ({ ...g, direction: d })); }} options={directionOptionsWeft} title="Weft direction" ariaLabel="Weft gradient direction" />
           </div>
-          <SectionDivider />
-          <div className="flex items-center gap-2">
-            <span className={groupLabel}>Tile</span>
+          <div className="flex flex-wrap items-center gap-2">
+            <GroupIcon name="grid_on" title="Tile" />
             <Label.Root className="sr-only" htmlFor="grid-slider">Tile size</Label.Root>
             <Slider.Root
               id="grid-slider"
@@ -301,13 +337,13 @@ export default function App() {
             <span className="w-8 tabular-nums text-[13px] text-text" title="0 = smooth gradient">{gradSteps === 0 ? 'Smooth' : gradSteps}</span>
           </div>
         </div>
-      </header>
+      </aside>
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+        <main className="flex min-h-0 flex-1 items-center justify-center overflow-auto p-4">
+          <ShaderCanvas patternIndex={pattern} palette={palette} bgShade={bgShade} warpShade={warpShade} weftShade={weftShade} gridSize={gridSize} falloffCurve={falloffCurve} warpGradient={warpGradient} weftGradient={weftGradient} gradSteps={gradSteps} patterns={PATTERNS} onFpsChange={setFps} onCanvasRef={(el) => { canvasRef.current = el; }} />
+        </main>
 
-      <main className="flex min-h-0 flex-1 items-center justify-center overflow-auto p-4">
-        <ShaderCanvas patternIndex={pattern} palette={palette} bgShade={bgShade} warpShade={warpShade} weftShade={weftShade} gridSize={gridSize} falloffCurve={falloffCurve} warpGradient={warpGradient} weftGradient={weftGradient} gradSteps={gradSteps} patterns={PATTERNS} onFpsChange={setFps} onCanvasRef={(el) => { canvasRef.current = el; }} />
-      </main>
-
-      <footer className="flex min-h-9 shrink-0 flex-wrap items-center gap-2 border-t border-border-subtle bg-surface-elevated px-3 py-2">
+        <footer className="flex min-h-9 shrink-0 flex-wrap items-center gap-2 border-t border-border-subtle bg-surface-elevated px-3 py-2">
         <span className={pill}>{PATTERNS[pattern]?.name ?? '—'}</span>
         <span className={pill}>{PALETTE_NAMES[palette]}</span>
         <span className={pill}>BG: {SHADE_NAMES[bgShade]}</span>
@@ -322,7 +358,8 @@ export default function App() {
           <span className={pill}>{fps || '--'} fps</span>
           <span className={pill}>WebGL 1</span>
         </div>
-      </footer>
+        </footer>
+      </div>
     </div>
   );
 }

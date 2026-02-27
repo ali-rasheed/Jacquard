@@ -1,12 +1,13 @@
 /**
  * AppV2 — Image to colored rects. Pick an image; shader draws a grid of rounded rects
- * colored by the image (one sample per cell). Background uses same palette/bgShade as original.
+ * colored by the image (one sample per cell). Weave pattern sets rect orientation (warp/weft) per cell.
  */
 import { useState, useCallback, useEffect } from 'react';
 import * as Select from '@radix-ui/react-select';
 import * as Slider from '@radix-ui/react-slider';
 import * as Label from '@radix-ui/react-label';
 import { ImageRectsCanvas } from './components/ImageRectsCanvas';
+import { PATTERNS } from './patterns';
 
 const PALETTE_NAMES = ['Citrine', 'Garnet', 'Lapis', 'Peridot'];
 const SHADE_NAMES = ['950', '500', '100', '400'];
@@ -20,12 +21,26 @@ const selectItem =
   'relative flex cursor-default select-none items-center rounded py-1.5 pl-2.5 pr-8 text-[13px] outline-none data-[highlighted]:bg-surface-hover data-[highlighted]:text-text';
 const pill = 'inline-flex items-center rounded-full bg-surface-elevated border border-border-subtle px-2.5 py-0.5 text-[12px] font-medium text-text-secondary';
 
+/** Material Symbol icon (site-wide font). */
+const Icon = ({ name, className = '' }) => (
+  <span className={`icon inline-block shrink-0 ${className}`} aria-hidden>{name}</span>
+);
+/** Icon-only group header; use title for tooltip. */
+const GroupIcon = ({ name, title }) => (
+  <span title={title} className="shrink-0">
+    <Icon name={name} className="text-[18px] text-text-muted" />
+  </span>
+);
+const SectionDivider = () => <span className="h-4 w-px shrink-0 bg-border-subtle" aria-hidden />;
+/** Horizontal divider between stacked sections (e.g. sidebar). */
+const SectionDividerH = () => <div className="h-px w-full shrink-0 bg-border-subtle" aria-hidden />;
+
 function AppSelect({ value, onValueChange, options, placeholder, title }) {
   return (
     <Select.Root value={String(value)} onValueChange={onValueChange}>
       <Select.Trigger className={selectTrigger} title={title} aria-label={title ?? placeholder}>
         <Select.Value placeholder={placeholder} />
-        <Select.Icon className="opacity-60" />
+        <Icon name="expand_more" className="text-[18px] opacity-60" />
       </Select.Trigger>
       <Select.Portal>
         <Select.Content className={selectContent} position="popper" sideOffset={4}>
@@ -64,8 +79,10 @@ export default function AppV2() {
   const [quantizeSteps, setQuantizeSteps] = useState(0);  // 0 = off, 2–32 = steps
   const [rectShade, setRectShade] = useState(1);          // unused when shadeFrom is used
   const [shadeFrom, setShadeFrom] = useState(0);          // 0=color, 1=warp, 2=weft, 3=warp+weft (brand)
+  const [patternIndex, setPatternIndex] = useState(0);    // weave pattern (same list as v1)
   const [fps, setFps] = useState(0);
 
+  const patternOptions = PATTERNS.map((p, i) => ({ value: i, label: p.name }));
   const paletteOptions = PALETTE_NAMES.map((name, i) => ({ value: i, label: name }));
   const shadeOptions = (prefix) => SHADE_NAMES.map((name, i) => ({ value: i, label: prefix ? `${prefix}: ${name}` : name }));
 
@@ -85,44 +102,53 @@ export default function AppV2() {
   }, [imageSource]);
 
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden bg-surface">
-      <header className="flex min-h-9 shrink-0 flex-wrap items-center justify-between gap-2 border-b border-border-subtle bg-surface px-3 py-2">
-        <h1 className="min-w-0 truncate text-[13px] font-semibold tracking-[-0.01em] text-text">
+    <div className="flex h-full min-h-0 flex-row overflow-hidden bg-surface">
+      <aside className="flex w-72 shrink-0 flex-col gap-3 overflow-y-auto border-r border-border-subtle bg-surface px-3 py-3">
+        <h1 className="shrink-0 text-[13px] font-semibold tracking-[-0.01em] text-text">
           Image to Colored Rects
         </h1>
-        <div className="flex flex-wrap items-center gap-2">
-          <label className={btnGhost + ' cursor-pointer'}>
-            <span>Pick image</span>
-            <input
-              type="file"
-              accept="image/*"
-              className="sr-only"
-              onChange={handleFileChange}
-              aria-label="Pick an image file"
-            />
-          </label>
-          <AppSelect
-            value={colorizeMode ? 'colorize' : 'brand'}
-            onValueChange={(v) => setColorizeMode(v === 'colorize')}
-            options={MODE_OPTIONS}
-            title="Rect color source"
-            placeholder="Mode"
-          />
-          <AppSelect value={palette} onValueChange={(v) => setPalette(Number(v))} options={paletteOptions} title="Colorway" placeholder="Colorway" />
-          <AppSelect value={bgShade} onValueChange={(v) => setBgShade(Number(v))} options={shadeOptions('BG')} title="Background shade" placeholder="BG" />
-          {!colorizeMode && (
+        <div className="flex flex-col gap-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <GroupIcon name="image" title="Image" />
+            <label className={btnGhost + ' cursor-pointer'}>
+              <Icon name="upload_file" className="text-[16px]" />
+              <span>Pick image</span>
+              <input
+                type="file"
+                accept="image/*"
+                className="sr-only"
+                onChange={handleFileChange}
+                aria-label="Pick an image file"
+              />
+            </label>
+          </div>
+          <SectionDividerH />
+          <div className="flex flex-wrap items-center gap-2">
+            <GroupIcon name="tune" title="Weave" />
             <AppSelect
-              value={shadeFrom}
-              onValueChange={(v) => setShadeFrom(Number(v))}
-              options={SHADE_FROM_OPTIONS}
-              title="Shade from (brand: color vs warp/weft)"
-              placeholder="Shade from"
+              value={colorizeMode ? 'colorize' : 'brand'}
+              onValueChange={(v) => setColorizeMode(v === 'colorize')}
+              options={MODE_OPTIONS}
+              title="Rect color source"
+              placeholder="Mode"
             />
-          )}
-          <div className="flex items-center gap-2">
-            <Label.Root className="text-[13px] text-text-secondary shrink-0" htmlFor="quantize-slider-v2">
-              Quantize
-            </Label.Root>
+            <AppSelect value={patternIndex} onValueChange={(v) => setPatternIndex(Number(v))} options={patternOptions} title="Weave pattern" placeholder="Weave" />
+            <AppSelect value={palette} onValueChange={(v) => setPalette(Number(v))} options={paletteOptions} title="Colorway" placeholder="Colorway" />
+            <AppSelect value={bgShade} onValueChange={(v) => setBgShade(Number(v))} options={shadeOptions('BG')} title="Background shade" placeholder="BG" />
+            {!colorizeMode && (
+              <AppSelect
+                value={shadeFrom}
+                onValueChange={(v) => setShadeFrom(Number(v))}
+                options={SHADE_FROM_OPTIONS}
+                title="Shade from (brand: color vs warp/weft)"
+                placeholder="Shade from"
+              />
+            )}
+          </div>
+          <SectionDividerH />
+          <div className="flex flex-wrap items-center gap-2">
+            <GroupIcon name="gradient" title="Quantize" />
+            <Label.Root className="sr-only" htmlFor="quantize-slider-v2">Quantize</Label.Root>
             <Slider.Root
               id="quantize-slider-v2"
               className="relative flex w-20 shrink-0 touch-none select-none items-center"
@@ -140,10 +166,10 @@ export default function AppV2() {
             </Slider.Root>
             <span className="w-8 tabular-nums text-[13px] text-text">{quantizeSteps === 0 ? 'off' : quantizeSteps}</span>
           </div>
-          <div className="flex items-center gap-2">
-            <Label.Root className="text-[13px] text-text-secondary shrink-0" htmlFor="grid-slider-v2">
-              Grid size
-            </Label.Root>
+          <SectionDividerH />
+          <div className="flex flex-wrap items-center gap-2">
+            <GroupIcon name="grid_on" title="Tile" />
+            <Label.Root className="sr-only" htmlFor="grid-slider-v2">Grid size</Label.Root>
             <Slider.Root
               id="grid-slider-v2"
               className="relative flex w-24 shrink-0 touch-none select-none items-center"
@@ -162,9 +188,10 @@ export default function AppV2() {
             <span className="w-8 tabular-nums text-[13px] text-text">{gridSize}</span>
           </div>
         </div>
-      </header>
+      </aside>
 
-      <main className="flex min-h-0 flex-1 items-center justify-center overflow-auto p-4">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+        <main className="flex min-h-0 flex-1 items-center justify-center overflow-auto p-4">
         <ImageRectsCanvas
           imageSource={imageSource}
           gridSize={gridSize}
@@ -174,12 +201,15 @@ export default function AppV2() {
           quantizeSteps={quantizeSteps}
           rectShade={rectShade}
           shadeFrom={shadeFrom}
+          patternIndex={patternIndex}
+          patterns={PATTERNS}
           onFpsChange={setFps}
         />
-      </main>
+        </main>
 
-      <footer className="flex min-h-9 shrink-0 flex-wrap items-center gap-2 border-t border-border-subtle bg-surface-elevated px-3 py-2">
+        <footer className="flex min-h-9 shrink-0 flex-wrap items-center gap-2 border-t border-border-subtle bg-surface-elevated px-3 py-2">
         <span className={pill}>{imageSource ? 'Image loaded' : 'Pick an image'}</span>
+        <span className={pill}>Weave: {PATTERNS[patternIndex]?.name ?? '—'}</span>
         <span className={pill}>{colorizeMode ? 'Colorization' : 'Brand'}</span>
         {!colorizeMode && (
           <span className={pill}>Shade: {SHADE_FROM_OPTIONS.find((o) => o.value === shadeFrom)?.label ?? 'Color'}</span>
@@ -192,7 +222,8 @@ export default function AppV2() {
           <span className={pill}>{fps || '--'} fps</span>
           <span className={pill}>WebGL 1</span>
         </div>
-      </footer>
+        </footer>
+      </div>
     </div>
   );
 }

@@ -1,10 +1,10 @@
 /**
  * useImageRectsSandbox — V2 only. WebGL canvas that samples an image per grid cell
- * and draws rounded rects. Loads image from URL (file object URL or string); uses
- * a 1x1 placeholder texture when no image. No dependency on useShaderSandbox or patterns.
+ * and draws rounded rects. Uses same weave pattern texture as v1 for rect orientation (warp/weft).
  */
 const DPR = 2;
 import { useRef, useEffect, useCallback, useState } from 'react';
+import { buildPatternTexture, PATTERNS } from '../patterns';
 
 const QUAD_POSITIONS = new Float32Array([-1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1]);
 
@@ -58,7 +58,7 @@ function uploadImageToTexture(gl, texture, image) {
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
 }
 
-export function useImageRectsSandbox(vertexSource, fragmentSource, imageSource, gridSize, palette, bgShade, colorizeMode, quantizeSteps, rectShade, shadeFrom, onFpsChange) {
+export function useImageRectsSandbox(vertexSource, fragmentSource, imageSource, gridSize, palette, bgShade, colorizeMode, quantizeSteps, rectShade, shadeFrom, patternIndex, patterns, onFpsChange) {
   const canvasRef = useRef(null);
   const containerRef = useRef(null);
   const onFpsChangeRef = useRef(onFpsChange);
@@ -87,6 +87,8 @@ export function useImageRectsSandbox(vertexSource, fragmentSource, imageSource, 
     let program = null;
     let positionBuffer = null;
     let imageTexture = null;
+    let patternTexture = null;
+    let patternTexHeight = 0;
     let animationId = null;
     let lastFrameTime = Date.now();
     let frameCount = 0;
@@ -109,12 +111,17 @@ export function useImageRectsSandbox(vertexSource, fragmentSource, imageSource, 
       gl.bufferData(gl.ARRAY_BUFFER, QUAD_POSITIONS, gl.STATIC_DRAW);
     };
 
+    const list = Array.isArray(patterns) ? patterns : PATTERNS;
+
     const render = () => {
-      if (!program || !uniformLocs || !imageTexture) return;
+      if (!program || !uniformLocs || !imageTexture || !patternTexture) return;
       gl.useProgram(program);
       gl.activeTexture(gl.TEXTURE0);
       gl.bindTexture(gl.TEXTURE_2D, imageTexture);
+      gl.activeTexture(gl.TEXTURE1);
+      gl.bindTexture(gl.TEXTURE_2D, patternTexture);
       gl.uniform1i(uniformLocs.imageSampler, 0);
+      gl.uniform1i(uniformLocs.patternSampler, 1);
       gl.uniform2f(uniformLocs.resolution, canvas.width, canvas.height);
       gl.uniform1f(uniformLocs.gridSize, gridSize);
       gl.uniform1f(uniformLocs.palette, palette);
@@ -123,6 +130,11 @@ export function useImageRectsSandbox(vertexSource, fragmentSource, imageSource, 
       gl.uniform1f(uniformLocs.quantizeSteps, quantizeSteps);
       gl.uniform1f(uniformLocs.rectShade, rectShade);
       gl.uniform1f(uniformLocs.shadeFrom, shadeFrom);
+      const pat = list[Math.min(Math.max(0, Math.floor(patternIndex)), list.length - 1)] ?? list[0];
+      gl.uniform1f(uniformLocs.patternIndex, Math.floor(patternIndex));
+      gl.uniform1f(uniformLocs.tileW, pat?.tileW ?? 8);
+      gl.uniform1f(uniformLocs.tileH, pat?.tileH ?? 8);
+      gl.uniform1f(uniformLocs.patternTexHeight, patternTexHeight);
       gl.clearColor(0.1, 0.1, 0.12, 1);
       gl.clear(gl.COLOR_BUFFER_BIT);
       gl.drawArrays(gl.TRIANGLES, 0, 6);
@@ -148,6 +160,11 @@ export function useImageRectsSandbox(vertexSource, fragmentSource, imageSource, 
         resolution: gl.getUniformLocation(program, 'u_resolution'),
         gridSize: gl.getUniformLocation(program, 'u_gridSize'),
         imageSampler: gl.getUniformLocation(program, 'u_imageSampler'),
+        patternSampler: gl.getUniformLocation(program, 'u_patternSampler'),
+        patternIndex: gl.getUniformLocation(program, 'u_patternIndex'),
+        tileW: gl.getUniformLocation(program, 'u_tileW'),
+        tileH: gl.getUniformLocation(program, 'u_tileH'),
+        patternTexHeight: gl.getUniformLocation(program, 'u_patternTexHeight'),
         palette: gl.getUniformLocation(program, 'u_palette'),
         bgShade: gl.getUniformLocation(program, 'u_bgShade'),
         colorizeMode: gl.getUniformLocation(program, 'u_colorizeMode'),
@@ -157,6 +174,17 @@ export function useImageRectsSandbox(vertexSource, fragmentSource, imageSource, 
       };
 
       imageTexture = createPlaceholderTexture(gl);
+
+      const { data: texData, width: texW, height: texH } = buildPatternTexture(list);
+      patternTexHeight = texH;
+      patternTexture = gl.createTexture();
+      gl.activeTexture(gl.TEXTURE1);
+      gl.bindTexture(gl.TEXTURE_2D, patternTexture);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, texW, texH, 0, gl.RGBA, gl.UNSIGNED_BYTE, texData);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
 
       if (imageSource) {
         const img = new Image();
@@ -187,9 +215,10 @@ export function useImageRectsSandbox(vertexSource, fragmentSource, imageSource, 
       window.removeEventListener('resize', resize);
       if (animationId) cancelAnimationFrame(animationId);
       if (imageTexture) gl.deleteTexture(imageTexture);
+      if (patternTexture) gl.deleteTexture(patternTexture);
       if (program) gl.deleteProgram(program);
     };
-  }, [vertexSource, fragmentSource, imageSource, gridSize, palette, bgShade, colorizeMode, quantizeSteps, rectShade, shadeFrom]);
+  }, [vertexSource, fragmentSource, imageSource, gridSize, palette, bgShade, colorizeMode, quantizeSteps, rectShade, shadeFrom, patternIndex, patterns]);
 
   useEffect(() => {
     const cleanup = run();

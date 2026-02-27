@@ -1,5 +1,6 @@
 /**
  * Global styles — Inter font, Linear-style dark theme.
+ * Material Symbols (Google) loaded in index.html for icons site-wide.
  * UI uses Inter; code editor keeps system monospace.
  */
 @import 'tailwindcss';
@@ -23,6 +24,7 @@
   --radius-md: 6px;
   --radius-pill: 9999px;
   --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  --font-icons: 'Material Symbols Outlined', sans-serif;
 }
 
 /* Shared tokens for ShaderEditor and other modules (Linear-style) */
@@ -47,4 +49,21 @@
     font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
     letter-spacing: -0.01em;
   }
+}
+
+/* Material Symbols — use class .icon or .material-symbols-outlined + icon name as text (e.g. arrow_downward). */
+.material-symbols-outlined,
+.icon {
+  font-family: var(--font-icons);
+  font-weight: normal;
+  font-style: normal;
+  font-size: 1.25em;
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none;
+  white-space: nowrap;
+  word-wrap: normal;
+  direction: ltr;
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+  -webkit-font-smoothing: antialiased;
 }

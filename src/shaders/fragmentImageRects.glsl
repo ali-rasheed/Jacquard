@@ -14,6 +14,22 @@ uniform float u_colorizeMode;  // 1.0 = colorization (image), 0.0 = brand (palet
 uniform float u_quantizeSteps; // 0 = off, 2+ = steps per channel
 uniform float u_rectShade;     // palette shade for rect when brand mode (0–3)
 uniform float u_shadeFrom;    // 0=color, 1=warp, 2=weft, 3=warp+weft (brand mode: what drives palette shade)
+uniform sampler2D u_patternSampler;
+uniform float u_patternIndex;
+uniform float u_tileW;
+uniform float u_tileH;
+uniform float u_patternTexHeight;
+
+// --- WEAVE PATTERN LOOKUP (from v1 fragment.glsl) ---
+// row, col = cell position; returns 0 = warp, 1 = weft for rect orientation.
+float getPatternFromTexture(float row, float col) {
+  float r = mod(row, u_tileH);
+  float c = mod(col, u_tileW);
+  float stripY = u_patternIndex * 10.0;
+  float texX = (c + 0.5) / 10.0;
+  float texY = (stripY + r + 0.5) / u_patternTexHeight;
+  return texture2D(u_patternSampler, vec2(texX, texY)).r;
+}
 
 // --- ENS COLOR PICK (from original fragment.glsl) ---
 // Palette 0–3 = Citrine, Garnet, Lapis, Peridot. Shade 0–3 = 950, 500, 100, 400 (Figma tokens).
@@ -84,8 +100,9 @@ void main() {
     rectColor = quantized;
   } else {
     float shade;
-    float warpT = cellID.y / gridSize;                    // 0..1 by row
-    float weftT = cellID.x / (gridSize * aspect);        // 0..1 by column
+    // Match v1: warp = vertical (height / Y), weft = horizontal (width / X). Same formulas as fragment.glsl.
+    float warpT = fract(cellID.y / gridSize);   // warp along Y (height)
+    float weftT = fract(cellID.x / gridSize);   // weft along X (width)
     if (u_shadeFrom < 0.5) {
       float lum = dot(quantized, vec3(0.2126, 0.7152, 0.0722));
       shade = clamp(floor(lum * 4.0), 0.0, 3.0);
@@ -100,13 +117,15 @@ void main() {
     rectColor = getPaletteColor(u_palette, shade);
   }
 
-  // --- ROUNDED RECT (36:40 atomic unit from original) ---
-  // Same p, halfY, halfX, cornerRadius as fragment.glsl; single orientation (portrait).
+  // --- ROUNDED RECT: orient by weave (same as v1) ---
+  // Warp = portrait (halfX, halfY), weft = landscape (halfY, halfX).
+  float isWeft = getPatternFromTexture(cellID.y, cellID.x);
   vec2 p = cellUV - 0.5;
   float halfY = 0.5;
   float halfX = halfY * (34.0 / 40.0);
-  float cornerRadius = 0.18;  // match v1 (~6/40 from Figma)
-  float d = roundedRect(p, vec2(halfX, halfY), cornerRadius);
+  float cornerRadius = 0.18;
+  vec2 halfSize = isWeft > 0.5 ? vec2(halfY, halfX) : vec2(halfX, halfY);
+  float d = roundedRect(p, halfSize, cornerRadius);
   float cell = 1.0 - smoothstep(0.0, 0.01, d);
 
   // --- COLORING (same as original: palette + bg shade for background) ---
