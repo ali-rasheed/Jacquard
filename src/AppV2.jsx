@@ -31,7 +31,6 @@ const GroupIcon = ({ name, title }) => (
     <Icon name={name} className="text-[18px] text-text-muted" />
   </span>
 );
-const SectionDivider = () => <span className="h-4 w-px shrink-0 bg-border-subtle" aria-hidden />;
 /** Horizontal divider between stacked sections (e.g. sidebar). */
 const SectionDividerH = () => <div className="h-px w-full shrink-0 bg-border-subtle" aria-hidden />;
 
@@ -77,7 +76,7 @@ export default function AppV2() {
   const [bgShade, setBgShade] = useState(2);
   const [colorizeMode, setColorizeMode] = useState(true); // true = colorization, false = brand
   const [quantizeSteps, setQuantizeSteps] = useState(0);  // 0 = off, 2–32 = steps
-  const [rectShade, setRectShade] = useState(1);          // unused when shadeFrom is used
+  const rectShade = 1; // fixed; shadeFrom controls brand mode shading
   const [shadeFrom, setShadeFrom] = useState(0);          // 0=color, 1=warp, 2=weft, 3=warp+weft (brand)
   const [patternIndex, setPatternIndex] = useState(0);    // weave pattern (same list as v1)
   const [fps, setFps] = useState(0);

@@ -29,7 +29,7 @@ function ShaderCanvasInner({ patternIndex, palette, bgShade, warpShade, weftShad
   return (
     <div
       ref={containerRef}
-      className="relative flex  flex-initial flex-col overflow-hidden rounded-md border border-border-subtle bg-surface-secondary w-full"
+      className="relative flex min-h-[200px] min-w-[200px] flex-initial flex-col overflow-hidden rounded-md border border-border-subtle bg-surface-secondary w-full max-w-full"
       style={{ aspectRatio: '1 / 1' }}
     >
       <canvas ref={(el) => { canvasRef.current = el; onCanvasRef?.(el); }} className="block flex-1 bg-surface" />

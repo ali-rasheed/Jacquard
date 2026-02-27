@@ -155,6 +155,7 @@ export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, pal
     let patternTexture = null;
     let animationId = null;
     let mouseHandlers = null;
+    let resizeObserver = null;
     let startTime = Date.now();
     let lastFrameTime = Date.now();
     let frameCount = 0;
@@ -324,6 +325,8 @@ export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, pal
 
       resize();
       window.addEventListener('resize', resize);
+      resizeObserver = new ResizeObserver(() => resize());
+      resizeObserver.observe(container);
       animate();
     } catch (err) {
       setError(err.message);
@@ -331,6 +334,11 @@ export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, pal
 
     return () => {
       recompileRef.current = null;
+      if (resizeObserver && container) {
+        try {
+          resizeObserver.disconnect();
+        } catch (_) { /* noop */ }
+      }
       window.removeEventListener('resize', resize);
       if (mouseHandlers) {
         window.removeEventListener('mouseup', mouseHandlers.onMouseUp);
@@ -342,7 +350,7 @@ export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, pal
       if (patternTexture) gl.deleteTexture(patternTexture);
       if (program) gl.deleteProgram(program);
     };
-  }, [patterns]);
+  }, [palette, warpShade, weftShade, patterns]);
 
   useEffect(() => {
     const cleanup = run();

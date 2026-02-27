@@ -13,6 +13,29 @@ import AppV2 from './AppV2.jsx';
 const PALETTE_NAMES = ['Citrine', 'Garnet', 'Lapis', 'Peridot'];
 const SHADE_NAMES = ['950', '500', '100', '400'];
 
+/** Material Symbol icon per weave pattern id — used in weave dropdown only. */
+const WEAVE_ICONS = {
+  'plain': 'grid_on',
+  'matt-regular': 'view_module',
+  'matt-rib-irregular': 'widgets',
+  'weft-rib-regular': 'horizontal_rule',
+  'satin': 'blur_linear',
+  'sateen': 'gradient',
+  'twill-2-2': 'trending_up',
+  'twill-3-3': 'trending_up',
+  'weft-rib-irregular': 'view_agenda',
+  'warp-rib-regular': 'view_column',
+  'warp-rib-irregular': 'view_column',
+  'basket': 'apps',
+  'point-twill': 'call_split',
+  'royal-oxford': 'category',
+  'houndstooth': 'pattern',
+  'herringbone': 'compare_arrows',
+  'pattern-738': 'dashboard',
+  'ens-vertical-pairs': 'view_column',
+  'curtain': 'vertical_split',
+};
+
 /** Flat = same start/end shade so the gradient is a solid. */
 const flatGrad = (shade) => ({ startShade: shade, endShade: shade, direction: 0, range: [0, 100] });
 /** Two-stop gradient config. */
@@ -39,10 +62,10 @@ const PRESETS = [
 const btnGhost =
   'inline-flex h-7 items-center gap-1.5 rounded-md border border-border-subtle bg-transparent px-2.5 py-1 text-[9px] font-medium text-text-secondary outline-none transition-colors hover:border-border hover:bg-surface-hover hover:text-text focus:border-accent focus:outline-none';
 const selectTrigger =
-  'inline-flex h-7 min-w-[4rem] items-center justify-between gap-2 rounded-md border border-border-subtle bg-surface-input px-2 py-0.5 text-[11px] text-text outline-none transition-colors hover:border-border focus:border-accent focus:ring-1 focus:ring-accent/20 data-[placeholder]:text-text-secondary';
+  'inline-flex h-7 min-w-[4rem] items-center justify-between gap-2 rounded-md border border-border-subtle bg-surface-input px-2 py-0.5 text-[10px] text-text outline-none transition-colors hover:border-border focus:border-accent focus:ring-1 focus:ring-accent/20 data-[placeholder]:text-text-secondary';
 const selectContent = 'z-50 min-w-[var(--radix-select-trigger-width)] overflow-hidden rounded-md border border-border-subtle bg-surface-elevated shadow-md';
 const selectItem =
-  'relative flex cursor-default select-none items-center rounded py-1.5 pl-2.5 pr-8 text-[13px] outline-none data-[highlighted]:bg-surface-hover data-[highlighted]:text-text';
+  'relative flex cursor-default select-none items-center rounded py-1.5 pl-2.5 pr-8 text-[11px] outline-none data-[highlighted]:bg-surface-hover data-[highlighted]:text-text';
 const pill = 'inline-flex items-center rounded-full tracking-wide bg-surface-elevated border border-border-subtle px-2 py-0.5 text-[9px] uppercase font-mono font-medium text-text-secondary';
 /** Icon-only group header; use title for tooltip. */
 const GroupIcon = ({ name, title, className = '' }) => (
@@ -50,9 +73,6 @@ const GroupIcon = ({ name, title, className = '' }) => (
     <Icon name={name} className="text-[18px] text-text-muted" />
   </span>
 );
-/** Vertical divider between sidebar sections (when horizontal). */
-const SectionDivider = () => <span className="h-4 w-px shrink-0 bg-border-subtle" aria-hidden />;
-
 /** Material Symbol icon — pass symbol name (e.g. refresh, arrow_downward). */
 const Icon = ({ name, className = '' }) => (
   <span className={`icon inline-block shrink-0 ${className}`} aria-hidden>{name}</span>
@@ -90,10 +110,14 @@ function DirectionSwitch({ value, onValueChange, options, title, ariaLabel }) {
 }
 
 function AppSelect({ value, onValueChange, options, placeholder, title }) {
+  const selected = options.find((o) => Number(o.value) === Number(value));
   return (
     <Select.Root value={String(value)} onValueChange={(v) => onValueChange(Number(v))}>
       <Select.Trigger className={selectTrigger} title={title} aria-label={title ?? placeholder}>
-        <Select.Value placeholder={placeholder} />
+        <span className="flex min-w-0 items-center gap-1.5">
+          {selected?.icon && <Icon name={selected.icon} className="shrink-0 text-[16px] text-text-muted" />}
+          <Select.Value placeholder={placeholder} />
+        </span>
         <Icon name="expand_more" className="text-[18px] opacity-60" />
       </Select.Trigger>
       <Select.Portal>
@@ -101,6 +125,7 @@ function AppSelect({ value, onValueChange, options, placeholder, title }) {
           <Select.Viewport>
             {options.map((opt, i) => (
               <Select.Item key={opt.id ?? i} className={selectItem} value={String(opt.value)}>
+                {opt.icon && <Icon name={opt.icon} className="mr-1.5 shrink-0 text-[16px] text-text-muted" />}
                 <Select.ItemText>{opt.label}</Select.ItemText>
                 <Select.ItemIndicator className="absolute right-2 inline-flex items-center" />
               </Select.Item>
@@ -167,7 +192,11 @@ export default function App() {
     window.location.reload();
   }, []);
 
-  const patternOptions = PATTERNS.map((p, i) => ({ value: i, label: p.name }));
+  const patternOptions = PATTERNS.map((p, i) => ({
+    value: i,
+    label: p.name,
+    icon: WEAVE_ICONS[p.id] ?? 'texture',
+  }));
   const paletteOptions = PALETTE_NAMES.map((name, i) => ({ value: i, label: name }));
   const shadeOptions = (prefix) => SHADE_NAMES.map((name, i) => ({ value: i, label: prefix ? `${prefix}: ${name}` : name }));
   const presetOptions = [
@@ -193,9 +222,12 @@ export default function App() {
   if (view === 'imageRects') {
     return (
       <div className="flex min-h-0 flex-col bg-surface" style={{ height: '100dvh' }}>
-        <nav className="flex shrink-0 items-center gap-1 border-b border-border-subtle bg-surface-elevated px-3 py-1.5" aria-label="App mode">
-          <button type="button" className={navBtnInactive} onClick={() => setView('weaving')} aria-pressed={false} aria-label="Weaving draft">Weaving</button>
-          <button type="button" className={navBtnActive} onClick={() => setView('imageRects')} aria-pressed aria-label="Image to colored rects">Image Rects</button>
+        <nav className="flex min-h-9 shrink-0 items-center gap-3 border-b border-border-subtle bg-surface-elevated px-3 py-2" aria-label="App mode">
+          <h1 className="shrink-0 text-[13px] font-semibold tracking-[-0.01em] text-text">Shader Sandbox</h1>
+          <div className="flex items-center gap-1">
+            <button type="button" className={navBtnInactive} onClick={() => setView('weaving')} aria-pressed={false} aria-label="Weaving draft">Weaving</button>
+            <button type="button" className={navBtnActive} onClick={() => setView('imageRects')} aria-pressed aria-label="Image to colored rects">Image Rects</button>
+          </div>
         </nav>
         <div className="min-h-0 flex-1 overflow-hidden">
           <AppV2 />
@@ -206,9 +238,12 @@ export default function App() {
 
   return (
     <div className="flex min-h-0 flex-col bg-surface" style={{ height: '100dvh' }}>
-      <nav className="flex shrink-0 items-center gap-1 border-b border-border-subtle bg-surface-elevated px-3 py-1.5" aria-label="App mode">
-        <button type="button" className={navBtnActive} onClick={() => setView('weaving')} aria-pressed aria-label="Weaving draft">Weaving</button>
-        <button type="button" className={navBtnInactive} onClick={() => setView('imageRects')} aria-pressed={false} aria-label="Image to colored rects">Image Rects</button>
+      <nav className="flex min-h-9 shrink-0 items-center gap-3 border-b border-border-subtle bg-surface-elevated px-3 py-2" aria-label="App mode">
+        <h1 className="shrink-0 text-[13px] font-semibold tracking-[-0.01em] text-text">Shader Sandbox</h1>
+        <div className="flex items-center gap-1">
+          <button type="button" className={navBtnActive} onClick={() => setView('weaving')} aria-pressed aria-label="Weaving draft">Weaving</button>
+          <button type="button" className={navBtnInactive} onClick={() => setView('imageRects')} aria-pressed={false} aria-label="Image to colored rects">Image Rects</button>
+        </div>
       </nav>
       <div className="flex min-h-0 flex-1 flex-row overflow-hidden bg-surface">
       <aside className="flex w-72 shrink-0 flex-col gap-3 overflow-y-auto border-r border-border-subtle bg-surface px-3 py-3">
@@ -234,7 +269,7 @@ export default function App() {
             >
               <Select.Trigger className={selectTrigger} title="Preset (weave + colorway + shades + grad)" aria-label="Preset">
                 <Select.Value placeholder="Preset…" />
-                <Select.Icon className="opacity-60" />
+                <Icon name="expand_more" className="text-[18px] opacity-60" />
               </Select.Trigger>
               <Select.Portal>
                 <Select.Content className={selectContent} position="popper" sideOffset={4}>
