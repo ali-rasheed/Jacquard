@@ -7,7 +7,7 @@ import { useImageRectsSandbox } from '../hooks/useImageRectsSandbox';
 import fragmentSource from '../shaders/fragmentImageRects.glsl?raw';
 import vertexSource from '../shaders/vertex.glsl?raw';
 
-function ImageRectsCanvasInner({ imageSource, gridSize, palette, bgShade, colorizeMode, quantizeSteps, rectShade, onFpsChange }) {
+function ImageRectsCanvasInner({ imageSource, gridSize, palette, bgShade, colorizeMode, quantizeSteps, rectShade, shadeFrom, onFpsChange }) {
   const { canvasRef, containerRef, error, fps } = useImageRectsSandbox(
     vertexSource,
     fragmentSource,
@@ -18,6 +18,7 @@ function ImageRectsCanvasInner({ imageSource, gridSize, palette, bgShade, colori
     colorizeMode ?? true,
     quantizeSteps ?? 0,
     rectShade ?? 1,
+    shadeFrom ?? 0,
     onFpsChange
   );
 

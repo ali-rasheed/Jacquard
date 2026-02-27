@@ -58,7 +58,7 @@ function uploadImageToTexture(gl, texture, image) {
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
 }
 
-export function useImageRectsSandbox(vertexSource, fragmentSource, imageSource, gridSize, palette, bgShade, colorizeMode, quantizeSteps, rectShade, onFpsChange) {
+export function useImageRectsSandbox(vertexSource, fragmentSource, imageSource, gridSize, palette, bgShade, colorizeMode, quantizeSteps, rectShade, shadeFrom, onFpsChange) {
   const canvasRef = useRef(null);
   const containerRef = useRef(null);
   const onFpsChangeRef = useRef(onFpsChange);
@@ -122,6 +122,7 @@ export function useImageRectsSandbox(vertexSource, fragmentSource, imageSource, 
       gl.uniform1f(uniformLocs.colorizeMode, colorizeMode);
       gl.uniform1f(uniformLocs.quantizeSteps, quantizeSteps);
       gl.uniform1f(uniformLocs.rectShade, rectShade);
+      gl.uniform1f(uniformLocs.shadeFrom, shadeFrom);
       gl.clearColor(0.1, 0.1, 0.12, 1);
       gl.clear(gl.COLOR_BUFFER_BIT);
       gl.drawArrays(gl.TRIANGLES, 0, 6);
@@ -152,6 +153,7 @@ export function useImageRectsSandbox(vertexSource, fragmentSource, imageSource, 
         colorizeMode: gl.getUniformLocation(program, 'u_colorizeMode'),
         quantizeSteps: gl.getUniformLocation(program, 'u_quantizeSteps'),
         rectShade: gl.getUniformLocation(program, 'u_rectShade'),
+        shadeFrom: gl.getUniformLocation(program, 'u_shadeFrom'),
       };
 
       imageTexture = createPlaceholderTexture(gl);
@@ -187,7 +189,7 @@ export function useImageRectsSandbox(vertexSource, fragmentSource, imageSource, 
       if (imageTexture) gl.deleteTexture(imageTexture);
       if (program) gl.deleteProgram(program);
     };
-  }, [vertexSource, fragmentSource, imageSource, gridSize, palette, bgShade, colorizeMode, quantizeSteps, rectShade]);
+  }, [vertexSource, fragmentSource, imageSource, gridSize, palette, bgShade, colorizeMode, quantizeSteps, rectShade, shadeFrom]);
 
   useEffect(() => {
     const cleanup = run();

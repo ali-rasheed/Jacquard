@@ -22,7 +22,7 @@ const pill = 'inline-flex items-center rounded-full bg-surface-elevated border b
 
 function AppSelect({ value, onValueChange, options, placeholder, title }) {
   return (
-    <Select.Root value={String(value)} onValueChange={(v) => onValueChange(Number(v))}>
+    <Select.Root value={String(value)} onValueChange={onValueChange}>
       <Select.Trigger className={selectTrigger} title={title} aria-label={title ?? placeholder}>
         <Select.Value placeholder={placeholder} />
         <Select.Icon className="opacity-60" />
@@ -48,6 +48,13 @@ const MODE_OPTIONS = [
   { value: 'brand', label: 'Brand colors' },
 ];
 
+const SHADE_FROM_OPTIONS = [
+  { value: 0, label: 'Color' },
+  { value: 1, label: 'Warp' },
+  { value: 2, label: 'Weft' },
+  { value: 3, label: 'Warp+Weft' },
+];
+
 export default function AppV2() {
   const [imageSource, setImageSource] = useState('');
   const [gridSize, setGridSize] = useState(32);
@@ -55,7 +62,8 @@ export default function AppV2() {
   const [bgShade, setBgShade] = useState(2);
   const [colorizeMode, setColorizeMode] = useState(true); // true = colorization, false = brand
   const [quantizeSteps, setQuantizeSteps] = useState(0);  // 0 = off, 2–32 = steps
-  const [rectShade, setRectShade] = useState(1);          // palette shade when brand mode
+  const [rectShade, setRectShade] = useState(1);          // unused when shadeFrom is used
+  const [shadeFrom, setShadeFrom] = useState(0);          // 0=color, 1=warp, 2=weft, 3=warp+weft (brand)
   const [fps, setFps] = useState(0);
 
   const paletteOptions = PALETTE_NAMES.map((name, i) => ({ value: i, label: name }));
@@ -77,7 +85,7 @@ export default function AppV2() {
   }, [imageSource]);
 
   return (
-    <div className="flex min-h-0 flex-col overflow-hidden bg-surface" style={{ height: '100dvh' }}>
+    <div className="flex h-full min-h-0 flex-col overflow-hidden bg-surface">
       <header className="flex min-h-9 shrink-0 flex-wrap items-center justify-between gap-2 border-b border-border-subtle bg-surface px-3 py-2">
         <h1 className="min-w-0 truncate text-[13px] font-semibold tracking-[-0.01em] text-text">
           Image to Colored Rects
@@ -100,10 +108,16 @@ export default function AppV2() {
             title="Rect color source"
             placeholder="Mode"
           />
-          <AppSelect value={palette} onValueChange={setPalette} options={paletteOptions} title="Colorway" placeholder="Colorway" />
-          <AppSelect value={bgShade} onValueChange={setBgShade} options={shadeOptions('BG')} title="Background shade" placeholder="BG" />
+          <AppSelect value={palette} onValueChange={(v) => setPalette(Number(v))} options={paletteOptions} title="Colorway" placeholder="Colorway" />
+          <AppSelect value={bgShade} onValueChange={(v) => setBgShade(Number(v))} options={shadeOptions('BG')} title="Background shade" placeholder="BG" />
           {!colorizeMode && (
-            <AppSelect value={rectShade} onValueChange={setRectShade} options={shadeOptions('Rect')} title="Rect shade (brand)" placeholder="Rect" />
+            <AppSelect
+              value={shadeFrom}
+              onValueChange={(v) => setShadeFrom(Number(v))}
+              options={SHADE_FROM_OPTIONS}
+              title="Shade from (brand: color vs warp/weft)"
+              placeholder="Shade from"
+            />
           )}
           <div className="flex items-center gap-2">
             <Label.Root className="text-[13px] text-text-secondary shrink-0" htmlFor="quantize-slider-v2">
@@ -159,6 +173,7 @@ export default function AppV2() {
           colorizeMode={colorizeMode}
           quantizeSteps={quantizeSteps}
           rectShade={rectShade}
+          shadeFrom={shadeFrom}
           onFpsChange={setFps}
         />
       </main>
@@ -166,7 +181,9 @@ export default function AppV2() {
       <footer className="flex min-h-9 shrink-0 flex-wrap items-center gap-2 border-t border-border-subtle bg-surface-elevated px-3 py-2">
         <span className={pill}>{imageSource ? 'Image loaded' : 'Pick an image'}</span>
         <span className={pill}>{colorizeMode ? 'Colorization' : 'Brand'}</span>
-        {!colorizeMode && <span className={pill}>Rect: {SHADE_NAMES[rectShade]}</span>}
+        {!colorizeMode && (
+          <span className={pill}>Shade: {SHADE_FROM_OPTIONS.find((o) => o.value === shadeFrom)?.label ?? 'Color'}</span>
+        )}
         <span className={pill}>Quantize: {quantizeSteps === 0 ? 'off' : quantizeSteps}</span>
         <span className={pill}>{PALETTE_NAMES[palette]}</span>
         <span className={pill}>BG: {SHADE_NAMES[bgShade]}</span>

@@ -13,6 +13,7 @@ uniform float u_bgShade;
 uniform float u_colorizeMode;  // 1.0 = colorization (image), 0.0 = brand (palette)
 uniform float u_quantizeSteps; // 0 = off, 2+ = steps per channel
 uniform float u_rectShade;     // palette shade for rect when brand mode (0–3)
+uniform float u_shadeFrom;    // 0=color, 1=warp, 2=weft, 3=warp+weft (brand mode: what drives palette shade)
 
 // --- ENS COLOR PICK (from original fragment.glsl) ---
 // Palette 0–3 = Citrine, Garnet, Lapis, Peridot. Shade 0–3 = 950, 500, 100, 400 (Figma tokens).
@@ -77,13 +78,25 @@ void main() {
   vec3 sampled = texture2D(u_imageSampler, vec2(texX, texY)).rgb;
   vec3 quantized = quantize(sampled, u_quantizeSteps);
 
-  // --- RECT COLOR: colorization (quantized image RGB) vs brand (quantized image → luminance → palette shade) ---
+  // --- RECT COLOR: colorization (quantized image RGB) vs brand (palette shade from color / warp / weft) ---
   vec3 rectColor;
   if (u_colorizeMode > 0.5) {
     rectColor = quantized;
   } else {
-    float lum = dot(quantized, vec3(0.2126, 0.7152, 0.0722));
-    float shade = clamp(floor(lum * 4.0), 0.0, 3.0);
+    float shade;
+    float warpT = cellID.y / gridSize;                    // 0..1 by row
+    float weftT = cellID.x / (gridSize * aspect);        // 0..1 by column
+    if (u_shadeFrom < 0.5) {
+      float lum = dot(quantized, vec3(0.2126, 0.7152, 0.0722));
+      shade = clamp(floor(lum * 4.0), 0.0, 3.0);
+    } else if (u_shadeFrom < 1.5) {
+      shade = clamp(floor(warpT * 4.0), 0.0, 3.0);
+    } else if (u_shadeFrom < 2.5) {
+      shade = clamp(floor(weftT * 4.0), 0.0, 3.0);
+    } else {
+      float t = (warpT + weftT) * 0.5;
+      shade = clamp(floor(t * 4.0), 0.0, 3.0);
+    }
     rectColor = getPaletteColor(u_palette, shade);
   }
 

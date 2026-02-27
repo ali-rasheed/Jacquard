@@ -145,7 +145,7 @@ export default function App() {
 
   return (
 
-    <div className="flex min-h-0 flex-col overflow-hidden bg-surface" style={{ height: '100dvh' }}>
+    <div className="flex h-full min-h-0 flex-col overflow-hidden bg-surface">
       <header className="flex min-h-9 shrink-0 flex-wrap items-center justify-between gap-2 border-b border-border-subtle bg-surface px-3 py-2">
         <h1 className="min-w-0 truncate text-[13px] font-semibold tracking-[-0.01em] text-text">
           Shader Sandbox
@@ -190,8 +190,30 @@ export default function App() {
           <div className="flex items-center gap-2">
             <span className={groupLabel}>Shades</span>
             <AppSelect value={bgShade} onValueChange={(v) => { setBgShade(v); setPresetIndex(null); }} options={shadeOptions('BG')} title="Background shade" placeholder="BG" />
-            <AppSelect value={warpShade} onValueChange={(v) => { setWarpShade(v); setPresetIndex(null); }} options={shadeOptions('Warp')} title="Warp shade" placeholder="Warp" />
-            <AppSelect value={weftShade} onValueChange={(v) => { setWeftShade(v); setPresetIndex(null); }} options={shadeOptions('Weft')} title="Weft shade" placeholder="Weft" />
+            <AppSelect
+              value={warpShade}
+              onValueChange={(v) => {
+                const shade = Number(v);
+                setWarpShade(shade);
+                setPresetIndex(null);
+                setWarpGradient((g) => ({ ...g, startShade: shade, endShade: shade }));
+              }}
+              options={shadeOptions('Warp')}
+              title="Warp shade"
+              placeholder="Warp"
+            />
+            <AppSelect
+              value={weftShade}
+              onValueChange={(v) => {
+                const shade = Number(v);
+                setWeftShade(shade);
+                setPresetIndex(null);
+                setWeftGradient((g) => ({ ...g, startShade: shade, endShade: shade }));
+              }}
+              options={shadeOptions('Weft')}
+              title="Weft shade"
+              placeholder="Weft"
+            />
           </div>
           <SectionDivider />
           <div className="flex items-center gap-2">
