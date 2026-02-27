@@ -1,18 +1,26 @@
+// Weaving draft fragment shader — grid of warp/weft rounded rects, palette colors, gradients, mouse warp, reveal animation.
+// WebGL 1 / GLSL ES 1.00. Uniforms set from useShaderSandbox; pattern data from src/patterns/index.js.
 precision mediump float;
 
-uniform float u_time;
-uniform vec2 u_resolution;
+// Time and framebuffer
+uniform float u_time;              // Seconds since context creation
+uniform vec2 u_resolution;         // Canvas size in pixels (for aspect and AA)
+
+// Pattern texture: one strip per pattern, R channel = 0 warp / 1 weft per cell
 uniform sampler2D u_patternSampler;
-uniform float u_patternIndex;
+uniform float u_patternIndex;     // Which strip (pattern) to use
 uniform float u_tileW;
-uniform float u_tileH;
-uniform float u_patternTexHeight;
+uniform float u_tileH;            // Repeat size of this pattern (e.g. 8×8)
+uniform float u_patternTexHeight; // Total texture height (10 * numPatterns)
+
+// Colorway and shades (palette 0–3, shade 0–3 per warp/weft/bg)
 uniform float u_palette;
 uniform float u_bgShade;
 uniform float u_warpShade;
 uniform float u_weftShade;
-uniform float u_gridSize;
-// 2-stop gradient: start/end colors, direction (0=normal 1=flip), range (startPos,endPos in 0..1).
+uniform float u_gridSize;         // Cells along vertical axis (8–64); higher = finer grid
+
+// Warp/weft 2-stop gradients: start/end RGB, direction (0 or 1), range (startPos..endPos in 0..1)
 uniform vec3 u_warpStart;
 uniform vec3 u_warpEnd;
 uniform vec3 u_weftStart;
@@ -23,12 +31,19 @@ uniform float u_warpStartPos;
 uniform float u_warpEndPos;
 uniform float u_weftStartPos;
 uniform float u_weftEndPos;
-uniform float u_gradSteps;
+uniform float u_gradSteps;        // 0 or 1 = smooth; >= 2 = discrete bands
+
+// Mouse interaction: position (0..1), radius, strength, down (0/1), falloff curve (0–3)
 uniform vec2 u_mouse;
 uniform float u_mouseRadius;
 uniform float u_mouseStrength;
 uniform float u_mouseDown;
 uniform float u_falloffCurve;
+
+// Reveal animation: time when current wave started (resets on pattern change)
+uniform float u_revealStartTime;
+// Rect aspect: halfX/halfY (warp orientation). Default 36/40 = 0.9; range ~0.5–1.5.
+uniform float u_rectAspect;
 
 
 // ============================================================
@@ -183,53 +198,40 @@ void main() {
     // u_patternIndex selects which weave structure (0..N from patterns registry)
     float isWeft = getPatternFromTexture(cellID.y, cellID.x);
 
-    // --- ROUNDED RECT (36:40 atomic unit) — ORIENT BY WARP/WEFT ---
-    // Warp  = rect with half (halfX, halfY) — 36×40 portrait.
-    // Weft  = rect with half (halfY, halfX) — 40×36 landscape.
-    // No inset: full cell size, fixed grid spacing; overlap allowed.
+    // --- ROUNDED RECT — ORIENT BY WARP/WEFT ---
+    // Warp = rect (halfX, halfY); weft = (halfY, halfX). halfX/halfY = u_rectAspect.
     vec2 p = cellUV - 0.5;
 
-    float halfY = 0.5;       // full cell half-height (spacing unchanged)
-    float halfX = halfY * (34.0 / 40.0);  // 36:40 aspect
+    float halfY = 0.5;
+    float halfX = halfY * clamp(u_rectAspect, 0.3, 2.0);
     float cornerRadius = 0.18;              // ~6/40 from Figma
     vec2 halfSize = isWeft > 0.5 ? vec2(halfY, halfX) : vec2(halfX, halfY);
     float d = roundedRect(p, halfSize, cornerRadius);
 
     // Convert distance to a mask: 1.0 inside, 0.0 outside.
-    // fwidth(d) gives ~1-pixel-wide edge for resolution-independent AA (shader-fundamentals).
-    float edge = fwidth(d);
+    // WebGL 1 has no fwidth(); use ~1 pixel in cell space for AA.
+    float edge = gridSize / min(u_resolution.x, u_resolution.y);
     float cell = 1.0 - smoothstep(-edge, edge, d);
 
     // --- COLORING ---
     vec3 bgColor = getPaletteColor(u_palette, u_bgShade);
+    // Gradient param 0..1 along warp (Y) and weft (X) for 2-stop gradient
     float tWarp = fract(cellID.y / gridSize);
     float tWeft = fract(cellID.x / gridSize);
     vec3 warpColor = sampleGradient2(u_warpStart, u_warpEnd, u_warpDir, u_warpStartPos, u_warpEndPos, tWarp);
     vec3 weftColor = sampleGradient2(u_weftStart, u_weftEnd, u_weftDir, u_weftStartPos, u_weftEndPos, tWeft);
-
     vec3 threadColor = mix(warpColor, weftColor, isWeft);
 
     // --- ANIMATION ---
-    // Weave-in reveal: a diagonal wave sweeps across the canvas.
-    // Each cell appears when the wave front reaches it.
-    //
-    // How it works:
-    // - (cellID.x + cellID.y) gives a diagonal coordinate
-    // - Subtracting u_time makes the wavefront advance over time
-    // - smoothstep creates a soft leading edge
-    // - After the wave passes, cells stay fully visible (clamped to 1.0)
-    //
-    // The * 0.3 controls wave speed, the 2.0 width controls
-    // how gradual the reveal edge is.
+    // Weave-in reveal: diagonal wave on load and when pattern changes (u_revealStartTime resets in JS).
+    float speed = 2.0 * gridSize / 1.8;
+    float elapsed = u_time - u_revealStartTime;
+    float wave = (cellID.x + cellID.y) - elapsed * speed;  // Diagonal coord; wave front advances as elapsed grows
+    float reveal = smoothstep(1.0, 0.0, wave);            // 1 ahead of wave, 0 behind
 
-    float wave = (cellID.x + cellID.y)  - u_time * 2.0 * gridSize/1.8;
-    float reveal = smoothstep(1.0, 0.0, wave);
-
-    // Apply reveal to the cell mask
     cell *= reveal;
 
-    // Final color: blend between background and thread
+    // Output: background where no rect; thread color inside rect (masked by cell)
     vec3 color = mix(bgColor, threadColor, cell);
-
     gl_FragColor = vec4(color, 1.0);
 }

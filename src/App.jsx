@@ -66,7 +66,7 @@ const selectTrigger =
 const selectContent = 'z-50 min-w-[var(--radix-select-trigger-width)] overflow-hidden rounded-md border border-border-subtle bg-surface-elevated shadow-md';
 const selectItem =
   'relative flex cursor-default select-none items-center rounded py-1.5 pl-2.5 pr-8 text-[11px] outline-none data-[highlighted]:bg-surface-hover data-[highlighted]:text-text';
-const pill = 'inline-flex items-center rounded-full tracking-wide bg-surface-elevated border border-border-subtle px-2 py-0.5 text-[9px] uppercase font-mono font-medium text-text-secondary';
+const pill = 'inline-flex items-center rounded-full tracking-wide bg-surface-elevated border border-border-subtle px-2 py-0.5 text-[8px] uppercase font-mono font-medium text-text-secondary';
 /** Icon-only group header; use title for tooltip. */
 const GroupIcon = ({ name, title, className = '' }) => (
   <span title={title} className={`shrink-0 ${className}`}>
@@ -284,8 +284,11 @@ export default function App() {
                 </Select.Content>
               </Select.Portal>
             </Select.Root>
-            <AppSelect value={pattern} onValueChange={(v) => { setPattern(v); setPresetIndex(null); }} options={patternOptions} placeholder="Pattern" />
             <AppSelect value={palette} onValueChange={(v) => { setPalette(v); setPresetIndex(null); }} options={paletteOptions} title="Colorway" placeholder="Colorway" />
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="shrink-0 text-[10px] font-medium uppercase tracking-wider text-text-muted" title="Weave pattern">Weave</span>
+            <AppSelect value={pattern} onValueChange={(v) => { setPattern(v); setPresetIndex(null); }} options={patternOptions} title="Weave pattern" placeholder="Weave" />
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <GroupIcon name="palette" title="Shades" />
@@ -360,6 +363,11 @@ export default function App() {
             <DirectionSwitch value={weftGradient.direction} onValueChange={(d) => { setPresetIndex(null); setWeftGradient((g) => ({ ...g, direction: d })); }} options={directionOptionsWeft} title="Weft direction" ariaLabel="Weft gradient direction" />
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            <GroupIcon name="timeline" title="Ease" />
+            <Label.Root className="text-[10px] text-text-secondary shrink-0">Curve</Label.Root>
+            <AppSelect value={falloffCurve} onValueChange={setFalloffCurve} options={falloffOptions} placeholder="Falloff" title="Warp falloff curve" />
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
             <GroupIcon name="grid_on" title="Tile" />
             <Label.Root className="sr-only" htmlFor="grid-slider">Tile size</Label.Root>
             <Slider.Root
@@ -378,7 +386,6 @@ export default function App() {
               <Slider.Thumb className="block h-4 w-4 rounded-full border border-border bg-surface shadow focus:outline-none focus:ring-2 focus:ring-accent/40" />
             </Slider.Root>
             <span className="w-6 tabular-nums text-[13px] text-text">{gridSize}</span>
-            <AppSelect value={falloffCurve} onValueChange={setFalloffCurve} options={falloffOptions} placeholder="Falloff" title="Warp falloff curve" />
             <Label.Root className="sr-only" htmlFor="grad-steps-slider">Gradation steps</Label.Root>
             <Slider.Root
               id="grad-steps-slider"

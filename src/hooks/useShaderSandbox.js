@@ -43,6 +43,8 @@ function getUniformLocs(gl, program) {
     weftStartPos: gl.getUniformLocation(program, 'u_weftStartPos'),
     weftEndPos: gl.getUniformLocation(program, 'u_weftEndPos'),
     gradSteps: gl.getUniformLocation(program, 'u_gradSteps'),
+    revealStartTime: gl.getUniformLocation(program, 'u_revealStartTime'),
+    rectAspect: gl.getUniformLocation(program, 'u_rectAspect'),
   };
 }
 
@@ -78,7 +80,7 @@ function createProgram(gl, vertexSource, fragmentSource) {
 const MOUSE_OFF = 111;
 const MOUSE_RADIUS = 0.44;
 const MOUSE_STRENGTH = 0.2;
-const MOUSE_STRENGTH_RAMP_MS = 600; // Strength ramps from 0 to full over this many ms while pressed
+const MOUSE_STRENGTH_RAMP_MS = 1500; // Strength ramps from 0 to full over this many ms while pressed
 
 // ENS palette RGB (0–1), matches shader getPaletteColor. [palette][shade] = [r,g,b]; shade 0–3 = 950,500,100,400.
 const PALETTE_RGB = [
@@ -94,7 +96,7 @@ function getPaletteColor(paletteIndex, shadeIndex) {
   return PALETTE_RGB[p][s];
 }
 
-export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, palette, bgShade, warpShade, weftShade, gridSize, falloffCurve, warpGradient, weftGradient, gradSteps, patterns, onFpsChange) {
+export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, palette, bgShade, warpShade, weftShade, gridSize, falloffCurve, warpGradient, weftGradient, gradSteps, rectAspect, patterns, onFpsChange) {
   const canvasRef = useRef(null);
   const containerRef = useRef(null);
   const mouseRef = useRef({ x: MOUSE_OFF, y: MOUSE_OFF, down: 0, pressStartTime: 0 });
@@ -161,6 +163,8 @@ export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, pal
     let frameCount = 0;
     let uniformLocs = null;
     let patternTexHeight = 0;
+    let revealStartTime = 0;
+    let lastPatternIndex = -1;
     const list = Array.isArray(patterns) ? patterns : PATTERNS;
 
     const resize = () => {
@@ -187,7 +191,13 @@ export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, pal
       const time = (Date.now() - startTime) / 1000;
 
       const pIndex = patternIndexRef.current;
-      const pat = list[Math.min(Math.max(0, Math.floor(pIndex)), list.length - 1)] ?? list[0];
+      const pi = Math.floor(pIndex);
+      if (lastPatternIndex !== -1 && pi !== lastPatternIndex) {
+        revealStartTime = (Date.now() - startTime) / 1000;
+      }
+      lastPatternIndex = pi;
+
+      const pat = list[Math.min(Math.max(0, pi), list.length - 1)] ?? list[0];
       const tileW = pat?.tileW ?? 8;
       const tileH = pat?.tileH ?? 8;
 
@@ -234,6 +244,7 @@ export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, pal
       gl.uniform1f(uniformLocs.weftStartPos, Math.min(wfr[0], wfr[1]) / 100);
       gl.uniform1f(uniformLocs.weftEndPos, Math.max(wfr[0], wfr[1]) / 100);
       gl.uniform1f(uniformLocs.gradSteps, gradStepsRef.current);
+      gl.uniform1f(uniformLocs.revealStartTime, revealStartTime);
 
       gl.clearColor(0, 0, 0, 1);
       gl.clear(gl.COLOR_BUFFER_BIT);
