@@ -1,0 +1,50 @@
+/**
+ * Global styles — Inter font, Linear-style dark theme.
+ * UI uses Inter; code editor keeps system monospace.
+ */
+@import 'tailwindcss';
+
+@theme {
+  /* Linear-style dark UI — Inter, subtle borders, neutral grays */
+  --color-surface: #0d0d0d;
+  --color-surface-secondary: #111111;
+  --color-surface-elevated: #171717;
+  --color-surface-input: #1a1a1a;
+  --color-surface-hover: #1f1f1f;
+  --color-border: #262626;
+  --color-border-subtle: rgba(255, 255, 255, 0.06);
+  --color-text: #e5e5e5;
+  --color-text-secondary: #a1a1a1;
+  --color-text-muted: #737373;
+  --color-accent: #5e5ce6;
+  --color-accent-hover: #6d6bef;
+  --color-error: #ff453a;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-pill: 9999px;
+  --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
+}
+
+/* Shared tokens for ShaderEditor and other modules (Linear-style) */
+:root {
+  --bg-primary: #0d0d0d;
+  --bg-secondary: #111111;
+  --border: #262626;
+  --text-primary: #e5e5e5;
+  --text-muted: #737373;
+  --tab-inactive-bg: transparent;
+  --tab-active-bg: #0d0d0d;
+}
+
+@layer base {
+  * {
+    @apply box-border;
+  }
+  body {
+    @apply min-h-[100dvh] h-[100dvh] overflow-hidden antialiased;
+    font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
+    @apply bg-surface text-text text-[13px] font-sans;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+    letter-spacing: -0.01em;
+  }
+}
