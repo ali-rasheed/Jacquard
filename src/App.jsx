@@ -8,6 +8,7 @@ import * as Slider from '@radix-ui/react-slider';
 import * as Label from '@radix-ui/react-label';
 import { ShaderCanvas } from './components/ShaderCanvas';
 import { PATTERNS } from './patterns';
+import AppV2 from './AppV2.jsx';
 
 const PALETTE_NAMES = ['Citrine', 'Garnet', 'Lapis', 'Peridot'];
 const SHADE_NAMES = ['950', '500', '100', '400'];
@@ -111,7 +112,13 @@ function AppSelect({ value, onValueChange, options, placeholder, title }) {
   );
 }
 
+const navBtn =
+  'inline-flex h-8 items-center rounded-md border px-3 text-[13px] font-medium outline-none transition-colors focus:ring-2 focus:ring-accent/40';
+const navBtnActive = 'border-accent bg-accent/10 text-accent ' + navBtn;
+const navBtnInactive = 'border-border-subtle bg-transparent text-text-secondary hover:border-border hover:bg-surface-hover hover:text-text ' + navBtn;
+
 export default function App() {
+  const [view, setView] = useState('weaving'); // 'weaving' | 'imageRects'
   const [presetIndex, setPresetIndex] = useState(null); // null = custom
   const [pattern, setPattern] = useState(0);
   const [palette, setPalette] = useState(0);
@@ -183,8 +190,27 @@ export default function App() {
     { value: 1, label: 'Left', icon: 'arrow_back' },
   ];
 
+  if (view === 'imageRects') {
+    return (
+      <div className="flex min-h-0 flex-col bg-surface" style={{ height: '100dvh' }}>
+        <nav className="flex shrink-0 items-center gap-1 border-b border-border-subtle bg-surface-elevated px-3 py-1.5" aria-label="App mode">
+          <button type="button" className={navBtnInactive} onClick={() => setView('weaving')} aria-pressed={false} aria-label="Weaving draft">Weaving</button>
+          <button type="button" className={navBtnActive} onClick={() => setView('imageRects')} aria-pressed aria-label="Image to colored rects">Image Rects</button>
+        </nav>
+        <div className="min-h-0 flex-1 overflow-hidden">
+          <AppV2 />
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="flex h-full min-h-0 flex-row overflow-hidden bg-surface">
+    <div className="flex min-h-0 flex-col bg-surface" style={{ height: '100dvh' }}>
+      <nav className="flex shrink-0 items-center gap-1 border-b border-border-subtle bg-surface-elevated px-3 py-1.5" aria-label="App mode">
+        <button type="button" className={navBtnActive} onClick={() => setView('weaving')} aria-pressed aria-label="Weaving draft">Weaving</button>
+        <button type="button" className={navBtnInactive} onClick={() => setView('imageRects')} aria-pressed={false} aria-label="Image to colored rects">Image Rects</button>
+      </nav>
+      <div className="flex min-h-0 flex-1 flex-row overflow-hidden bg-surface">
       <aside className="flex w-72 shrink-0 flex-col gap-3 overflow-y-auto border-r border-border-subtle bg-surface px-3 py-3">
         <h1 className="shrink-0 text-[13px] font-semibold tracking-[-0.01em] text-text">
           Shader Sandbox
@@ -359,6 +385,7 @@ export default function App() {
           <span className={pill}>WebGL 1</span>
         </div>
         </footer>
+      </div>
       </div>
     </div>
   );

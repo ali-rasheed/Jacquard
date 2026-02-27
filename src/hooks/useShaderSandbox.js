@@ -116,6 +116,23 @@ export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, pal
   warpGradientRef.current = warpGradient;
   weftGradientRef.current = weftGradient;
 
+  const patternIndexRef = useRef(patternIndex);
+  const paletteRef = useRef(palette);
+  const bgShadeRef = useRef(bgShade);
+  const warpShadeRef = useRef(warpShade);
+  const weftShadeRef = useRef(weftShade);
+  const gridSizeRef = useRef(gridSize);
+  const falloffCurveRef = useRef(falloffCurve);
+  const gradStepsRef = useRef(gradSteps);
+  patternIndexRef.current = patternIndex;
+  paletteRef.current = palette;
+  bgShadeRef.current = bgShade;
+  warpShadeRef.current = warpShade;
+  weftShadeRef.current = weftShade;
+  gridSizeRef.current = gridSize;
+  falloffCurveRef.current = falloffCurve;
+  gradStepsRef.current = gradSteps ?? 0;
+
   useEffect(() => {
     onFpsChangeRef.current?.(fps);
   }, [fps]);
@@ -168,7 +185,8 @@ export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, pal
       gl.useProgram(program);
       const time = (Date.now() - startTime) / 1000;
 
-      const pat = list[Math.min(Math.max(0, Math.floor(patternIndex)), list.length - 1)] ?? list[0];
+      const pIndex = patternIndexRef.current;
+      const pat = list[Math.min(Math.max(0, Math.floor(pIndex)), list.length - 1)] ?? list[0];
       const tileW = pat?.tileW ?? 8;
       const tileH = pat?.tileH ?? 8;
 
@@ -177,15 +195,15 @@ export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, pal
       gl.uniform1i(uniformLocs.patternSampler, 0);
       gl.uniform1f(uniformLocs.time, time);
       gl.uniform2f(uniformLocs.resolution, canvas.width, canvas.height);
-      gl.uniform1f(uniformLocs.patternIndex, Math.floor(patternIndex));
+      gl.uniform1f(uniformLocs.patternIndex, Math.floor(pIndex));
       gl.uniform1f(uniformLocs.tileW, tileW);
       gl.uniform1f(uniformLocs.tileH, tileH);
       gl.uniform1f(uniformLocs.patternTexHeight, patternTexHeight);
-      gl.uniform1f(uniformLocs.palette, palette);
-      gl.uniform1f(uniformLocs.bgShade, bgShade);
-      gl.uniform1f(uniformLocs.warpShade, warpShade);
-      gl.uniform1f(uniformLocs.weftShade, weftShade);
-      gl.uniform1f(uniformLocs.gridSize, gridSize);
+      gl.uniform1f(uniformLocs.palette, paletteRef.current);
+      gl.uniform1f(uniformLocs.bgShade, bgShadeRef.current);
+      gl.uniform1f(uniformLocs.warpShade, warpShadeRef.current);
+      gl.uniform1f(uniformLocs.weftShade, weftShadeRef.current);
+      gl.uniform1f(uniformLocs.gridSize, gridSizeRef.current);
       const mx = mouseRef.current.x;
       const my = mouseRef.current.y;
       const down = mouseRef.current.down;
@@ -194,7 +212,7 @@ export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, pal
       gl.uniform1f(uniformLocs.mouseRadius, MOUSE_RADIUS);
       gl.uniform1f(uniformLocs.mouseStrength, MOUSE_STRENGTH * ramp);
       gl.uniform1f(uniformLocs.mouseDown, down);
-      gl.uniform1f(uniformLocs.falloffCurve, falloffCurve);
+      gl.uniform1f(uniformLocs.falloffCurve, falloffCurveRef.current);
 
       const wg = warpGradientRef.current || { startShade: warpShade, endShade: warpShade, direction: 0, range: [0, 100] };
       const wf = weftGradientRef.current || { startShade: weftShade, endShade: weftShade, direction: 0, range: [0, 100] };
@@ -214,7 +232,7 @@ export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, pal
       gl.uniform1f(uniformLocs.warpEndPos, Math.max(wr[0], wr[1]) / 100);
       gl.uniform1f(uniformLocs.weftStartPos, Math.min(wfr[0], wfr[1]) / 100);
       gl.uniform1f(uniformLocs.weftEndPos, Math.max(wfr[0], wfr[1]) / 100);
-      gl.uniform1f(uniformLocs.gradSteps, gradSteps ?? 0);
+      gl.uniform1f(uniformLocs.gradSteps, gradStepsRef.current);
 
       gl.clearColor(0, 0, 0, 1);
       gl.clear(gl.COLOR_BUFFER_BIT);
@@ -260,7 +278,7 @@ export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, pal
         const aspect = rect.width / rect.height;
         let x = ((e.clientX - rect.left) / rect.width) * aspect;
         let y = 1.0 - (e.clientY - rect.top) / rect.height;
-        const g = Math.max(2, Math.min(64, gridSize));
+        const g = Math.max(2, Math.min(64, gridSizeRef.current));
         const cellX = Math.floor(x * g);
         const cellY = Math.floor(y * g);
         mouseRef.current.x = (cellX + 0.5) / g;
@@ -324,7 +342,7 @@ export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, pal
       if (patternTexture) gl.deleteTexture(patternTexture);
       if (program) gl.deleteProgram(program);
     };
-  }, [patternIndex, palette, bgShade, warpShade, weftShade, gridSize, falloffCurve, warpGradient, weftGradient, gradSteps, patterns]);
+  }, [patterns]);
 
   useEffect(() => {
     const cleanup = run();

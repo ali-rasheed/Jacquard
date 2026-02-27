@@ -195,9 +195,10 @@ void main() {
     vec2 halfSize = isWeft > 0.5 ? vec2(halfY, halfX) : vec2(halfX, halfY);
     float d = roundedRect(p, halfSize, cornerRadius);
 
-    // Convert distance to a mask: 1.0 inside, 0.0 outside
-    // smoothstep gives anti-aliased edges
-    float cell = 1.0 - smoothstep(0.0, 0.01, d);
+    // Convert distance to a mask: 1.0 inside, 0.0 outside.
+    // fwidth(d) gives ~1-pixel-wide edge for resolution-independent AA (shader-fundamentals).
+    float edge = fwidth(d);
+    float cell = 1.0 - smoothstep(-edge, edge, d);
 
     // --- COLORING ---
     vec3 bgColor = getPaletteColor(u_palette, u_bgShade);
