@@ -13,6 +13,9 @@ const DPR = 2;
 import { useRef, useEffect, useCallback, useState } from 'react';
 import { buildPatternTexture, PATTERNS } from '../patterns';
 
+/** Default rect aspect 36×40 (warp orientation). */
+const RECT_ASPECT_DEFAULT = 36 / 40;
+
 function getUniformLocs(gl, program) {
   return {
     time: gl.getUniformLocation(program, 'u_time'),
@@ -126,6 +129,7 @@ export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, pal
   const gridSizeRef = useRef(gridSize);
   const falloffCurveRef = useRef(falloffCurve);
   const gradStepsRef = useRef(gradSteps);
+  const rectAspectRef = useRef(rectAspect);
   patternIndexRef.current = patternIndex;
   paletteRef.current = palette;
   bgShadeRef.current = bgShade;
@@ -134,6 +138,7 @@ export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, pal
   gridSizeRef.current = gridSize;
   falloffCurveRef.current = falloffCurve;
   gradStepsRef.current = gradSteps ?? 0;
+  rectAspectRef.current = rectAspect ?? RECT_ASPECT_DEFAULT;
 
   useEffect(() => {
     onFpsChangeRef.current?.(fps);
@@ -245,6 +250,7 @@ export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, pal
       gl.uniform1f(uniformLocs.weftEndPos, Math.max(wfr[0], wfr[1]) / 100);
       gl.uniform1f(uniformLocs.gradSteps, gradStepsRef.current);
       gl.uniform1f(uniformLocs.revealStartTime, revealStartTime);
+      gl.uniform1f(uniformLocs.rectAspect, rectAspectRef.current);
 
       gl.clearColor(0, 0, 0, 1);
       gl.clear(gl.COLOR_BUFFER_BIT);
@@ -361,7 +367,7 @@ export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, pal
       if (patternTexture) gl.deleteTexture(patternTexture);
       if (program) gl.deleteProgram(program);
     };
-  }, [palette, warpShade, weftShade, patterns]);
+  }, [palette, warpShade, weftShade, rectAspect, patterns]);
 
   useEffect(() => {
     const cleanup = run();

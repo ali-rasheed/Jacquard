@@ -8,7 +8,10 @@ import { useShaderSandbox } from '../hooks/useShaderSandbox';
 import fragmentSource from '../shaders/fragment.glsl?raw';
 import vertexSource from '../shaders/vertex.glsl?raw';
 
-function ShaderCanvasInner({ patternIndex, palette, bgShade, warpShade, weftShade, gridSize, falloffCurve, warpGradient, weftGradient, gradSteps, patterns, onFpsChange, onCanvasRef }) {
+/** Default rect aspect 36×40. Must match App.jsx RECT_ASPECT_DEFAULT. */
+const RECT_ASPECT_DEFAULT = 36 / 40;
+
+function ShaderCanvasInner({ patternIndex, palette, bgShade, warpShade, weftShade, gridSize, falloffCurve, warpGradient, weftGradient, gradSteps, rectAspect, patterns, onFpsChange, onCanvasRef }) {
   const { canvasRef, containerRef, error, fps } = useShaderSandbox(
     vertexSource,
     fragmentSource,
@@ -22,6 +25,7 @@ function ShaderCanvasInner({ patternIndex, palette, bgShade, warpShade, weftShad
     warpGradient ?? null,
     weftGradient ?? null,
     gradSteps ?? 0,
+    rectAspect ?? RECT_ASPECT_DEFAULT,
     patterns ?? [],
     onFpsChange
   );

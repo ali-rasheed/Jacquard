@@ -2,7 +2,7 @@
  * AppV2 — Image to colored rects. Pick an image; shader draws a grid of rounded rects
  * colored by the image (one sample per cell). Weave pattern sets rect orientation (warp/weft) per cell.
  */
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import * as Select from '@radix-ui/react-select';
 import * as Slider from '@radix-ui/react-slider';
 import * as Label from '@radix-ui/react-label';
@@ -80,6 +80,24 @@ export default function AppV2() {
   const [shadeFrom, setShadeFrom] = useState(0);          // 0=color, 1=warp, 2=weft, 3=warp+weft (brand)
   const [patternIndex, setPatternIndex] = useState(0);    // weave pattern (same list as v1)
   const [fps, setFps] = useState(0);
+  const canvasRef = useRef(null);
+
+  /** Copy canvas at 2× resolution as PNG to clipboard (same as v1). */
+  const handleCopy2xPng = useCallback(async () => {
+    const canvas = canvasRef.current;
+    if (!canvas || !canvas.width || !canvas.height) return;
+    const scale = 2;
+    const w = canvas.width * scale;
+    const h = canvas.height * scale;
+    const off = document.createElement('canvas');
+    off.width = w;
+    off.height = h;
+    const ctx = off.getContext('2d');
+    if (!ctx) return;
+    ctx.drawImage(canvas, 0, 0, w, h);
+    const blob = await new Promise((resolve) => off.toBlob(resolve, 'image/png'));
+    if (blob) await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+  }, []);
 
   const patternOptions = PATTERNS.map((p, i) => ({ value: i, label: p.name }));
   const paletteOptions = PALETTE_NAMES.map((name, i) => ({ value: i, label: name }));
@@ -120,6 +138,10 @@ export default function AppV2() {
                 aria-label="Pick an image file"
               />
             </label>
+            <button type="button" className={btnGhost} onClick={handleCopy2xPng} title="Copy canvas at 2× resolution as PNG" aria-label="Copy 2× PNG">
+              <Icon name="content_copy" className="text-[16px]" />
+              <span>Copy PNG</span>
+            </button>
           </div>
           <SectionDividerH />
           <div className="flex flex-wrap items-center gap-2">
@@ -203,6 +225,7 @@ export default function AppV2() {
           patternIndex={patternIndex}
           patterns={PATTERNS}
           onFpsChange={setFps}
+          onCanvasRef={(el) => { canvasRef.current = el; }}
         />
         </main>
 

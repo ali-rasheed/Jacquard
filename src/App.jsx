@@ -59,6 +59,9 @@ const PRESETS = [
   { id: 'peridot-houndstooth-grad', label: 'Peridot · Houndstooth · Grad', pattern: 11, palette: 3, bgShade: 1, warpShade: 0, weftShade: 1, ...grad(0, 3, 1, 3, 0, 1) },
 ];
 
+/** Default rect aspect = 36×40 (warp orientation). */
+const RECT_ASPECT_DEFAULT = 36 / 40;
+
 const btnGhost =
   'inline-flex h-7 items-center gap-1.5 rounded-md border border-border-subtle bg-transparent px-2.5 py-1 text-[9px] font-medium text-text-secondary outline-none transition-colors hover:border-border hover:bg-surface-hover hover:text-text focus:border-accent focus:outline-none';
 const selectTrigger =
@@ -155,6 +158,7 @@ export default function App() {
   const [warpGradient, setWarpGradient] = useState({ startShade: 0, endShade: 3, direction: 0, range: [0, 100] });
   const [weftGradient, setWeftGradient] = useState({ startShade: 0, endShade: 3, direction: 0, range: [0, 100] });
   const [gradSteps, setGradSteps] = useState(0); // 0 = smooth; 2–16 = discrete bands
+  const [rectAspect, setRectAspect] = useState(RECT_ASPECT_DEFAULT);
   const [fps, setFps] = useState(0);
   const canvasRef = useRef(null);
 
@@ -247,18 +251,16 @@ export default function App() {
       </nav>
       <div className="flex min-h-0 flex-1 flex-row overflow-hidden bg-surface">
       <aside className="flex w-72 shrink-0 flex-col gap-3 overflow-y-auto border-r border-border-subtle bg-surface px-3 py-3">
-        <h1 className="shrink-0 text-[13px] font-semibold tracking-[-0.01em] text-text">
-          Shader Sandbox
-        </h1>
+       
         <div className="flex flex-col gap-3">
           <div className="flex flex-wrap items-center gap-2">
             <button type="button" className={btnGhost} onClick={handleReload} aria-label="Reload">
               <Icon name="refresh" className="text-[16px]" />
               <span>Reload</span>
             </button>
-            <button type="button" className={btnGhost} onClick={handleCopy2xPng} title="Copy canvas at 2× resolution as PNG" aria-label="Copy 2× PNG">
+            <button type="button" className={btnGhost} onClick={handleCopy2xPng} title="Copy canvas at 2× resolution as PNG" aria-label="Copy PNG">
               <Icon name="content_copy" className="text-[16px]" />
-              <span>Copy 2× PNG</span>
+              <span>Copy PNG</span>
             </button>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -368,7 +370,7 @@ export default function App() {
             <AppSelect value={falloffCurve} onValueChange={setFalloffCurve} options={falloffOptions} placeholder="Falloff" title="Warp falloff curve" />
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <GroupIcon name="grid_on" title="Tile" />
+            <GroupIcon name="grid_on" title="Resolution" />
             <Label.Root className="sr-only" htmlFor="grid-slider">Tile size</Label.Root>
             <Slider.Root
               id="grid-slider"
@@ -386,6 +388,9 @@ export default function App() {
               <Slider.Thumb className="block h-4 w-4 rounded-full border border-border bg-surface shadow focus:outline-none focus:ring-2 focus:ring-accent/40" />
             </Slider.Root>
             <span className="w-6 tabular-nums text-[13px] text-text">{gridSize}</span>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <GroupIcon name="timeline" title="Quantization" />
             <Label.Root className="sr-only" htmlFor="grad-steps-slider">Gradation steps</Label.Root>
             <Slider.Root
               id="grad-steps-slider"
@@ -404,11 +409,31 @@ export default function App() {
             </Slider.Root>
             <span className="w-8 tabular-nums text-[13px] text-text" title="0 = smooth gradient">{gradSteps === 0 ? 'Smooth' : gradSteps}</span>
           </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <GroupIcon name="aspect_ratio" title="Ratio" />
+            <Label.Root className="sr-only" htmlFor="rect-aspect-slider">Rect aspect ratio</Label.Root>
+            <Slider.Root
+              id="rect-aspect-slider"
+              className="relative flex w-20 shrink-0 touch-none select-none items-center"
+              value={[rectAspect]}
+              onValueChange={([v]) => setRectAspect(v)}
+              min={0.5}
+              max={1.5}
+              step={0.05}
+              aria-label={`Rect aspect: ${rectAspect.toFixed(2)}`}
+            >
+              <Slider.Track className="relative h-1.5 grow rounded-full bg-surface-input">
+                <Slider.Range className="absolute h-full rounded-full bg-accent" />
+              </Slider.Track>
+              <Slider.Thumb className="block h-4 w-4 rounded-full border border-border bg-surface shadow focus:outline-none focus:ring-2 focus:ring-accent/40" />
+            </Slider.Root>
+            <span className="w-10 tabular-nums text-[13px] text-text" title="Warp rect width/height">{rectAspect.toFixed(2)}</span>
+          </div>
         </div>
       </aside>
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         <main className="flex min-h-0 flex-1 items-center justify-center overflow-auto p-4">
-          <ShaderCanvas patternIndex={pattern} palette={palette} bgShade={bgShade} warpShade={warpShade} weftShade={weftShade} gridSize={gridSize} falloffCurve={falloffCurve} warpGradient={warpGradient} weftGradient={weftGradient} gradSteps={gradSteps} patterns={PATTERNS} onFpsChange={setFps} onCanvasRef={(el) => { canvasRef.current = el; }} />
+          <ShaderCanvas patternIndex={pattern} palette={palette} bgShade={bgShade} warpShade={warpShade} weftShade={weftShade} gridSize={gridSize} falloffCurve={falloffCurve} warpGradient={warpGradient} weftGradient={weftGradient} gradSteps={gradSteps} rectAspect={rectAspect} patterns={PATTERNS} onFpsChange={setFps} onCanvasRef={(el) => { canvasRef.current = el; }} />
         </main>
 
         <footer className="flex min-h-9 shrink-0 flex-wrap items-center gap-2 border-t border-border-subtle bg-surface-elevated px-3 py-2">

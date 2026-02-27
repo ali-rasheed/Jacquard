@@ -76,7 +76,7 @@ export function useImageRectsSandbox(vertexSource, fragmentSource, imageSource, 
     const container = containerRef.current;
     if (!canvas || !container) return;
 
-    const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+    const gl = canvas.getContext('webgl', { preserveDrawingBuffer: true }) || canvas.getContext('experimental-webgl', { preserveDrawingBuffer: true });
     if (!gl) {
       setError('WebGL is not supported');
       return;
