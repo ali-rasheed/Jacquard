@@ -48,6 +48,7 @@ function getUniformLocs(gl, program) {
     gradSteps: gl.getUniformLocation(program, 'u_gradSteps'),
     revealStartTime: gl.getUniformLocation(program, 'u_revealStartTime'),
     rectAspect: gl.getUniformLocation(program, 'u_rectAspect'),
+    cornerRadius: gl.getUniformLocation(program, 'u_cornerRadius'),
   };
 }
 
@@ -87,7 +88,7 @@ const MOUSE_STRENGTH_RAMP_MS = 1500; // Strength ramps from 0 to full over this 
 
 // ENS palette RGB (0–1), matches shader getPaletteColor. [palette][shade] = [r,g,b]; shade 0–3 = 950,500,100,400.
 const PALETTE_RGB = [
-  [[0.247, 0.114, 0.035], [0.51, 0.2, 0.149], [0.973, 0.969, 0.886], [0.855, 0.725, 0.525]],
+  [[0.247, 0.114, 0.035], [0.569, 0.294, 0.110], [0.973, 0.969, 0.886], [0.855, 0.725, 0.525]],
   [[0.322, 0.024, 0.141], [0.941, 0.216, 0.576], [0.984, 0.922, 0.941], [0.988, 0.706, 0.812]],
   [[0.008, 0.161, 0.231], [0.0, 0.502, 0.737], [0.902, 0.953, 0.973], [0.455, 0.725, 0.875]],
   [[0.012, 0.188, 0.063], [0.0, 0.486, 0.137], [0.843, 0.914, 0.89], [0.51, 0.816, 0.561]],
@@ -99,7 +100,7 @@ function getPaletteColor(paletteIndex, shadeIndex) {
   return PALETTE_RGB[p][s];
 }
 
-export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, palette, bgShade, warpShade, weftShade, gridSize, falloffCurve, warpGradient, weftGradient, gradSteps, rectAspect, patterns, onFpsChange) {
+export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, palette, bgShade, warpShade, weftShade, gridSize, falloffCurve, warpGradient, weftGradient, gradSteps, rectAspect, cornerRadius, patterns, onFpsChange) {
   const canvasRef = useRef(null);
   const containerRef = useRef(null);
   const mouseRef = useRef({ x: MOUSE_OFF, y: MOUSE_OFF, down: 0, pressStartTime: 0 });
@@ -130,6 +131,7 @@ export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, pal
   const falloffCurveRef = useRef(falloffCurve);
   const gradStepsRef = useRef(gradSteps);
   const rectAspectRef = useRef(rectAspect);
+  const cornerRadiusRef = useRef(cornerRadius);
   patternIndexRef.current = patternIndex;
   paletteRef.current = palette;
   bgShadeRef.current = bgShade;
@@ -139,6 +141,7 @@ export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, pal
   falloffCurveRef.current = falloffCurve;
   gradStepsRef.current = gradSteps ?? 0;
   rectAspectRef.current = rectAspect ?? RECT_ASPECT_DEFAULT;
+  cornerRadiusRef.current = cornerRadius ?? 0.18;
 
   useEffect(() => {
     onFpsChangeRef.current?.(fps);
@@ -251,6 +254,7 @@ export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, pal
       gl.uniform1f(uniformLocs.gradSteps, gradStepsRef.current);
       gl.uniform1f(uniformLocs.revealStartTime, revealStartTime);
       gl.uniform1f(uniformLocs.rectAspect, rectAspectRef.current);
+      gl.uniform1f(uniformLocs.cornerRadius, cornerRadiusRef.current);
 
       gl.clearColor(0, 0, 0, 1);
       gl.clear(gl.COLOR_BUFFER_BIT);

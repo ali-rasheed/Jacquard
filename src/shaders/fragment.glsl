@@ -44,6 +44,7 @@ uniform float u_falloffCurve;
 uniform float u_revealStartTime;
 // Rect aspect: halfX/halfY (warp orientation). Default 36/40 = 0.9; range ~0.5–1.5.
 uniform float u_rectAspect;
+uniform float u_cornerRadius;     // Rounded rect corner radius in cell space (~0.18 = 6/40)
 
 
 // ============================================================
@@ -118,7 +119,7 @@ vec3 getPaletteColor(float palette, float shade) {
     int s = int(mod(floor(shade + 0.01), 4.0));
     if (p == 0) { // Citrine
         if (s == 0) return vec3(0.247, 0.114, 0.035);   // 950
-        if (s == 1) return vec3(0.51, 0.2, 0.149);       // 500
+        if (s == 1) return vec3(0.569, 0.294, 0.110);     // 500 #914B1C
         if (s == 2) return vec3(0.973, 0.969, 0.886);   // 100
         return vec3(0.855, 0.725, 0.525);               // 400
     }
@@ -141,7 +142,7 @@ vec3 getPaletteColor(float palette, float shade) {
     return vec3(0.51, 0.816, 0.561);                 // 400
 }
 
-// 2-stop gradient: t in [0,1], direction flips t, range maps to startPos..endPos.
+.// 2-stop gradient: t in [0,1], direction flips t, range maps to startPos..endPos.
 // u_gradSteps: 0 or 1 = smooth; >= 2 = discrete bands (gradation steps).
 vec3 sampleGradient2(vec3 startColor, vec3 endColor, float dir, float startPos, float endPos, float tRaw) {
     float t = (dir > 0.5) ? (1.0 - tRaw) : tRaw;
@@ -204,7 +205,7 @@ void main() {
 
     float halfY = 0.5;
     float halfX = halfY * clamp(u_rectAspect, 0.3, 2.0);
-    float cornerRadius = 0.18;              // ~6/40 from Figma
+    float cornerRadius = clamp(u_cornerRadius, 0.0, 0.5);
     vec2 halfSize = isWeft > 0.5 ? vec2(halfY, halfX) : vec2(halfX, halfY);
     float d = roundedRect(p, halfSize, cornerRadius);
 
@@ -215,9 +216,11 @@ void main() {
 
     // --- COLORING ---
     vec3 bgColor = getPaletteColor(u_palette, u_bgShade);
-    // Gradient param 0..1 along warp (Y) and weft (X) for 2-stop gradient
-    float tWarp = fract(cellID.y / gridSize);
-    float tWeft = fract(cellID.x / gridSize);
+    // Snap gradient params to cell indices so quantization aligns with atomic grid units (one color per cell)
+    float numCellsY = gridSize;
+    float numCellsX = gridSize * aspect;
+    float tWarp = cellID.y / max(numCellsY - 1.0, 1.0);
+    float tWeft = cellID.x / max(numCellsX - 1.0, 1.0);
     vec3 warpColor = sampleGradient2(u_warpStart, u_warpEnd, u_warpDir, u_warpStartPos, u_warpEndPos, tWarp);
     vec3 weftColor = sampleGradient2(u_weftStart, u_weftEnd, u_weftDir, u_weftStartPos, u_weftEndPos, tWeft);
     vec3 threadColor = mix(warpColor, weftColor, isWeft);

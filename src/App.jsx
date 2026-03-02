@@ -159,6 +159,8 @@ export default function App() {
   const [weftGradient, setWeftGradient] = useState({ startShade: 0, endShade: 3, direction: 0, range: [0, 100] });
   const [gradSteps, setGradSteps] = useState(0); // 0 = smooth; 2–16 = discrete bands
   const [rectAspect, setRectAspect] = useState(RECT_ASPECT_DEFAULT);
+  const [cornerRadius, setCornerRadius] = useState(0.18);
+  const [canvasAspect, setCanvasAspect] = useState(1);
   const [fps, setFps] = useState(0);
   const canvasRef = useRef(null);
 
@@ -321,7 +323,8 @@ export default function App() {
             />
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <GroupIcon name="gradient" title="Warp gradient" />
+            <GroupIcon name="gradient" title="Warp gradient range" />
+            <Label.Root className="sr-only" htmlFor="warp-range">Warp gradient range</Label.Root>
             <Slider.Root
               id="warp-range"
               className="relative flex w-24 shrink-0 touch-none items-center"
@@ -338,12 +341,17 @@ export default function App() {
               <Slider.Thumb className="block h-4 w-4 rounded-full border border-border bg-surface shadow focus:ring-2 focus:ring-accent/40" />
               <Slider.Thumb className="block h-4 w-4 rounded-full border border-border bg-surface shadow focus:ring-2 focus:ring-accent/40" />
             </Slider.Root>
+            <span className="w-14 tabular-nums text-[13px] text-text">{warpGradient.range[0]}–{warpGradient.range[1]}</span>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <GroupIcon name="gradient" title="Warp gradient" />
             <AppSelect value={warpGradient.startShade} onValueChange={(s) => { setPresetIndex(null); setWarpGradient((g) => ({ ...g, startShade: s })); }} options={shadeOptions()} title="Warp start" placeholder="Start" />
             <AppSelect value={warpGradient.endShade} onValueChange={(s) => { setPresetIndex(null); setWarpGradient((g) => ({ ...g, endShade: s })); }} options={shadeOptions()} title="Warp end" placeholder="End" />
             <DirectionSwitch value={warpGradient.direction} onValueChange={(d) => { setPresetIndex(null); setWarpGradient((g) => ({ ...g, direction: d })); }} options={directionOptions} title="Warp direction" ariaLabel="Warp gradient direction" />
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <GroupIcon name="gradient" title="Weft gradient" />
+            <GroupIcon name="gradient" title="Weft gradient range" />
+            <Label.Root className="sr-only" htmlFor="weft-range">Weft gradient range</Label.Root>
             <Slider.Root
               id="weft-range"
               className="relative flex w-24 shrink-0 touch-none items-center"
@@ -360,6 +368,10 @@ export default function App() {
               <Slider.Thumb className="block h-4 w-4 rounded-full border border-border bg-surface shadow focus:ring-2 focus:ring-accent/40" />
               <Slider.Thumb className="block h-4 w-4 rounded-full border border-border bg-surface shadow focus:ring-2 focus:ring-accent/40" />
             </Slider.Root>
+            <span className="w-14 tabular-nums text-[13px] text-text">{weftGradient.range[0]}–{weftGradient.range[1]}</span>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <GroupIcon name="gradient" title="Weft gradient" />
             <AppSelect value={weftGradient.startShade} onValueChange={(s) => { setPresetIndex(null); setWeftGradient((g) => ({ ...g, startShade: s })); }} options={shadeOptions()} title="Weft start" placeholder="Start" />
             <AppSelect value={weftGradient.endShade} onValueChange={(s) => { setPresetIndex(null); setWeftGradient((g) => ({ ...g, endShade: s })); }} options={shadeOptions()} title="Weft end" placeholder="End" />
             <DirectionSwitch value={weftGradient.direction} onValueChange={(d) => { setPresetIndex(null); setWeftGradient((g) => ({ ...g, direction: d })); }} options={directionOptionsWeft} title="Weft direction" ariaLabel="Weft gradient direction" />
@@ -429,11 +441,51 @@ export default function App() {
             </Slider.Root>
             <span className="w-10 tabular-nums text-[13px] text-text" title="Warp rect width/height">{rectAspect.toFixed(2)}</span>
           </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <GroupIcon name="crop" title="Canvas aspect" />
+            <Label.Root className="sr-only" htmlFor="canvas-aspect-slider">Canvas aspect ratio</Label.Root>
+            <Slider.Root
+              id="canvas-aspect-slider"
+              className="relative flex w-20 shrink-0 touch-none select-none items-center"
+              value={[canvasAspect]}
+              onValueChange={([v]) => setCanvasAspect(v)}
+              min={0.5}
+              max={2}
+              step={0.05}
+              aria-label={`Canvas aspect: ${canvasAspect.toFixed(2)}`}
+            >
+              <Slider.Track className="relative h-1.5 grow rounded-full bg-surface-input">
+                <Slider.Range className="absolute h-full rounded-full bg-accent" />
+              </Slider.Track>
+              <Slider.Thumb className="block h-4 w-4 rounded-full border border-border bg-surface shadow focus:outline-none focus:ring-2 focus:ring-accent/40" />
+            </Slider.Root>
+            <span className="w-10 tabular-nums text-[13px] text-text" title="Canvas width/height">{canvasAspect.toFixed(2)}</span>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <GroupIcon name="rounded_corner" title="Radius" />
+            <Label.Root className="sr-only" htmlFor="radius-slider">Corner radius</Label.Root>
+            <Slider.Root
+              id="radius-slider"
+              className="relative flex w-20 shrink-0 touch-none select-none items-center"
+              value={[cornerRadius]}
+              onValueChange={([v]) => setCornerRadius(v)}
+              min={0}
+              max={0.5}
+              step={0.01}
+              aria-label={`Corner radius: ${cornerRadius.toFixed(2)}`}
+            >
+              <Slider.Track className="relative h-1.5 grow rounded-full bg-surface-input">
+                <Slider.Range className="absolute h-full rounded-full bg-accent" />
+              </Slider.Track>
+              <Slider.Thumb className="block h-4 w-4 rounded-full border border-border bg-surface shadow focus:outline-none focus:ring-2 focus:ring-accent/40" />
+            </Slider.Root>
+            <span className="w-10 tabular-nums text-[13px] text-text" title="Rect corner radius in cell space">{cornerRadius.toFixed(2)}</span>
+          </div>
         </div>
       </aside>
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         <main className="flex min-h-0 flex-1 items-center justify-center overflow-auto p-4">
-          <ShaderCanvas patternIndex={pattern} palette={palette} bgShade={bgShade} warpShade={warpShade} weftShade={weftShade} gridSize={gridSize} falloffCurve={falloffCurve} warpGradient={warpGradient} weftGradient={weftGradient} gradSteps={gradSteps} rectAspect={rectAspect} patterns={PATTERNS} onFpsChange={setFps} onCanvasRef={(el) => { canvasRef.current = el; }} />
+          <ShaderCanvas patternIndex={pattern} palette={palette} bgShade={bgShade} warpShade={warpShade} weftShade={weftShade} gridSize={gridSize} falloffCurve={falloffCurve} warpGradient={warpGradient} weftGradient={weftGradient} gradSteps={gradSteps} rectAspect={rectAspect} cornerRadius={cornerRadius} canvasAspect={canvasAspect} patterns={PATTERNS} onFpsChange={setFps} onCanvasRef={(el) => { canvasRef.current = el; }} />
         </main>
 
         <footer className="flex min-h-9 shrink-0 flex-wrap items-center gap-2 border-t border-border-subtle bg-surface-elevated px-3 py-2">
@@ -447,6 +499,7 @@ export default function App() {
         <span className={pill}>Grid: {gridSize}</span>
         <span className={pill}>{falloffOptions[falloffCurve]?.label ?? 'Falloff'}</span>
         <span className={pill}>Steps: {gradSteps === 0 ? 'Smooth' : gradSteps}</span>
+        <span className={pill}>Canvas: {canvasAspect.toFixed(2)}</span>
         <div className="ml-auto flex items-center gap-2">
           <span className={pill}>{fps || '--'} fps</span>
           <span className={pill}>WebGL 1</span>

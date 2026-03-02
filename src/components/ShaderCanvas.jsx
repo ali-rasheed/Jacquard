@@ -11,7 +11,7 @@ import vertexSource from '../shaders/vertex.glsl?raw';
 /** Default rect aspect 36×40. Must match App.jsx RECT_ASPECT_DEFAULT. */
 const RECT_ASPECT_DEFAULT = 36 / 40;
 
-function ShaderCanvasInner({ patternIndex, palette, bgShade, warpShade, weftShade, gridSize, falloffCurve, warpGradient, weftGradient, gradSteps, rectAspect, patterns, onFpsChange, onCanvasRef }) {
+function ShaderCanvasInner({ patternIndex, palette, bgShade, warpShade, weftShade, gridSize, falloffCurve, warpGradient, weftGradient, gradSteps, rectAspect, cornerRadius = 0.18, canvasAspect = 1, patterns, onFpsChange, onCanvasRef }) {
   const { canvasRef, containerRef, error, fps } = useShaderSandbox(
     vertexSource,
     fragmentSource,
@@ -26,6 +26,7 @@ function ShaderCanvasInner({ patternIndex, palette, bgShade, warpShade, weftShad
     weftGradient ?? null,
     gradSteps ?? 0,
     rectAspect ?? RECT_ASPECT_DEFAULT,
+    cornerRadius ?? 0.18,
     patterns ?? [],
     onFpsChange
   );
@@ -34,7 +35,7 @@ function ShaderCanvasInner({ patternIndex, palette, bgShade, warpShade, weftShad
     <div
       ref={containerRef}
       className="relative flex min-h-[200px] min-w-[200px] flex-initial flex-col overflow-hidden rounded-md border border-border-subtle bg-surface-secondary w-full max-w-full"
-      style={{ aspectRatio: '1 / 1' }}
+      style={{ aspectRatio: canvasAspect }}
     >
       <canvas ref={(el) => { canvasRef.current = el; onCanvasRef?.(el); }} className="block flex-1 bg-surface" />
       <div className="absolute right-2 top-2 rounded-full border border-border-subtle bg-surface-elevated px-2.5 py-0.5 font-mono text-[12px] font-medium text-text-secondary">

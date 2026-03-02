@@ -38,7 +38,7 @@ vec3 getPaletteColor(float palette, float shade) {
   int s = int(mod(floor(shade + 0.01), 4.0));
   if (p == 0) { // Citrine
     if (s == 0) return vec3(0.247, 0.114, 0.035);   // 950
-    if (s == 1) return vec3(0.51, 0.2, 0.149);       // 500
+    if (s == 1) return vec3(0.569, 0.294, 0.110);     // 500 #914B1C
     if (s == 2) return vec3(0.973, 0.969, 0.886);   // 100
     return vec3(0.855, 0.725, 0.525);               // 400
   }
