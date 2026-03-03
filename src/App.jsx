@@ -2,7 +2,7 @@
  * Shader Sandbox — ENS Weaving Draft.
  * WebGL canvas reads shaders from src/shaders/*.glsl. Controls: Radix Select + Slider.
  */
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import * as Select from '@radix-ui/react-select';
 import * as Slider from '@radix-ui/react-slider';
 import * as Label from '@radix-ui/react-label';
@@ -11,7 +11,7 @@ import { PATTERNS } from './patterns';
 import AppV2 from './AppV2.jsx';
 
 const PALETTE_NAMES = ['Citrine', 'Garnet', 'Lapis', 'Peridot'];
-const SHADE_NAMES = ['950', '500', '100', '400'];
+const SHADE_NAMES = ['950', '500', '100', '400', 'Transparent'];
 
 /** Material Symbol icon per weave pattern id — used in weave dropdown only. */
 const WEAVE_ICONS = {
@@ -61,6 +61,113 @@ const PRESETS = [
 
 /** Default rect aspect = 36×40 (warp orientation). */
 const RECT_ASPECT_DEFAULT = 36 / 40;
+
+/** Designer-friendly grid sizes; slider snaps to these. */
+const GRID_SNAPS = [8, 12, 16, 24, 32, 48, 64];
+/** Index into GRID_SNAPS closest to given size (for slider position when size comes from URL etc.). */
+function getGridSizeIndex(size) {
+  return GRID_SNAPS.reduce((best, val, i) =>
+    Math.abs(val - size) < Math.abs(GRID_SNAPS[best] - size) ? i : best, 0);
+}
+
+/** When gradSteps >= 2, snap a 0–100 value to the nearest band (multiples of 100/gradSteps). */
+function snapGradRangeValue(value, gradSteps) {
+  if (gradSteps < 2) return value;
+  const step = 100 / gradSteps;
+  const n = Math.round(value / step);
+  return Math.max(0, Math.min(100, n * step));
+}
+
+/** Max URL search string length to avoid browser limits; compact schema keeps under ~2k. */
+const URL_STATE_MAX_LEN = 2000;
+/** Parse search params into state-like object. Only includes keys that were present. */
+function parseUrlState(search) {
+  const params = new URLSearchParams(search);
+  const out = {};
+  const num = (paramKey, stateKey, min, max) => {
+    const v = params.get(paramKey);
+    if (v == null) return;
+    const n = Number(v);
+    if (!Number.isFinite(n)) return;
+    out[stateKey] = (min != null && max != null) ? Math.max(min, Math.min(max, n)) : n;
+  };
+  const grad = (prefix) => {
+    const raw = params.get(prefix === 'warp' ? 'warpG' : 'weftG');
+    if (!raw) return;
+    const parts = raw.split(',').map(Number);
+    if (parts.length !== 5 || parts.some((x) => !Number.isFinite(x))) return;
+    const [startShade, endShade, direction, r0, r1] = parts;
+    out[prefix === 'warp' ? 'warpGradient' : 'weftGradient'] = {
+      startShade: Math.max(0, Math.min(4, startShade)),
+      endShade: Math.max(0, Math.min(4, endShade)),
+      direction: direction === 1 ? 1 : 0,
+      range: [Math.max(0, Math.min(100, r0)), Math.max(0, Math.min(100, r1))],
+    };
+  };
+  num('p', 'pattern', 0, PATTERNS.length - 1);
+  num('pal', 'palette', 0, 3);
+  num('bg', 'bgShade', 0, 4);
+  num('warp', 'warpShade', 0, 4);
+  num('weft', 'weftShade', 0, 4);
+  num('grid', 'gridSize', 8, 64);
+  num('preset', 'presetIndex', 0, 7);
+  grad('warp');
+  grad('weft');
+  num('steps', 'gradSteps', 0, 16);
+  num('rect', 'rectAspect', 0.5, 1.5);
+  num('corner', 'cornerRadius', 0, 0.5);
+  num('canvas', 'canvasAspect', 0.5, 2);
+  num('all', 'useAllColorways', 0, 1);
+  num('seed', 'colorwaySeed', 0, 999);
+  num('shimmer', 'shimmer', 0, 1);
+  num('shimmerSp', 'shimmerSpeed', 0.2, 8);
+  num('shimmerW', 'shimmerWidth', 0.5, 6);
+  const cf = params.get('cf');
+  if (cf === 'svg' || cf === 'png') out.copyFormat = cf;
+  const sb = params.get('sidebar');
+  if (sb === '0' || sb === '1') out.sidebarOpen = sb === '1';
+  return out;
+}
+/** Build compact search string from state; omit defaults to keep URL short. */
+function buildUrlState(state) {
+  const def = {
+    pattern: 0, palette: 0, bgShade: 2, warpShade: 1, weftShade: 3, gridSize: 32,
+    presetIndex: null, gradSteps: 0, rectAspect: RECT_ASPECT_DEFAULT, cornerRadius: 0.18, canvasAspect: 1,
+    copyFormat: 'png', sidebarOpen: true, useAllColorways: false, colorwaySeed: 0,
+    shimmer: false, shimmerSpeed: 2, shimmerWidth: 2,
+    warpGradient: { startShade: 0, endShade: 3, direction: 0, range: [0, 100] },
+    weftGradient: { startShade: 0, endShade: 3, direction: 0, range: [0, 100] },
+  };
+  const p = new URLSearchParams();
+  if (state.presetIndex != null && state.presetIndex >= 0 && state.presetIndex <= 7) p.set('preset', String(state.presetIndex));
+  if (state.pattern !== def.pattern) p.set('p', String(state.pattern));
+  if (state.palette !== def.palette) p.set('pal', String(state.palette));
+  if (state.bgShade !== def.bgShade) p.set('bg', String(state.bgShade));
+  if (state.warpShade !== def.warpShade) p.set('warp', String(state.warpShade));
+  if (state.weftShade !== def.weftShade) p.set('weft', String(state.weftShade));
+  if (state.gridSize !== def.gridSize) p.set('grid', String(state.gridSize));
+  const wg = state.warpGradient;
+  if (wg && (wg.startShade !== def.warpGradient.startShade || wg.endShade !== def.warpGradient.endShade || wg.direction !== def.warpGradient.direction || wg.range[0] !== def.warpGradient.range[0] || wg.range[1] !== def.warpGradient.range[1])) {
+    p.set('warpG', [wg.startShade, wg.endShade, wg.direction, wg.range[0], wg.range[1]].join(','));
+  }
+  const wft = state.weftGradient;
+  if (wft && (wft.startShade !== def.weftGradient.startShade || wft.endShade !== def.weftGradient.endShade || wft.direction !== def.weftGradient.direction || wft.range[0] !== def.weftGradient.range[0] || wft.range[1] !== def.weftGradient.range[1])) {
+    p.set('weftG', [wft.startShade, wft.endShade, wft.direction, wft.range[0], wft.range[1]].join(','));
+  }
+  if (state.gradSteps !== def.gradSteps) p.set('steps', String(state.gradSteps));
+  if (state.rectAspect !== def.rectAspect) p.set('rect', String(Number(state.rectAspect.toFixed(2))));
+  if (state.cornerRadius !== def.cornerRadius) p.set('corner', String(Number(state.cornerRadius.toFixed(2))));
+  if (state.canvasAspect !== def.canvasAspect) p.set('canvas', String(Number(state.canvasAspect.toFixed(2))));
+  if (state.copyFormat !== def.copyFormat) p.set('cf', state.copyFormat);
+  if (state.sidebarOpen !== def.sidebarOpen) p.set('sidebar', state.sidebarOpen ? '1' : '0');
+  if (state.useAllColorways !== def.useAllColorways) p.set('all', state.useAllColorways ? '1' : '0');
+  if (state.colorwaySeed !== def.colorwaySeed) p.set('seed', String(state.colorwaySeed));
+  if (state.shimmer !== def.shimmer) p.set('shimmer', state.shimmer ? '1' : '0');
+  if (state.shimmerSpeed !== def.shimmerSpeed) p.set('shimmerSp', String(Number(state.shimmerSpeed.toFixed(1))));
+  if (state.shimmerWidth !== def.shimmerWidth) p.set('shimmerW', String(Number(state.shimmerWidth.toFixed(2))));
+  const s = p.toString();
+  return s.length <= URL_STATE_MAX_LEN ? s : '';
+}
 
 const btnGhost =
   'inline-flex h-7 items-center gap-1.5 rounded-md border border-border-subtle bg-transparent px-2.5 py-1 text-[9px] font-medium text-text-secondary outline-none transition-colors hover:border-border hover:bg-surface-hover hover:text-text focus:border-accent focus:outline-none';
@@ -154,7 +261,6 @@ export default function App() {
   const [warpShade, setWarpShade] = useState(1);
   const [weftShade, setWeftShade] = useState(3);
   const [gridSize, setGridSize] = useState(32);
-  const [falloffCurve, setFalloffCurve] = useState(1);
   const [warpGradient, setWarpGradient] = useState({ startShade: 0, endShade: 3, direction: 0, range: [0, 100] });
   const [weftGradient, setWeftGradient] = useState({ startShade: 0, endShade: 3, direction: 0, range: [0, 100] });
   const [gradSteps, setGradSteps] = useState(0); // 0 = smooth; 2–16 = discrete bands
@@ -162,7 +268,109 @@ export default function App() {
   const [cornerRadius, setCornerRadius] = useState(0.18);
   const [canvasAspect, setCanvasAspect] = useState(1);
   const [fps, setFps] = useState(0);
+  /** Shimmer: time-based highlight band; optional speed and width. */
+  const [shimmer, setShimmer] = useState(false);
+  const [shimmerSpeed, setShimmerSpeed] = useState(2);
+  const [shimmerWidth, setShimmerWidth] = useState(2);
+  /** Use all 4 colorways: per-cell palette from colorwaySeed hash (mod 4). */
+  const [useAllColorways, setUseAllColorways] = useState(false);
+  const [colorwaySeed, setColorwaySeed] = useState(0);
+  /** Copy format: 'png' (2× canvas) or 'svg' (SVG with embedded raster). */
+  const [copyFormat, setCopyFormat] = useState('png');
+  /** Sidebar open; persisted to localStorage so preference survives reload. */
+  const [sidebarOpen, setSidebarOpen] = useState(() => {
+    try {
+      const stored = localStorage.getItem('shaderbox-sidebar-open');
+      return stored !== null ? JSON.parse(stored) : true;
+    } catch {
+      return true;
+    }
+  });
+  const setSidebarOpenPersisted = useCallback((open) => {
+    setSidebarOpen(open);
+    try {
+      localStorage.setItem('shaderbox-sidebar-open', JSON.stringify(open));
+    } catch { /* ignore storage errors */ }
+  }, []);
   const canvasRef = useRef(null);
+
+  /** On load: parse URL and set state. If preset is set, apply preset then overlay other params. Grid snapped to GRID_SNAPS. */
+  const appliedUrlRef = useRef(false);
+  useEffect(() => {
+    if (appliedUrlRef.current) return;
+    appliedUrlRef.current = true;
+    const q = parseUrlState(window.location.search);
+    if (Object.keys(q).length === 0) return;
+    if (q.presetIndex != null && q.presetIndex >= 0 && q.presetIndex < PRESETS.length) {
+      applyPreset(q.presetIndex);
+    }
+    if (q.pattern != null) setPattern(q.pattern);
+    if (q.palette != null) setPalette(q.palette);
+    if (q.bgShade != null) setBgShade(q.bgShade);
+    if (q.warpShade != null) setWarpShade(q.warpShade);
+    if (q.weftShade != null) setWeftShade(q.weftShade);
+    if (q.gridSize != null) setGridSize(GRID_SNAPS.includes(q.gridSize) ? q.gridSize : GRID_SNAPS[getGridSizeIndex(q.gridSize)]);
+    if (q.warpGradient) setWarpGradient(q.warpGradient);
+    if (q.weftGradient) setWeftGradient(q.weftGradient);
+    if (q.gradSteps != null) setGradSteps(q.gradSteps);
+    if (q.rectAspect != null) setRectAspect(q.rectAspect);
+    if (q.cornerRadius != null) setCornerRadius(q.cornerRadius);
+    if (q.canvasAspect != null) setCanvasAspect(q.canvasAspect);
+    if (q.copyFormat != null) setCopyFormat(q.copyFormat);
+    if (q.sidebarOpen != null) setSidebarOpenPersisted(q.sidebarOpen);
+    if (q.useAllColorways != null) setUseAllColorways(!!q.useAllColorways);
+    if (q.colorwaySeed != null) setColorwaySeed(q.colorwaySeed);
+    if (q.shimmer != null) setShimmer(!!q.shimmer);
+    if (q.shimmerSpeed != null) setShimmerSpeed(q.shimmerSpeed);
+    if (q.shimmerWidth != null) setShimmerWidth(q.shimmerWidth);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- run once on mount; applyPreset/setSidebarOpenPersisted are stable
+  }, []);
+
+  /** Sync state to URL (debounced). Only writes params that differ from defaults; keeps URL under ~2k chars. */
+  const urlSyncTimeoutRef = useRef(null);
+  useEffect(() => {
+    urlSyncTimeoutRef.current = setTimeout(() => {
+      const search = buildUrlState({
+        presetIndex, pattern, palette, bgShade, warpShade, weftShade, gridSize,
+        warpGradient, weftGradient, gradSteps, rectAspect, cornerRadius, canvasAspect, copyFormat, sidebarOpen,
+        useAllColorways, colorwaySeed, shimmer, shimmerSpeed, shimmerWidth,
+      });
+      const url = search ? `${window.location.pathname}?${search}` : window.location.pathname;
+      if (window.location.pathname + (window.location.search || '') !== url) {
+        window.history.replaceState(null, '', url);
+      }
+    }, 400);
+    return () => { clearTimeout(urlSyncTimeoutRef.current); };
+  }, [presetIndex, pattern, palette, bgShade, warpShade, weftShade, gridSize, warpGradient, weftGradient, gradSteps, rectAspect, cornerRadius, canvasAspect, copyFormat, sidebarOpen, useAllColorways, colorwaySeed, shimmer, shimmerSpeed, shimmerWidth]);
+
+  /** Keyboard shortcuts when focus is not in input/select/textarea. Mod+C = copy; Mod+1..8 = preset 0–7; Mod+Shift+R or F5 = reload; Mod+\ or Mod+B = toggle sidebar. */
+  useEffect(() => {
+    const onKeyDown = (e) => {
+      if (e.target.closest('input, select, textarea')) return;
+      const mod = e.metaKey || e.ctrlKey;
+      if (mod && e.key === 'c') {
+        e.preventDefault();
+        handleCopy();
+        return;
+      }
+      if (mod && e.key >= '1' && e.key <= '8') {
+        e.preventDefault();
+        applyPreset(Number(e.key) - 1);
+        return;
+      }
+      if ((mod && e.shiftKey && e.key === 'R') || e.key === 'F5') {
+        e.preventDefault();
+        handleReload();
+        return;
+      }
+      if ((mod && e.key === '\\') || (mod && e.key === 'b')) {
+        e.preventDefault();
+        setSidebarOpenPersisted(!sidebarOpen);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [handleCopy, applyPreset, handleReload, setSidebarOpenPersisted, sidebarOpen]);
 
   /** Capture canvas at 2× resolution as PNG and copy to clipboard. */
   const handleCopy2xPng = useCallback(async () => {
@@ -180,6 +388,35 @@ export default function App() {
     const blob = await new Promise((resolve) => off.toBlob(resolve, 'image/png'));
     if (blob) await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
   }, []);
+
+  /** Build SVG with canvas as embedded raster (data URL at 2×), copy as image/svg+xml and text/plain. */
+  const handleCopySvg = useCallback(async () => {
+    const canvas = canvasRef.current;
+    if (!canvas || !canvas.width || !canvas.height) return;
+    const scale = 2;
+    const w = canvas.width * scale;
+    const h = canvas.height * scale;
+    const off = document.createElement('canvas');
+    off.width = w;
+    off.height = h;
+    const ctx = off.getContext('2d');
+    if (!ctx) return;
+    ctx.drawImage(canvas, 0, 0, w, h);
+    const dataUrl = off.toDataURL('image/png');
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><image href="${dataUrl}" width="${w}" height="${h}"/></svg>`;
+    const blob = new Blob([svg], { type: 'image/svg+xml' });
+    await navigator.clipboard.write([
+      new ClipboardItem({
+        'image/svg+xml': blob,
+        'text/plain': new Blob([svg], { type: 'text/plain' }),
+      }),
+    ]);
+  }, []);
+
+  const handleCopy = useCallback(() => {
+    if (copyFormat === 'png') handleCopy2xPng();
+    else handleCopySvg();
+  }, [copyFormat, handleCopy2xPng, handleCopySvg]);
 
   const applyPreset = useCallback((index) => {
     if (index == null || index < 0 || index >= PRESETS.length) return;
@@ -210,12 +447,6 @@ export default function App() {
     ...PRESETS.map((p, i) => ({ value: String(i), label: p.label })),
   ];
 
-  const falloffOptions = [
-    { value: 0, label: 'Linear' },
-    { value: 1, label: 'Ease' },
-    { value: 2, label: 'Ease in' },
-    { value: 3, label: 'Ease out' },
-  ];
   const directionOptions = [
     { value: 0, label: 'Down', icon: 'arrow_downward' },
     { value: 1, label: 'Up', icon: 'arrow_upward' },
@@ -252,18 +483,44 @@ export default function App() {
         </div>
       </nav>
       <div className="flex min-h-0 flex-1 flex-row overflow-hidden bg-surface">
-      <aside className="flex w-72 shrink-0 flex-col gap-3 overflow-y-auto border-r border-border-subtle bg-surface px-3 py-3">
-       
+      {/* Collapsible sidebar: transition width; thin strip with toggle when collapsed. */}
+      <div className="flex shrink-0 overflow-hidden border-r border-border-subtle bg-surface">
+        <aside
+          className="flex flex-col gap-3 overflow-y-auto overflow-x-hidden bg-surface px-3 py-3 transition-[max-width] duration-200 ease-out"
+          style={{ width: sidebarOpen ? 288 : 0, maxWidth: sidebarOpen ? 288 : 0, minWidth: 0 }}
+        >
         <div className="flex flex-col gap-3">
           <div className="flex flex-wrap items-center gap-2">
             <button type="button" className={btnGhost} onClick={handleReload} aria-label="Reload">
               <Icon name="refresh" className="text-[16px]" />
               <span>Reload</span>
             </button>
-            <button type="button" className={btnGhost} onClick={handleCopy2xPng} title="Copy canvas at 2× resolution as PNG" aria-label="Copy PNG">
-              <Icon name="content_copy" className="text-[16px]" />
-              <span>Copy PNG</span>
-            </button>
+            {/* Copy format: segment (PNG | SVG) + circular copy button — matches Figma node 55-41 */}
+            <div className="inline-flex h-7 shrink-0 items-center gap-1 rounded-md border border-border-subtle bg-surface-elevated overflow-hidden">
+              <div className="flex h-full">
+                {['png', 'svg'].map((fmt) => (
+                  <button
+                    key={fmt}
+                    type="button"
+                    className={`flex min-w-[36px] items-center justify-center px-2 text-[10px] font-medium uppercase transition-colors border-r border-border-subtle last:border-r-0 ${copyFormat === fmt ? 'bg-accent/15 text-accent' : 'text-text-secondary hover:bg-surface-hover hover:text-text'}`}
+                    aria-pressed={copyFormat === fmt}
+                    aria-label={`Format: ${fmt}`}
+                    onClick={() => setCopyFormat(fmt)}
+                  >
+                    {fmt}
+                  </button>
+                ))}
+              </div>
+              <button
+                type="button"
+                className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-border-subtle bg-surface-elevated text-text-secondary transition-colors hover:border-accent hover:bg-accent/10 hover:text-accent focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/20"
+                title={copyFormat === 'png' ? 'Copy canvas at 2× as PNG' : 'Copy as SVG (canvas embedded as image)'}
+                aria-label={copyFormat === 'png' ? 'Copy PNG' : 'Copy SVG'}
+                onClick={handleCopy}
+              >
+                <Icon name="content_copy" className="text-[14px]" />
+              </button>
+            </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <GroupIcon name="tune" title="Preset" />
@@ -329,10 +586,17 @@ export default function App() {
               id="warp-range"
               className="relative flex w-24 shrink-0 touch-none items-center"
               value={warpGradient.range}
-              onValueChange={([a, b]) => { setPresetIndex(null); setWarpGradient((g) => ({ ...g, range: [a, b] })); }}
+              onValueChange={([a, b]) => {
+                setPresetIndex(null);
+                const snap = gradSteps >= 2;
+                setWarpGradient((g) => ({
+                  ...g,
+                  range: snap ? [snapGradRangeValue(a, gradSteps), snapGradRangeValue(b, gradSteps)] : [a, b],
+                }));
+              }}
               min={0}
               max={100}
-              step={5}
+              step={gradSteps >= 2 ? 100 / gradSteps : 5}
               aria-label="Warp gradient range"
             >
               <Slider.Track className="relative h-1.5 grow rounded-full bg-surface-input">
@@ -356,10 +620,17 @@ export default function App() {
               id="weft-range"
               className="relative flex w-24 shrink-0 touch-none items-center"
               value={weftGradient.range}
-              onValueChange={([a, b]) => { setPresetIndex(null); setWeftGradient((g) => ({ ...g, range: [a, b] })); }}
+              onValueChange={([a, b]) => {
+                setPresetIndex(null);
+                const snap = gradSteps >= 2;
+                setWeftGradient((g) => ({
+                  ...g,
+                  range: snap ? [snapGradRangeValue(a, gradSteps), snapGradRangeValue(b, gradSteps)] : [a, b],
+                }));
+              }}
               min={0}
               max={100}
-              step={5}
+              step={gradSteps >= 2 ? 100 / gradSteps : 5}
               aria-label="Weft gradient range"
             >
               <Slider.Track className="relative h-1.5 grow rounded-full bg-surface-input">
@@ -377,21 +648,16 @@ export default function App() {
             <DirectionSwitch value={weftGradient.direction} onValueChange={(d) => { setPresetIndex(null); setWeftGradient((g) => ({ ...g, direction: d })); }} options={directionOptionsWeft} title="Weft direction" ariaLabel="Weft gradient direction" />
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <GroupIcon name="timeline" title="Ease" />
-            <Label.Root className="text-[10px] text-text-secondary shrink-0">Curve</Label.Root>
-            <AppSelect value={falloffCurve} onValueChange={setFalloffCurve} options={falloffOptions} placeholder="Falloff" title="Warp falloff curve" />
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
             <GroupIcon name="grid_on" title="Resolution" />
             <Label.Root className="sr-only" htmlFor="grid-slider">Tile size</Label.Root>
             <Slider.Root
               id="grid-slider"
               className="relative flex w-20 shrink-0 touch-none select-none items-center"
-              value={[gridSize]}
-              onValueChange={([v]) => setGridSize(v)}
-              min={8}
-              max={64}
-              step={2}
+              value={[getGridSizeIndex(gridSize)]}
+              onValueChange={([i]) => setGridSize(GRID_SNAPS[i])}
+              min={0}
+              max={GRID_SNAPS.length - 1}
+              step={1}
               aria-label={`Grid: ${gridSize} cells`}
             >
               <Slider.Track className="relative h-1.5 grow rounded-full bg-surface-input">
@@ -481,11 +747,102 @@ export default function App() {
             </Slider.Root>
             <span className="w-10 tabular-nums text-[13px] text-text" title="Rect corner radius in cell space">{cornerRadius.toFixed(2)}</span>
           </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <GroupIcon name="auto_awesome" title="Shimmer" />
+            <button
+              type="button"
+              className={`flex h-7 min-w-16 items-center justify-center rounded-md border px-2.5 text-[10px] font-medium transition-colors ${shimmer ? 'border-accent bg-accent/15 text-accent' : 'border-border-subtle bg-surface-input text-text-secondary hover:bg-surface-hover hover:text-text'}`}
+              aria-pressed={shimmer}
+              aria-label="Toggle shimmer effect"
+              onClick={() => setShimmer((s) => !s)}
+            >
+              Shimmer
+            </button>
+            {shimmer && (
+              <>
+                <Label.Root className="sr-only" htmlFor="shimmer-speed">Shimmer speed</Label.Root>
+                <Slider.Root
+                  id="shimmer-speed"
+                  className="relative flex w-16 shrink-0 touch-none items-center"
+                  value={[shimmerSpeed]}
+                  onValueChange={([v]) => setShimmerSpeed(v)}
+                  min={0.2}
+                  max={8}
+                  step={0.2}
+                  aria-label="Shimmer speed"
+                >
+                  <Slider.Track className="relative h-1.5 grow rounded-full bg-surface-input">
+                    <Slider.Range className="absolute h-full rounded-full bg-accent" />
+                  </Slider.Track>
+                  <Slider.Thumb className="block h-4 w-4 rounded-full border border-border bg-surface shadow focus:ring-2 focus:ring-accent/40" />
+                </Slider.Root>
+                <Label.Root className="sr-only" htmlFor="shimmer-width">Shimmer width</Label.Root>
+                <Slider.Root
+                  id="shimmer-width"
+                  className="relative flex w-16 shrink-0 touch-none items-center"
+                  value={[shimmerWidth]}
+                  onValueChange={([v]) => setShimmerWidth(v)}
+                  min={0.5}
+                  max={6}
+                  step={0.25}
+                  aria-label="Shimmer width"
+                >
+                  <Slider.Track className="relative h-1.5 grow rounded-full bg-surface-input">
+                    <Slider.Range className="absolute h-full rounded-full bg-accent" />
+                  </Slider.Track>
+                  <Slider.Thumb className="block h-4 w-4 rounded-full border border-border bg-surface shadow focus:ring-2 focus:ring-accent/40" />
+                </Slider.Root>
+              </>
+            )}
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <GroupIcon name="palette" title="All colorways" />
+            <button
+              type="button"
+              className={`flex h-7 min-w-16 items-center justify-center rounded-md border px-2.5 text-[10px] font-medium transition-colors ${useAllColorways ? 'border-accent bg-accent/15 text-accent' : 'border-border-subtle bg-surface-input text-text-secondary hover:bg-surface-hover hover:text-text'}`}
+              aria-pressed={useAllColorways}
+              aria-label="Use all 4 colorways (randomized per cell)"
+              onClick={() => setUseAllColorways((u) => !u)}
+            >
+              Use all 4 colorways
+            </button>
+            {useAllColorways && (
+              <>
+                <Label.Root className="sr-only" htmlFor="colorway-seed">Colorway seed</Label.Root>
+                <Slider.Root
+                  id="colorway-seed"
+                  className="relative flex w-20 shrink-0 touch-none items-center"
+                  value={[colorwaySeed]}
+                  onValueChange={([v]) => setColorwaySeed(Math.floor(v))}
+                  min={0}
+                  max={100}
+                  step={1}
+                  aria-label="Colorway seed"
+                >
+                  <Slider.Track className="relative h-1.5 grow rounded-full bg-surface-input">
+                    <Slider.Range className="absolute h-full rounded-full bg-accent" />
+                  </Slider.Track>
+                  <Slider.Thumb className="block h-4 w-4 rounded-full border border-border bg-surface shadow focus:ring-2 focus:ring-accent/40" />
+                </Slider.Root>
+                <span className="w-8 tabular-nums text-[13px] text-text">Seed: {colorwaySeed}</span>
+              </>
+            )}
+          </div>
         </div>
-      </aside>
+        </aside>
+        <button
+          type="button"
+          className="flex h-full min-w-6 shrink-0 items-center justify-center border-border-subtle bg-surface-elevated text-text-muted transition-colors hover:bg-surface-hover hover:text-text focus:outline-none focus:ring-1 focus:ring-accent/20"
+          onClick={() => setSidebarOpenPersisted(!sidebarOpen)}
+          aria-label={sidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'}
+          title={sidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'}
+        >
+          <Icon name={sidebarOpen ? 'chevron_left' : 'chevron_right'} className="text-[18px]" />
+        </button>
+      </div>
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         <main className="flex min-h-0 flex-1 items-center justify-center overflow-auto p-4">
-          <ShaderCanvas patternIndex={pattern} palette={palette} bgShade={bgShade} warpShade={warpShade} weftShade={weftShade} gridSize={gridSize} falloffCurve={falloffCurve} warpGradient={warpGradient} weftGradient={weftGradient} gradSteps={gradSteps} rectAspect={rectAspect} cornerRadius={cornerRadius} canvasAspect={canvasAspect} patterns={PATTERNS} onFpsChange={setFps} onCanvasRef={(el) => { canvasRef.current = el; }} />
+          <ShaderCanvas patternIndex={pattern} palette={palette} bgShade={bgShade} warpShade={warpShade} weftShade={weftShade} gridSize={gridSize} warpGradient={warpGradient} weftGradient={weftGradient} gradSteps={gradSteps} rectAspect={rectAspect} cornerRadius={cornerRadius} canvasAspect={canvasAspect} shimmer={shimmer} shimmerSpeed={shimmerSpeed} shimmerWidth={shimmerWidth} useAllColorways={useAllColorways} colorwaySeed={colorwaySeed} patterns={PATTERNS} onFpsChange={setFps} onCanvasRef={(el) => { canvasRef.current = el; }} />
         </main>
 
         <footer className="flex min-h-9 shrink-0 flex-wrap items-center gap-2 border-t border-border-subtle bg-surface-elevated px-3 py-2">
@@ -497,7 +854,6 @@ export default function App() {
         <span className={pill}>Warp: {SHADE_NAMES[warpGradient.startShade]}→{SHADE_NAMES[warpGradient.endShade]}</span>
         <span className={pill}>Weft: {SHADE_NAMES[weftGradient.startShade]}→{SHADE_NAMES[weftGradient.endShade]}</span>
         <span className={pill}>Grid: {gridSize}</span>
-        <span className={pill}>{falloffOptions[falloffCurve]?.label ?? 'Falloff'}</span>
         <span className={pill}>Steps: {gradSteps === 0 ? 'Smooth' : gradSteps}</span>
         <span className={pill}>Canvas: {canvasAspect.toFixed(2)}</span>
         <div className="ml-auto flex items-center gap-2">

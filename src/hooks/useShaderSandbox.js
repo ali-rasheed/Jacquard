@@ -30,11 +30,6 @@ function getUniformLocs(gl, program) {
     warpShade: gl.getUniformLocation(program, 'u_warpShade'),
     weftShade: gl.getUniformLocation(program, 'u_weftShade'),
     gridSize: gl.getUniformLocation(program, 'u_gridSize'),
-    mouse: gl.getUniformLocation(program, 'u_mouse'),
-    mouseRadius: gl.getUniformLocation(program, 'u_mouseRadius'),
-    mouseStrength: gl.getUniformLocation(program, 'u_mouseStrength'),
-    mouseDown: gl.getUniformLocation(program, 'u_mouseDown'),
-    falloffCurve: gl.getUniformLocation(program, 'u_falloffCurve'),
     warpStart: gl.getUniformLocation(program, 'u_warpStart'),
     warpEnd: gl.getUniformLocation(program, 'u_warpEnd'),
     weftStart: gl.getUniformLocation(program, 'u_weftStart'),
@@ -49,6 +44,11 @@ function getUniformLocs(gl, program) {
     revealStartTime: gl.getUniformLocation(program, 'u_revealStartTime'),
     rectAspect: gl.getUniformLocation(program, 'u_rectAspect'),
     cornerRadius: gl.getUniformLocation(program, 'u_cornerRadius'),
+    shimmer: gl.getUniformLocation(program, 'u_shimmer'),
+    shimmerSpeed: gl.getUniformLocation(program, 'u_shimmerSpeed'),
+    shimmerWidth: gl.getUniformLocation(program, 'u_shimmerWidth'),
+    useAllColorways: gl.getUniformLocation(program, 'u_useAllColorways'),
+    colorwaySeed: gl.getUniformLocation(program, 'u_colorwaySeed'),
   };
 }
 
@@ -81,29 +81,23 @@ function createProgram(gl, vertexSource, fragmentSource) {
   return program;
 }
 
-const MOUSE_OFF = 111;
-const MOUSE_RADIUS = 0.44;
-const MOUSE_STRENGTH = 0.2;
-const MOUSE_STRENGTH_RAMP_MS = 1500; // Strength ramps from 0 to full over this many ms while pressed
-
-// ENS palette RGB (0–1), matches shader getPaletteColor. [palette][shade] = [r,g,b]; shade 0–3 = 950,500,100,400.
-const PALETTE_RGB = [
-  [[0.247, 0.114, 0.035], [0.569, 0.294, 0.110], [0.973, 0.969, 0.886], [0.855, 0.725, 0.525]],
-  [[0.322, 0.024, 0.141], [0.941, 0.216, 0.576], [0.984, 0.922, 0.941], [0.988, 0.706, 0.812]],
-  [[0.008, 0.161, 0.231], [0.0, 0.502, 0.737], [0.902, 0.953, 0.973], [0.455, 0.725, 0.875]],
-  [[0.012, 0.188, 0.063], [0.0, 0.486, 0.137], [0.843, 0.914, 0.89], [0.51, 0.816, 0.561]],
+// ENS palette RGBA (0–1), matches shader getPaletteColor. [palette][shade] = [r,g,b,a]; shade 0–4 = 950,500,100,400,Transparent.
+const PALETTE_RGBA = [
+  [[0.247, 0.114, 0.035, 1], [0.569, 0.294, 0.110, 1], [0.973, 0.969, 0.886, 1], [0.855, 0.725, 0.525, 1], [0, 0, 0, 0]],
+  [[0.322, 0.024, 0.141, 1], [0.941, 0.216, 0.576, 1], [0.984, 0.922, 0.941, 1], [0.988, 0.706, 0.812, 1], [0, 0, 0, 0]],
+  [[0.008, 0.161, 0.231, 1], [0.0, 0.502, 0.737, 1], [0.902, 0.953, 0.973, 1], [0.455, 0.725, 0.875, 1], [0, 0, 0, 0]],
+  [[0.012, 0.188, 0.063, 1], [0.0, 0.486, 0.137, 1], [0.843, 0.914, 0.89, 1], [0.51, 0.816, 0.561, 1], [0, 0, 0, 0]],
 ];
 
 function getPaletteColor(paletteIndex, shadeIndex) {
   const p = Math.max(0, Math.min(3, Math.floor(paletteIndex)));
-  const s = Math.max(0, Math.min(3, Math.floor(shadeIndex)));
-  return PALETTE_RGB[p][s];
+  const s = Math.max(0, Math.min(4, Math.floor(shadeIndex)));
+  return PALETTE_RGBA[p][s];
 }
 
-export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, palette, bgShade, warpShade, weftShade, gridSize, falloffCurve, warpGradient, weftGradient, gradSteps, rectAspect, cornerRadius, patterns, onFpsChange) {
+export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, palette, bgShade, warpShade, weftShade, gridSize, warpGradient, weftGradient, gradSteps, rectAspect, cornerRadius, shimmer, shimmerSpeed, shimmerWidth, useAllColorways, colorwaySeed, patterns, onFpsChange) {
   const canvasRef = useRef(null);
   const containerRef = useRef(null);
-  const mouseRef = useRef({ x: MOUSE_OFF, y: MOUSE_OFF, down: 0, pressStartTime: 0 });
   const vertexSourceRef = useRef(vertexSource);
   const fragmentSourceRef = useRef(fragmentSource);
   const recompileRef = useRef(null);
@@ -128,20 +122,28 @@ export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, pal
   const warpShadeRef = useRef(warpShade);
   const weftShadeRef = useRef(weftShade);
   const gridSizeRef = useRef(gridSize);
-  const falloffCurveRef = useRef(falloffCurve);
   const gradStepsRef = useRef(gradSteps);
   const rectAspectRef = useRef(rectAspect);
   const cornerRadiusRef = useRef(cornerRadius);
+  const shimmerRef = useRef(shimmer);
+  const shimmerSpeedRef = useRef(shimmerSpeed);
+  const shimmerWidthRef = useRef(shimmerWidth);
+  const useAllColorwaysRef = useRef(useAllColorways);
+  const colorwaySeedRef = useRef(colorwaySeed);
   patternIndexRef.current = patternIndex;
   paletteRef.current = palette;
   bgShadeRef.current = bgShade;
   warpShadeRef.current = warpShade;
   weftShadeRef.current = weftShade;
   gridSizeRef.current = gridSize;
-  falloffCurveRef.current = falloffCurve;
   gradStepsRef.current = gradSteps ?? 0;
   rectAspectRef.current = rectAspect ?? RECT_ASPECT_DEFAULT;
   cornerRadiusRef.current = cornerRadius ?? 0.18;
+  shimmerRef.current = shimmer ?? 0;
+  shimmerSpeedRef.current = shimmerSpeed ?? 2.0;
+  shimmerWidthRef.current = shimmerWidth ?? 2.0;
+  useAllColorwaysRef.current = useAllColorways ?? 0;
+  colorwaySeedRef.current = colorwaySeed ?? 0;
 
   useEffect(() => {
     onFpsChangeRef.current?.(fps);
@@ -152,7 +154,7 @@ export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, pal
     const container = containerRef.current;
     if (!canvas || !container) return;
 
-    const gl = canvas.getContext('webgl', { preserveDrawingBuffer: true }) || canvas.getContext('experimental-webgl', { preserveDrawingBuffer: true });
+    const gl = canvas.getContext('webgl', { alpha: true, preserveDrawingBuffer: true }) || canvas.getContext('experimental-webgl', { alpha: true, preserveDrawingBuffer: true });
     if (!gl) {
       setError('WebGL is not supported');
       return;
@@ -164,7 +166,6 @@ export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, pal
     let positionBuffer = null;
     let patternTexture = null;
     let animationId = null;
-    let mouseHandlers = null;
     let resizeObserver = null;
     let startTime = Date.now();
     let lastFrameTime = Date.now();
@@ -223,15 +224,6 @@ export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, pal
       gl.uniform1f(uniformLocs.warpShade, warpShadeRef.current);
       gl.uniform1f(uniformLocs.weftShade, weftShadeRef.current);
       gl.uniform1f(uniformLocs.gridSize, gridSizeRef.current);
-      const mx = mouseRef.current.x;
-      const my = mouseRef.current.y;
-      const down = mouseRef.current.down;
-      const ramp = down ? Math.min(1, (Date.now() - mouseRef.current.pressStartTime) / MOUSE_STRENGTH_RAMP_MS) : 0;
-      gl.uniform2f(uniformLocs.mouse, mx, my);
-      gl.uniform1f(uniformLocs.mouseRadius, MOUSE_RADIUS);
-      gl.uniform1f(uniformLocs.mouseStrength, MOUSE_STRENGTH * ramp);
-      gl.uniform1f(uniformLocs.mouseDown, down);
-      gl.uniform1f(uniformLocs.falloffCurve, falloffCurveRef.current);
 
       const wg = warpGradientRef.current || { startShade: warpShade, endShade: warpShade, direction: 0, range: [0, 100] };
       const wf = weftGradientRef.current || { startShade: weftShade, endShade: weftShade, direction: 0, range: [0, 100] };
@@ -239,10 +231,10 @@ export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, pal
       const warpEnd = getPaletteColor(palette, wg.endShade);
       const weftStart = getPaletteColor(palette, wf.startShade);
       const weftEnd = getPaletteColor(palette, wf.endShade);
-      gl.uniform3f(uniformLocs.warpStart, warpStart[0], warpStart[1], warpStart[2]);
-      gl.uniform3f(uniformLocs.warpEnd, warpEnd[0], warpEnd[1], warpEnd[2]);
-      gl.uniform3f(uniformLocs.weftStart, weftStart[0], weftStart[1], weftStart[2]);
-      gl.uniform3f(uniformLocs.weftEnd, weftEnd[0], weftEnd[1], weftEnd[2]);
+      gl.uniform4f(uniformLocs.warpStart, warpStart[0], warpStart[1], warpStart[2], warpStart[3]);
+      gl.uniform4f(uniformLocs.warpEnd, warpEnd[0], warpEnd[1], warpEnd[2], warpEnd[3]);
+      gl.uniform4f(uniformLocs.weftStart, weftStart[0], weftStart[1], weftStart[2], weftStart[3]);
+      gl.uniform4f(uniformLocs.weftEnd, weftEnd[0], weftEnd[1], weftEnd[2], weftEnd[3]);
       gl.uniform1f(uniformLocs.warpDir, wg.direction || 0);
       gl.uniform1f(uniformLocs.weftDir, wf.direction || 0);
       const wr = wg.range && wg.range.length === 2 ? wg.range : [0, 100];
@@ -255,8 +247,13 @@ export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, pal
       gl.uniform1f(uniformLocs.revealStartTime, revealStartTime);
       gl.uniform1f(uniformLocs.rectAspect, rectAspectRef.current);
       gl.uniform1f(uniformLocs.cornerRadius, cornerRadiusRef.current);
+      if (uniformLocs.shimmer != null) gl.uniform1f(uniformLocs.shimmer, shimmerRef.current);
+      if (uniformLocs.shimmerSpeed != null) gl.uniform1f(uniformLocs.shimmerSpeed, shimmerSpeedRef.current);
+      if (uniformLocs.shimmerWidth != null) gl.uniform1f(uniformLocs.shimmerWidth, shimmerWidthRef.current);
+      if (uniformLocs.useAllColorways != null) gl.uniform1f(uniformLocs.useAllColorways, useAllColorwaysRef.current);
+      if (uniformLocs.colorwaySeed != null) gl.uniform1f(uniformLocs.colorwaySeed, colorwaySeedRef.current);
 
-      gl.clearColor(0, 0, 0, 1);
+      gl.clearColor(0, 0, 0, 0);
       gl.clear(gl.COLOR_BUFFER_BIT);
       gl.drawArrays(gl.TRIANGLES, 0, 6);
 
@@ -294,39 +291,6 @@ export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, pal
         }
       };
 
-      // Quantize mouse to grid cell center so warp effect snaps to cells (matches shader gridUV = uv * gridSize).
-      const updateMouse = (e) => {
-        const rect = container.getBoundingClientRect();
-        const aspect = rect.width / rect.height;
-        let x = ((e.clientX - rect.left) / rect.width) * aspect;
-        let y = 1.0 - (e.clientY - rect.top) / rect.height;
-        const g = Math.max(2, Math.min(64, gridSizeRef.current));
-        const cellX = Math.floor(x * g);
-        const cellY = Math.floor(y * g);
-        mouseRef.current.x = (cellX + 0.5) / g;
-        mouseRef.current.y = (cellY + 0.5) / g;
-      };
-      const onMouseMove = (e) => {
-        updateMouse(e);
-      };
-      const onMouseDown = (e) => {
-        if (!mouseRef.current.down) mouseRef.current.pressStartTime = Date.now();
-        mouseRef.current.down = 1;
-        updateMouse(e);
-      };
-      const onMouseUp = () => {
-        mouseRef.current.down = 0;
-      };
-      const onMouseLeave = () => {
-        mouseRef.current.down = 0;
-        mouseRef.current.x = MOUSE_OFF;
-        mouseRef.current.y = MOUSE_OFF;
-      };
-      mouseHandlers = { onMouseMove, onMouseDown, onMouseUp, onMouseLeave };
-      container.addEventListener('mousemove', mouseHandlers.onMouseMove);
-      container.addEventListener('mousedown', mouseHandlers.onMouseDown);
-      window.addEventListener('mouseup', mouseHandlers.onMouseUp);
-      container.addEventListener('mouseleave', mouseHandlers.onMouseLeave);
       const { data: texData, width: texW, height: texH } = buildPatternTexture(list);
       patternTexHeight = texH;
       patternTexture = gl.createTexture();
@@ -361,12 +325,6 @@ export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, pal
         } catch { /* noop */ }
       }
       window.removeEventListener('resize', resize);
-      if (mouseHandlers) {
-        window.removeEventListener('mouseup', mouseHandlers.onMouseUp);
-        container.removeEventListener('mousemove', mouseHandlers.onMouseMove);
-        container.removeEventListener('mousedown', mouseHandlers.onMouseDown);
-        container.removeEventListener('mouseleave', mouseHandlers.onMouseLeave);
-      }
       if (animationId) cancelAnimationFrame(animationId);
       if (patternTexture) gl.deleteTexture(patternTexture);
       if (program) gl.deleteProgram(program);
@@ -389,4 +347,3 @@ export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, pal
 
   return { canvasRef, containerRef, error, fps };
 }
-

@@ -10,7 +10,7 @@ import { ImageRectsCanvas } from './components/ImageRectsCanvas';
 import { PATTERNS } from './patterns';
 
 const PALETTE_NAMES = ['Citrine', 'Garnet', 'Lapis', 'Peridot'];
-const SHADE_NAMES = ['950', '500', '100', '400'];
+const SHADE_NAMES = ['950', '500', '100', '400', 'Transparent'];
 
 const btnGhost =
   'inline-flex h-7 items-center gap-1.5 rounded-md border border-border-subtle bg-transparent px-2.5 py-1 text-[13px] font-medium text-text-secondary outline-none transition-colors hover:border-border hover:bg-surface-hover hover:text-text focus:border-accent focus:outline-none';

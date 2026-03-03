@@ -32,33 +32,34 @@ float getPatternFromTexture(float row, float col) {
 }
 
 // --- ENS COLOR PICK (from original fragment.glsl) ---
-// Palette 0–3 = Citrine, Garnet, Lapis, Peridot. Shade 0–3 = 950, 500, 100, 400 (Figma tokens).
-vec3 getPaletteColor(float palette, float shade) {
+// Palette 0–3 = Citrine, Garnet, Lapis, Peridot. Shade 0–4 = 950, 500, 100, 400, Transparent.
+vec4 getPaletteColor(float palette, float shade) {
   int p = int(mod(floor(palette + 0.01), 4.0));
-  int s = int(mod(floor(shade + 0.01), 4.0));
+  int s = int(mod(floor(shade + 0.01), 5.0));
+  if (s == 4) return vec4(0.0, 0.0, 0.0, 0.0);  // Transparent
   if (p == 0) { // Citrine
-    if (s == 0) return vec3(0.247, 0.114, 0.035);   // 950
-    if (s == 1) return vec3(0.569, 0.294, 0.110);     // 500 #914B1C
-    if (s == 2) return vec3(0.973, 0.969, 0.886);   // 100
-    return vec3(0.855, 0.725, 0.525);               // 400
+    if (s == 0) return vec4(0.247, 0.114, 0.035, 1.0);   // 950
+    if (s == 1) return vec4(0.569, 0.294, 0.110, 1.0);   // 500 #914B1C
+    if (s == 2) return vec4(0.973, 0.969, 0.886, 1.0);   // 100
+    return vec4(0.855, 0.725, 0.525, 1.0);               // 400
   }
   if (p == 1) { // Garnet
-    if (s == 0) return vec3(0.322, 0.024, 0.141);   // 950
-    if (s == 1) return vec3(0.941, 0.216, 0.576);   // 500
-    if (s == 2) return vec3(0.984, 0.922, 0.941);   // 100
-    return vec3(0.988, 0.706, 0.812);               // 400
+    if (s == 0) return vec4(0.322, 0.024, 0.141, 1.0);   // 950
+    if (s == 1) return vec4(0.941, 0.216, 0.576, 1.0);   // 500
+    if (s == 2) return vec4(0.984, 0.922, 0.941, 1.0);   // 100
+    return vec4(0.988, 0.706, 0.812, 1.0);               // 400
   }
   if (p == 2) { // Lapis
-    if (s == 0) return vec3(0.008, 0.161, 0.231);   // 950
-    if (s == 1) return vec3(0.0, 0.502, 0.737);    // 500
-    if (s == 2) return vec3(0.902, 0.953, 0.973);   // 100
-    return vec3(0.455, 0.725, 0.875);               // 400
+    if (s == 0) return vec4(0.008, 0.161, 0.231, 1.0);   // 950
+    if (s == 1) return vec4(0.0, 0.502, 0.737, 1.0);    // 500
+    if (s == 2) return vec4(0.902, 0.953, 0.973, 1.0);   // 100
+    return vec4(0.455, 0.725, 0.875, 1.0);               // 400
   }
   // Peridot
-  if (s == 0) return vec3(0.012, 0.188, 0.063);   // 950
-  if (s == 1) return vec3(0.0, 0.486, 0.137);    // 500
-  if (s == 2) return vec3(0.843, 0.914, 0.890);   // 100
-  return vec3(0.51, 0.816, 0.561);                 // 400
+  if (s == 0) return vec4(0.012, 0.188, 0.063, 1.0);   // 950
+  if (s == 1) return vec4(0.0, 0.486, 0.137, 1.0);    // 500
+  if (s == 2) return vec4(0.843, 0.914, 0.890, 1.0);   // 100
+  return vec4(0.51, 0.816, 0.561, 1.0);                 // 400
 }
 
 // --- ROUNDED RECTANGLE SDF (from original fragment.glsl) ---
@@ -95,9 +96,9 @@ void main() {
   vec3 quantized = quantize(sampled, u_quantizeSteps);
 
   // --- RECT COLOR: colorization (quantized image RGB) vs brand (palette shade from color / warp / weft) ---
-  vec3 rectColor;
+  vec4 rectVec;
   if (u_colorizeMode > 0.5) {
-    rectColor = quantized;
+    rectVec = vec4(quantized, 1.0);
   } else {
     float shade;
     // Match v1: warp = vertical (height / Y), weft = horizontal (width / X). Same formulas as fragment.glsl.
@@ -105,16 +106,16 @@ void main() {
     float weftT = fract(cellID.x / gridSize);   // weft along X (width)
     if (u_shadeFrom < 0.5) {
       float lum = dot(quantized, vec3(0.2126, 0.7152, 0.0722));
-      shade = clamp(floor(lum * 4.0), 0.0, 3.0);
+      shade = clamp(floor(lum * 5.0), 0.0, 4.0);  // 0-4 incl. Transparent
     } else if (u_shadeFrom < 1.5) {
-      shade = clamp(floor(warpT * 4.0), 0.0, 3.0);
+      shade = clamp(floor(warpT * 5.0), 0.0, 4.0);
     } else if (u_shadeFrom < 2.5) {
-      shade = clamp(floor(weftT * 4.0), 0.0, 3.0);
+      shade = clamp(floor(weftT * 5.0), 0.0, 4.0);
     } else {
       float t = (warpT + weftT) * 0.5;
-      shade = clamp(floor(t * 4.0), 0.0, 3.0);
+      shade = clamp(floor(t * 5.0), 0.0, 4.0);
     }
-    rectColor = getPaletteColor(u_palette, shade);
+    rectVec = getPaletteColor(u_palette, shade);
   }
 
   // --- ROUNDED RECT: orient by weave (same as v1) ---
@@ -128,7 +129,8 @@ void main() {
   float d = roundedRect(p, halfSize, cornerRadius);
   float cell = 1.0 - smoothstep(0.0, 0.01, d);
 
-  // --- COLORING (same as original: palette + bg shade for background) ---
-  vec3 bgColor = getPaletteColor(u_palette, u_bgShade);
-  gl_FragColor = vec4(mix(bgColor, rectColor, cell), 1.0);
+  // --- COLORING (same as original: palette + bg shade for background). Supports transparent. ---
+  vec4 bgVec = getPaletteColor(u_palette, u_bgShade);
+  vec4 inRectVec = rectVec.a > 0.001 ? rectVec : vec4(bgVec.rgb, 1.0);
+  gl_FragColor = mix(bgVec, inRectVec, cell);
 }

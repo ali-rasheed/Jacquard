@@ -4,3 +4,8 @@ dist
 
 # Local Netlify folder
 .netlify
+
+# agent-worklog (shared log + per-worktree state; see bin/agent-worklog, AGENTS.md)
+/.agent-worklog.jsonl
+/.agent-worklog.jsonl.lock
+/.agent-worklog-state.json

@@ -1,4 +1,4 @@
-// Weaving draft fragment shader — grid of warp/weft rounded rects, palette colors, gradients, mouse warp, reveal animation.
+// Weaving draft fragment shader — grid of warp/weft rounded rects, palette colors, gradients, reveal animation.
 // WebGL 1 / GLSL ES 1.00. Uniforms set from useShaderSandbox; pattern data from src/patterns/index.js.
 precision mediump float;
 
@@ -20,11 +20,11 @@ uniform float u_warpShade;
 uniform float u_weftShade;
 uniform float u_gridSize;         // Cells along vertical axis (8–64); higher = finer grid
 
-// Warp/weft 2-stop gradients: start/end RGB, direction (0 or 1), range (startPos..endPos in 0..1)
-uniform vec3 u_warpStart;
-uniform vec3 u_warpEnd;
-uniform vec3 u_weftStart;
-uniform vec3 u_weftEnd;
+// Warp/weft 2-stop gradients: start/end RGBA, direction (0 or 1), range (startPos..endPos in 0..1)
+uniform vec4 u_warpStart;
+uniform vec4 u_warpEnd;
+uniform vec4 u_weftStart;
+uniform vec4 u_weftEnd;
 uniform float u_warpDir;
 uniform float u_weftDir;
 uniform float u_warpStartPos;
@@ -33,12 +33,14 @@ uniform float u_weftStartPos;
 uniform float u_weftEndPos;
 uniform float u_gradSteps;        // 0 or 1 = smooth; >= 2 = discrete bands
 
-// Mouse interaction: position (0..1), radius, strength, down (0/1), falloff curve (0–3)
-uniform vec2 u_mouse;
-uniform float u_mouseRadius;
-uniform float u_mouseStrength;
-uniform float u_mouseDown;
-uniform float u_falloffCurve;
+// Shimmer: 0 = off, 1 = on. Optional: speed (time scale), width (band size in cells).
+uniform float u_shimmer;
+uniform float u_shimmerSpeed;
+uniform float u_shimmerWidth;
+
+// All 4 colorways: 0 = single u_palette, 1 = per-cell palette from u_colorwaySeed hash (mod 4).
+uniform float u_useAllColorways;
+uniform float u_colorwaySeed;
 
 // Reveal animation: time when current wave started (resets on pattern change)
 uniform float u_revealStartTime;
@@ -112,39 +114,45 @@ float getPatternFromTexture(float row, float col) {
 }
 
 // --- ENS COLOR PICK (colorway + shade) ---
-// Palette 0–3 = Citrine, Garnet, Lapis, Peridot. Shade 0–3 = 950, 500, 100, 400 (Figma tokens).
-// Returns sRGB vec3 for the given palette and shade so we can pick warp/weft/bg independently.
-vec3 getPaletteColor(float palette, float shade) {
+// Palette 0–3 = Citrine, Garnet, Lapis, Peridot. Shade 0–4 = 950, 500, 100, 400, Transparent.
+// Returns sRGB vec4 for the given palette and shade; alpha=0 for Transparent.
+vec4 getPaletteColor(float palette, float shade) {
     int p = int(mod(floor(palette + 0.01), 4.0));
-    int s = int(mod(floor(shade + 0.01), 4.0));
+    int s = int(mod(floor(shade + 0.01), 5.0));
+    if (s == 4) return vec4(0.0, 0.0, 0.0, 0.0);  // Transparent
     if (p == 0) { // Citrine
-        if (s == 0) return vec3(0.247, 0.114, 0.035);   // 950
-        if (s == 1) return vec3(0.569, 0.294, 0.110);     // 500 #914B1C
-        if (s == 2) return vec3(0.973, 0.969, 0.886);   // 100
-        return vec3(0.855, 0.725, 0.525);               // 400
+        if (s == 0) return vec4(0.247, 0.114, 0.035, 1.0);   // 950
+        if (s == 1) return vec4(0.569, 0.294, 0.110, 1.0);   // 500 
+        if (s == 2) return vec4(0.973, 0.969, 0.886, 1.0);   // 100
+        return vec4(0.855, 0.725, 0.525, 1.0);               // 400
     }
     if (p == 1) { // Garnet
-        if (s == 0) return vec3(0.322, 0.024, 0.141);   // 950
-        if (s == 1) return vec3(0.941, 0.216, 0.576);  // 500
-        if (s == 2) return vec3(0.984, 0.922, 0.941);   // 100
-        return vec3(0.988, 0.706, 0.812);               // 400
+        if (s == 0) return vec4(0.322, 0.024, 0.141, 1.0);   // 950
+        if (s == 1) return vec4(0.941, 0.216, 0.576, 1.0);  // 500
+        if (s == 2) return vec4(0.984, 0.922, 0.941, 1.0);  // 100
+        return vec4(0.988, 0.706, 0.812, 1.0);               // 400
     }
     if (p == 2) { // Lapis
-        if (s == 0) return vec3(0.008, 0.161, 0.231);   // 950
-        if (s == 1) return vec3(0.0, 0.502, 0.737);   // 500
-        if (s == 2) return vec3(0.902, 0.953, 0.973);  // 100
-        return vec3(0.455, 0.725, 0.875);               // 400
+        if (s == 0) return vec4(0.008, 0.161, 0.231, 1.0);   // 950
+        if (s == 1) return vec4(0.0, 0.502, 0.737, 1.0);     // 500
+        if (s == 2) return vec4(0.902, 0.953, 0.973, 1.0);   // 100
+        return vec4(0.455, 0.725, 0.875, 1.0);               // 400
     }
     // Peridot
-    if (s == 0) return vec3(0.012, 0.188, 0.063);   // 950
-    if (s == 1) return vec3(0.0, 0.486, 0.137);    // 500
-    if (s == 2) return vec3(0.843, 0.914, 0.890);  // 100
-    return vec3(0.51, 0.816, 0.561);                 // 400
+    if (s == 0) return vec4(0.012, 0.188, 0.063, 1.0);   // 950
+    if (s == 1) return vec4(0.0, 0.486, 0.137, 1.0);      // 500
+    if (s == 2) return vec4(0.843, 0.914, 0.890, 1.0);   // 100
+    return vec4(0.51, 0.816, 0.561, 1.0);                 // 400
 }
 
-.// 2-stop gradient: t in [0,1], direction flips t, range maps to startPos..endPos.
+// Hash for deterministic per-cell palette when u_useAllColorways is on.
+float hash(vec2 p) {
+  return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+}
+
+// 2-stop gradient: t in [0,1], direction flips t, range maps to startPos..endPos.
 // u_gradSteps: 0 or 1 = smooth; >= 2 = discrete bands (gradation steps).
-vec3 sampleGradient2(vec3 startColor, vec3 endColor, float dir, float startPos, float endPos, float tRaw) {
+vec4 sampleGradient2(vec4 startColor, vec4 endColor, float dir, float startPos, float endPos, float tRaw) {
     float t = (dir > 0.5) ? (1.0 - tRaw) : tRaw;
     float span = endPos - startPos;
     float tGrad = (span < 0.001) ? 0.5 : clamp((t - startPos) / span, 0.0, 1.0);
@@ -163,26 +171,6 @@ void main() {
     // Correct for aspect ratio so grid cells are square
     float aspect = u_resolution.x / u_resolution.y;
     uv.x *= aspect;
-
-    // --- FABRIC WARP (finger-on-taut-cloth) ---
-    // Displace UV toward mouse so the grid appears to sink under the press.
-    // Raw falloff 0..1 from distance; u_falloffCurve: 0=linear, 1=ease, 2=ease-in, 3=ease-out.
-    vec2 toMouse = u_mouse - uv;
-    float dist = length(toMouse);
-    float raw = 1.0 - smoothstep(0.0, u_mouseRadius, dist);
-    float t = clamp(raw, 0.0, 1.0);
-    float falloff;
-    if (u_falloffCurve < 0.5) {
-      falloff = t;
-    } else if (u_falloffCurve < 1.5) {
-      falloff = t * t * (3.0 - 2.0 * t);
-    } else if (u_falloffCurve < 2.5) {
-      falloff = t * t;
-    } else {
-      falloff = 1.0 - (1.0 - t) * (1.0 - t);
-    }
-    falloff *= u_mouseStrength * u_mouseDown;
-    uv += toMouse * falloff;
 
     // Scale: u_gridSize = number of cells along the vertical axis (8–64).
     // Higher = smaller tiles (finer weave), lower = larger tiles.
@@ -215,15 +203,24 @@ void main() {
     float cell = 1.0 - smoothstep(-edge, edge, d);
 
     // --- COLORING ---
-    vec3 bgColor = getPaletteColor(u_palette, u_bgShade);
-    // Snap gradient params to cell indices so quantization aligns with atomic grid units (one color per cell)
+    vec4 bgVec = getPaletteColor(u_palette, u_bgShade);
     float numCellsY = gridSize;
     float numCellsX = gridSize * aspect;
     float tWarp = cellID.y / max(numCellsY - 1.0, 1.0);
     float tWeft = cellID.x / max(numCellsX - 1.0, 1.0);
-    vec3 warpColor = sampleGradient2(u_warpStart, u_warpEnd, u_warpDir, u_warpStartPos, u_warpEndPos, tWarp);
-    vec3 weftColor = sampleGradient2(u_weftStart, u_weftEnd, u_weftDir, u_weftStartPos, u_weftEndPos, tWeft);
-    vec3 threadColor = mix(warpColor, weftColor, isWeft);
+    vec4 warpColor;
+    vec4 weftColor;
+    if (u_useAllColorways > 0.5) {
+      float cellPalette = mod(floor(hash(cellID + vec2(u_colorwaySeed, 0.0)) * 4.0), 4.0);
+      warpColor = getPaletteColor(cellPalette, u_warpShade);
+      weftColor = getPaletteColor(cellPalette, u_weftShade);
+    } else {
+      warpColor = sampleGradient2(u_warpStart, u_warpEnd, u_warpDir, u_warpStartPos, u_warpEndPos, tWarp);
+      weftColor = sampleGradient2(u_weftStart, u_weftEnd, u_weftDir, u_weftStartPos, u_weftEndPos, tWeft);
+    }
+    vec4 threadVec = mix(warpColor, weftColor, isWeft);
+    // Transparent thread (alpha=0) shows background through
+    vec4 inRectVec = threadVec.a > 0.001 ? threadVec : vec4(bgVec.rgb, 1.0);
 
     // --- ANIMATION ---
     // Weave-in reveal: diagonal wave on load and when pattern changes (u_revealStartTime resets in JS).
@@ -234,7 +231,16 @@ void main() {
 
     cell *= reveal;
 
-    // Output: background where no rect; thread color inside rect (masked by cell)
-    vec3 color = mix(bgColor, threadColor, cell);
-    gl_FragColor = vec4(color, 1.0);
+    vec4 outColor = mix(bgVec, inRectVec, cell);
+
+    // Shimmer: time-based highlight band when u_shimmer > 0 (speed and width optional).
+    if (u_shimmer > 0.5) {
+      float speed = max(0.001, u_shimmerSpeed);
+      float width = max(0.01, u_shimmerWidth);
+      float phase = (cellID.x + cellID.y) - u_time * speed;
+      float band = 1.0 - smoothstep(0.0, width, abs(phase));
+      outColor.rgb += band * 0.25;
+    }
+
+    gl_FragColor = outColor;
 }

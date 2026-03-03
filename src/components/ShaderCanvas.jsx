@@ -11,7 +11,7 @@ import vertexSource from '../shaders/vertex.glsl?raw';
 /** Default rect aspect 36×40. Must match App.jsx RECT_ASPECT_DEFAULT. */
 const RECT_ASPECT_DEFAULT = 36 / 40;
 
-function ShaderCanvasInner({ patternIndex, palette, bgShade, warpShade, weftShade, gridSize, falloffCurve, warpGradient, weftGradient, gradSteps, rectAspect, cornerRadius = 0.18, canvasAspect = 1, patterns, onFpsChange, onCanvasRef }) {
+function ShaderCanvasInner({ patternIndex, palette, bgShade, warpShade, weftShade, gridSize, warpGradient, weftGradient, gradSteps, rectAspect, cornerRadius = 0.18, canvasAspect = 1, shimmer = false, shimmerSpeed = 2, shimmerWidth = 2, useAllColorways = false, colorwaySeed = 0, patterns, onFpsChange, onCanvasRef }) {
   const { canvasRef, containerRef, error, fps } = useShaderSandbox(
     vertexSource,
     fragmentSource,
@@ -21,12 +21,16 @@ function ShaderCanvasInner({ patternIndex, palette, bgShade, warpShade, weftShad
     warpShade ?? 1,
     weftShade ?? 3,
     gridSize ?? 32,
-    falloffCurve ?? 0,
     warpGradient ?? null,
     weftGradient ?? null,
     gradSteps ?? 0,
     rectAspect ?? RECT_ASPECT_DEFAULT,
     cornerRadius ?? 0.18,
+    shimmer ? 1 : 0,
+    shimmerSpeed ?? 2,
+    shimmerWidth ?? 2,
+    useAllColorways ? 1 : 0,
+    colorwaySeed ?? 0,
     patterns ?? [],
     onFpsChange
   );
