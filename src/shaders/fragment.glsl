@@ -33,12 +33,13 @@ uniform float u_weftStartPos;
 uniform float u_weftEndPos;
 uniform float u_gradSteps;        // 0 or 1 = smooth; >= 2 = discrete bands
 
-// Shimmer: 0 = off, 1 = on. Optional: speed, width (cells), intensity (highlight strength), position (0–1 phase offset).
+// Shimmer: 0 = off, 1 = on. Optional: speed, width (cells), intensity, position (0–1 phase), rotation (0–1 = 0–2π rad).
 uniform float u_shimmer;
 uniform float u_shimmerSpeed;
 uniform float u_shimmerWidth;
 uniform float u_shimmerIntensity;
 uniform float u_shimmerPosition;
+uniform float u_shimmerRotation;
 
 // All 4 colorways: 0 = single u_palette, 1 = per-cell palette from u_colorwaySeed hash (mod 4).
 uniform float u_useAllColorways;
@@ -236,15 +237,19 @@ void main() {
 
     vec4 outColor = mix(bgVec, inRectVec, cell);
 
-    // Shimmer: looping highlight band along diagonal. Period = one full diagonal; band wraps.
+    // Shimmer: looping highlight band; direction = u_shimmerRotation (0–1 → 0–2π). Period = grid extent along that direction.
     if (u_shimmer > 0.5) {
       float speed = max(0.001, u_shimmerSpeed);
       float width = max(0.01, u_shimmerWidth);
-      float period = gridSize * (1.0 + aspect);
+      float angle = u_shimmerRotation * 6.28318530718; // 0–1 → 0–2π
+      float cosA = cos(angle);
+      float sinA = sin(angle);
+      float period = gridSize * (aspect * abs(cosA) + abs(sinA));
+      period = max(period, 1.0);
       float positionOffset = u_shimmerPosition * period;
       float bandCenter = mod(u_time * speed + positionOffset, period);
-      float diag = cellID.x + cellID.y;
-      float phase = mod(diag - bandCenter + 0.5 * period, period) - 0.5 * period;
+      float along = cellID.x * cosA + cellID.y * sinA;
+      float phase = mod(along - bandCenter + 0.5 * period, period) - 0.5 * period;
       float d = abs(phase);
       float band = 1.0 - smoothstep(0.0, width, d);
       outColor.rgb += band * u_shimmerIntensity;

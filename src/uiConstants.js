@@ -18,6 +18,8 @@ export const typeValue = 'text-[13px] tabular-nums text-text';
 export const typeCaption = 'text-[10px] text-text-secondary';
 /** FPS pill in ShaderCanvas / ImageRectsCanvas (replaces hardcoded text-[12px]). */
 export const typeFps = 'text-[12px]';
+/** Visible control labels: never crop (shrink-0 + nowrap). Use with typeCaption or typeValue. */
+export const controlLabel = 'shrink-0 whitespace-nowrap';
 
 export const iconSm = 'text-[14px]';
 export const iconMd = 'text-[16px]';

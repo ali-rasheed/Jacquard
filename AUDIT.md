@@ -1,28 +1,35 @@
-# Shader Sandbox — Audit of Recent Changes
+# Shader Sandbox — Quick re-audit
 
-**Scope:** Weaving + Image Rects UI, shader rect aspect, shimmer, recording, type scale, sidebar groups, palette swatches.
+**Scope:** Weaving + Image Rects UI, a11y, labels, shimmer, shared constants.
 
-## Summary
+## Current state (re-audit)
 
 - **Lint:** No ESLint errors in `src/`.
-- **Shader:** `fragment.glsl` rect aspect clamped 0.3–1.0; comments match intent.
-- **A11y:** Palette swatches and controls have `aria-label` / `aria-pressed` / `role="group"` where appropriate.
+- **Build:** `npm run check` and `npm run build` pass.
 
-## Findings to Fix
+### Labels & cropping
+- **Shared:** `uiConstants.js` has `controlLabel` (`shrink-0 whitespace-nowrap`) for visible labels so they don’t crop.
+- **Value spans:** Use `shrink-0 min-w-*` (e.g. `min-w-8`, `min-w-10`, `min-w-12`, `min-w-16`) instead of fixed `w-*`; "Smooth", "off", numbers no longer clip.
+- **Sidebars:** `overflow-x-auto` so wide content scrolls instead of clipping.
 
-1. **Duplication — type scale & palette**
-   - `PALETTE_SWATCH_COLORS`, `typeXs`/`typeSm`/`typeBase`/`typeLabel`/`typeControl`/`typeValue`/`typeCaption`, `sidebarGroup`/`sidebarGroupTitle`, and related button/select/pill classes are duplicated between `src/App.jsx` and `src/AppV2.jsx`.
-   - **Action:** Extract shared UI constants (and optionally palette) to e.g. `src/uiConstants.js` and import in both. Keep changes minimal; avoid large refactors.
+### Semantic labels (a11y)
+- **Preset:** `id="preset-select"` + sr-only `Label.Root` + `aria-label` on trigger.
+- **AppSelect (both apps):** Optional `id` + `labelText`; when set, sr-only label and trigger `id` are used. Weave, shades, gradient start/end, colorize mode, etc. all have ids/labels.
+- **Sliders:** Each has `Label.Root` with `htmlFor`, `Slider.Root` with matching `id`, and `aria-label`.
+- **Buttons:** All have `aria-label` (and `title` where useful); toggles use `aria-pressed`.
+- **Sidebars:** `aria-label="Weaving controls"` and `aria-label="Image Rects controls"`.
+- **Decorative value readouts:** `aria-hidden` so only the control is announced.
 
-2. **FPS pill typography**
-   - `ShaderCanvas.jsx` (line 47) and `ImageRectsCanvas.jsx` (line 35) use hardcoded `text-[12px]` for the FPS pill.
-   - **Action:** Use a shared token (e.g. pass a small type class from parent or define a single constant in a shared file). If extracting `uiConstants.js`, add e.g. `typeFps = 'text-[12px]'` and use it in both canvas components.
+### Shimmer
+- **Rotation:** Uniform `u_shimmerRotation` (0–1 → 0–2π), hook, canvas prop, App state/URL/slider/randomize all wired.
+- **Shader:** Band direction uses `cos(angle) * cellID.x + sin(angle) * cellID.y`; period scales with grid and angle.
 
-3. **QA**
-   - Run `npm run check` and `npm run build`.
-   - Optionally start dev server and smoke-test: Weaving (presets, palette swatches, rect aspect, shimmer, record, randomize) and Image Rects (palette swatches, quantize, grid).
+### Shared constants
+- **uiConstants.js:** Palette names/colors, shade names, type scale, `typeFps`, icons, `btnGhost`, `selectTrigger`, `selectContent`, `selectItem`, `pill`, `sidebarGroup`, `sidebarGroupTitle`, `controlLabel`. Used by App.jsx and AppV2.jsx; canvas FPS pill uses `typeFps`.
 
-## Out of Scope / No Change
+### Shader
+- Rect aspect clamped 0.3–1.0 in `fragment.glsl`; comments match (no unexpected crop).
 
-- `index.css` uses `text-[13px]`; matches `typeBase`; leave as-is.
-- Nav `aria-pressed` logic in `App.jsx` is correct per view.
+## No action needed
+- Nav `aria-pressed` is correct per view.
+- File input in AppV2 is wrapped in `<label>` and has `aria-label`.

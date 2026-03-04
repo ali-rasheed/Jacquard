@@ -36,10 +36,13 @@ const GroupIcon = ({ name, title }) => (
   </span>
 );
 
-function AppSelect({ value, onValueChange, options, placeholder, title }) {
+function AppSelect({ value, onValueChange, options, placeholder, title, id: idProp, labelText }) {
+  const label = labelText ?? title;
   return (
-    <Select.Root value={String(value)} onValueChange={onValueChange}>
-      <Select.Trigger className={selectTrigger} title={title} aria-label={title ?? placeholder}>
+    <>
+      {idProp && label && <Label.Root className="sr-only" htmlFor={idProp}>{label}</Label.Root>}
+      <Select.Root value={String(value)} onValueChange={onValueChange}>
+      <Select.Trigger id={idProp} className={selectTrigger} title={title} aria-label={title ?? placeholder}>
         <Select.Value placeholder={placeholder} />
         <Icon name="expand_more" className={`${iconLg} opacity-60`} />
       </Select.Trigger>
@@ -56,6 +59,7 @@ function AppSelect({ value, onValueChange, options, placeholder, title }) {
         </Select.Content>
       </Select.Portal>
     </Select.Root>
+    </>
   );
 }
 
@@ -121,7 +125,7 @@ export default function AppV2() {
 
   return (
     <div className="flex h-full min-h-0 flex-row overflow-hidden bg-surface">
-      <aside className="flex w-72 shrink-0 flex-col gap-3 overflow-y-auto border-r border-border-subtle bg-surface px-3 py-3">
+      <aside className="flex w-72 shrink-0 flex-col gap-3 overflow-y-auto overflow-x-auto border-r border-border-subtle bg-surface px-3 py-3" aria-label="Image Rects controls">
         <h1 className={`shrink-0 ${typeBase} font-semibold tracking-[-0.01em] text-text`}>
           Image to Colored Rects
         </h1>
@@ -152,13 +156,15 @@ export default function AppV2() {
             <div className="flex flex-wrap items-center gap-2">
               <GroupIcon name="tune" title="Mode" />
               <AppSelect
+                id="colorize-mode"
+                labelText="Rect color source (mode)"
                 value={colorizeMode ? 'colorize' : 'brand'}
                 onValueChange={(v) => setColorizeMode(v === 'colorize')}
                 options={MODE_OPTIONS}
                 title="Rect color source"
                 placeholder="Mode"
               />
-              <AppSelect value={patternIndex} onValueChange={(v) => setPatternIndex(Number(v))} options={patternOptions} title="Weave pattern" placeholder="Weave" />
+              <AppSelect id="weave-pattern-v2" labelText="Weave pattern" value={patternIndex} onValueChange={(v) => setPatternIndex(Number(v))} options={patternOptions} title="Weave pattern" placeholder="Weave" />
               <div className="flex items-center gap-1" role="group" aria-label="Colorway palette">
                 {PALETTE_SWATCH_COLORS.map((color, i) => (
                   <button
@@ -176,9 +182,11 @@ export default function AppV2() {
                   />
                 ))}
               </div>
-              <AppSelect value={bgShade} onValueChange={(v) => setBgShade(Number(v))} options={shadeOptions('BG')} title="Background shade" placeholder="BG" />
+              <AppSelect id="bg-shade-v2" labelText="Background shade" value={bgShade} onValueChange={(v) => setBgShade(Number(v))} options={shadeOptions('BG')} title="Background shade" placeholder="BG" />
               {!colorizeMode && (
                 <AppSelect
+                  id="shade-from-v2"
+                  labelText="Shade from (brand: color vs warp/weft)"
                   value={shadeFrom}
                   onValueChange={(v) => setShadeFrom(Number(v))}
                   options={SHADE_FROM_OPTIONS}
@@ -208,7 +216,7 @@ export default function AppV2() {
                 </Slider.Track>
                 <Slider.Thumb className="block h-4 w-4 rounded-full border border-border bg-surface shadow focus:outline-none focus:ring-2 focus:ring-accent/40" />
               </Slider.Root>
-              <span className={`w-8 ${typeValue}`}>{quantizeSteps === 0 ? 'off' : quantizeSteps}</span>
+              <span className={`shrink-0 min-w-12 ${typeValue}`} aria-hidden>{quantizeSteps === 0 ? 'off' : quantizeSteps}</span>
             </div>
           </div>
           <div className={sidebarGroup}>
@@ -231,7 +239,7 @@ export default function AppV2() {
                 </Slider.Track>
                 <Slider.Thumb className="block h-4 w-4 rounded-full border border-border bg-surface shadow focus:outline-none focus:ring-2 focus:ring-accent/40" />
               </Slider.Root>
-              <span className={`w-8 ${typeValue}`}>{gridSize}</span>
+              <span className={`shrink-0 min-w-10 ${typeValue}`} aria-hidden>{gridSize}</span>
             </div>
           </div>
         </div>
