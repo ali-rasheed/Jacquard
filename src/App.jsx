@@ -2,13 +2,15 @@
  * Shader Sandbox — ENS Weaving Draft.
  * WebGL canvas reads shaders from src/shaders/*.glsl. Controls: Radix Select + Slider.
  */
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef, useEffect, lazy, Suspense } from 'react';
 import * as Select from '@radix-ui/react-select';
 import * as Slider from '@radix-ui/react-slider';
 import * as Label from '@radix-ui/react-label';
 import { ShaderCanvas } from './components/ShaderCanvas';
 import { PATTERNS } from './patterns';
-import AppV2 from './AppV2.jsx';
+
+/** Lazy load to avoid circular/order-dependent init in production bundle (TDZ). */
+const AppV2 = lazy(() => import('./AppV2.jsx'));
 
 const PALETTE_NAMES = ['Citrine', 'Garnet', 'Lapis', 'Peridot'];
 const SHADE_NAMES = ['950', '500', '100', '400', 'Transparent'];
@@ -120,8 +122,10 @@ function parseUrlState(search) {
   num('all', 'useAllColorways', 0, 1);
   num('seed', 'colorwaySeed', 0, 999);
   num('shimmer', 'shimmer', 0, 1);
-  num('shimmerSp', 'shimmerSpeed', 0.2, 8);
-  num('shimmerW', 'shimmerWidth', 0.5, 6);
+  num('shimmerSp', 'shimmerSpeed', 1, 16);
+  num('shimmerW', 'shimmerWidth', 0.25, 24);
+  num('shimmerInt', 'shimmerIntensity', 0, 1);
+  num('shimmerPos', 'shimmerPosition', 0, 1);
   const cf = params.get('cf');
   if (cf === 'svg' || cf === 'png') out.copyFormat = cf;
   const sb = params.get('sidebar');
@@ -134,7 +138,7 @@ function buildUrlState(state) {
     pattern: 0, palette: 0, bgShade: 2, warpShade: 1, weftShade: 3, gridSize: 32,
     presetIndex: null, gradSteps: 0, rectAspect: RECT_ASPECT_DEFAULT, cornerRadius: 0.18, canvasAspect: 1,
     copyFormat: 'png', sidebarOpen: true, useAllColorways: false, colorwaySeed: 0,
-    shimmer: false, shimmerSpeed: 2, shimmerWidth: 2,
+    shimmer: false, shimmerSpeed: 2, shimmerWidth: 2, shimmerIntensity: 0.25, shimmerPosition: 0,
     warpGradient: { startShade: 0, endShade: 3, direction: 0, range: [0, 100] },
     weftGradient: { startShade: 0, endShade: 3, direction: 0, range: [0, 100] },
   };
@@ -163,24 +167,41 @@ function buildUrlState(state) {
   if (state.useAllColorways !== def.useAllColorways) p.set('all', state.useAllColorways ? '1' : '0');
   if (state.colorwaySeed !== def.colorwaySeed) p.set('seed', String(state.colorwaySeed));
   if (state.shimmer !== def.shimmer) p.set('shimmer', state.shimmer ? '1' : '0');
-  if (state.shimmerSpeed !== def.shimmerSpeed) p.set('shimmerSp', String(Number(state.shimmerSpeed.toFixed(1))));
+  if (state.shimmerSpeed !== def.shimmerSpeed) p.set('shimmerSp', String(Math.round(state.shimmerSpeed)));
   if (state.shimmerWidth !== def.shimmerWidth) p.set('shimmerW', String(Number(state.shimmerWidth.toFixed(2))));
+  if (state.shimmerIntensity !== def.shimmerIntensity) p.set('shimmerInt', String(Number(state.shimmerIntensity.toFixed(2))));
+  if (state.shimmerPosition !== def.shimmerPosition) p.set('shimmerPos', String(Number(state.shimmerPosition.toFixed(2))));
   const s = p.toString();
   return s.length <= URL_STATE_MAX_LEN ? s : '';
 }
 
+/** Type scale: xs=10px (labels, caps, compact UI), sm=11px (dropdowns), base=13px (body, values). */
+const typeXs = 'text-[10px]';
+const typeSm = 'text-[11px]';
+const typeBase = 'text-[13px]';
+const typeLabel = 'text-[10px] font-medium uppercase tracking-wider text-text-muted';
+const typeControl = 'text-[10px] font-medium';
+const typeValue = 'text-[13px] tabular-nums text-text';
+const typeCaption = 'text-[10px] text-text-secondary';
+const iconSm = 'text-[14px]';
+const iconMd = 'text-[16px]';
+const iconLg = 'text-[18px]';
+
 const btnGhost =
-  'inline-flex h-7 items-center gap-1.5 rounded-md border border-border-subtle bg-transparent px-2.5 py-1 text-[9px] font-medium text-text-secondary outline-none transition-colors hover:border-border hover:bg-surface-hover hover:text-text focus:border-accent focus:outline-none';
+  `inline-flex h-7 items-center gap-1.5 rounded-md border border-border-subtle bg-transparent px-2.5 py-1 ${typeControl} text-text-secondary outline-none transition-colors hover:border-border hover:bg-surface-hover hover:text-text focus:border-accent focus:outline-none`;
 const selectTrigger =
-  'inline-flex h-7 min-w-[4rem] items-center justify-between gap-2 rounded-md border border-border-subtle bg-surface-input px-2 py-0.5 text-[10px] text-text outline-none transition-colors hover:border-border focus:border-accent focus:ring-1 focus:ring-accent/20 data-[placeholder]:text-text-secondary';
+  `inline-flex h-7 min-w-[4rem] items-center justify-between gap-2 rounded-md border border-border-subtle bg-surface-input px-2 py-0.5 ${typeXs} text-text outline-none transition-colors hover:border-border focus:border-accent focus:ring-1 focus:ring-accent/20 data-[placeholder]:text-text-secondary`;
 const selectContent = 'z-50 min-w-[var(--radix-select-trigger-width)] overflow-hidden rounded-md border border-border-subtle bg-surface-elevated shadow-md';
 const selectItem =
-  'relative flex cursor-default select-none items-center rounded py-1.5 pl-2.5 pr-8 text-[11px] outline-none data-[highlighted]:bg-surface-hover data-[highlighted]:text-text';
-const pill = 'inline-flex items-center rounded-full tracking-wide bg-surface-elevated border border-border-subtle px-2 py-0.5 text-[8px] uppercase font-mono font-medium text-text-secondary';
+  `relative flex cursor-default select-none items-center rounded py-1.5 pl-2.5 pr-8 ${typeSm} outline-none data-[highlighted]:bg-surface-hover data-[highlighted]:text-text`;
+const pill = `inline-flex items-center rounded-full tracking-wide bg-surface-elevated border border-border-subtle px-2 py-0.5 ${typeXs} uppercase font-mono font-medium text-text-secondary`;
+/** Rounded container for related sidebar controls; use with sidebarGroupTitle for optional label. */
+const sidebarGroup = 'rounded-lg border border-border-subtle bg-surface-elevated/50 flex flex-col gap-2 p-2.5';
+const sidebarGroupTitle = typeLabel;
 /** Icon-only group header; use title for tooltip. */
 const GroupIcon = ({ name, title, className = '' }) => (
   <span title={title} className={`shrink-0 ${className}`}>
-    <Icon name={name} className="text-[18px] text-text-muted" />
+    <Icon name={name} className={`${iconLg} text-text-muted`} />
   </span>
 );
 /** Material Symbol icon — pass symbol name (e.g. refresh, arrow_downward). */
@@ -192,7 +213,7 @@ const Icon = ({ name, className = '' }) => (
 const directionSwitch =
   'inline-flex h-7 shrink-0 rounded-md border border-border-subtle bg-surface-input overflow-hidden';
 const directionSwitchBtn =
-  'flex h-full min-w-[28px] items-center justify-center px-2 text-[13px] text-text-secondary transition-colors hover:bg-surface-hover hover:text-text data-[state=on]:bg-accent/15 data-[state=on]:text-accent border-r border-border-subtle last:border-r-0';
+  `flex h-full min-w-[28px] items-center justify-center px-2 ${typeBase} text-text-secondary transition-colors hover:bg-surface-hover hover:text-text data-[state=on]:bg-accent/15 data-[state=on]:text-accent border-r border-border-subtle last:border-r-0`;
 
 function DirectionSwitch({ value, onValueChange, options, title, ariaLabel }) {
   return (
@@ -212,7 +233,7 @@ function DirectionSwitch({ value, onValueChange, options, title, ariaLabel }) {
           data-state={value === opt.value ? 'on' : 'off'}
           onClick={() => { onValueChange(opt.value); }}
         >
-          {opt.icon ? <Icon name={opt.icon} className="text-[18px]" /> : opt.label}
+          {opt.icon ? <Icon name={opt.icon} className={iconLg} /> : opt.label}
         </button>
       ))}
     </div>
@@ -225,17 +246,17 @@ function AppSelect({ value, onValueChange, options, placeholder, title }) {
     <Select.Root value={String(value)} onValueChange={(v) => onValueChange(Number(v))}>
       <Select.Trigger className={selectTrigger} title={title} aria-label={title ?? placeholder}>
         <span className="flex min-w-0 items-center gap-1.5">
-          {selected?.icon && <Icon name={selected.icon} className="shrink-0 text-[16px] text-text-muted" />}
+          {selected?.icon && <Icon name={selected.icon} className={`shrink-0 ${iconMd} text-text-muted`} />}
           <Select.Value placeholder={placeholder} />
         </span>
-        <Icon name="expand_more" className="text-[18px] opacity-60" />
+        <Icon name="expand_more" className={`${iconLg} opacity-60`} />
       </Select.Trigger>
       <Select.Portal>
         <Select.Content className={selectContent} position="popper" sideOffset={4}>
           <Select.Viewport>
             {options.map((opt, i) => (
               <Select.Item key={opt.id ?? i} className={selectItem} value={String(opt.value)}>
-                {opt.icon && <Icon name={opt.icon} className="mr-1.5 shrink-0 text-[16px] text-text-muted" />}
+                {opt.icon && <Icon name={opt.icon} className={`mr-1.5 shrink-0 ${iconMd} text-text-muted`} />}
                 <Select.ItemText>{opt.label}</Select.ItemText>
                 <Select.ItemIndicator className="absolute right-2 inline-flex items-center" />
               </Select.Item>
@@ -248,7 +269,7 @@ function AppSelect({ value, onValueChange, options, placeholder, title }) {
 }
 
 const navBtn =
-  'inline-flex h-8 items-center rounded-md border px-3 text-[13px] font-medium outline-none transition-colors focus:ring-2 focus:ring-accent/40';
+  `inline-flex h-8 items-center rounded-md border px-3 ${typeBase} font-medium outline-none transition-colors focus:ring-2 focus:ring-accent/40`;
 const navBtnActive = 'border-accent bg-accent/10 text-accent ' + navBtn;
 const navBtnInactive = 'border-border-subtle bg-transparent text-text-secondary hover:border-border hover:bg-surface-hover hover:text-text ' + navBtn;
 
@@ -268,10 +289,12 @@ export default function App() {
   const [cornerRadius, setCornerRadius] = useState(0.18);
   const [canvasAspect, setCanvasAspect] = useState(1);
   const [fps, setFps] = useState(0);
-  /** Shimmer: time-based highlight band; optional speed and width. */
+  /** Shimmer: looping highlight band; speed, width, intensity, position. */
   const [shimmer, setShimmer] = useState(false);
   const [shimmerSpeed, setShimmerSpeed] = useState(2);
   const [shimmerWidth, setShimmerWidth] = useState(2);
+  const [shimmerIntensity, setShimmerIntensity] = useState(0.25);
+  const [shimmerPosition, setShimmerPosition] = useState(0);
   /** Use all 4 colorways: per-cell palette from colorwaySeed hash (mod 4). */
   const [useAllColorways, setUseAllColorways] = useState(false);
   const [colorwaySeed, setColorwaySeed] = useState(0);
@@ -321,8 +344,10 @@ export default function App() {
     if (q.useAllColorways != null) setUseAllColorways(!!q.useAllColorways);
     if (q.colorwaySeed != null) setColorwaySeed(q.colorwaySeed);
     if (q.shimmer != null) setShimmer(!!q.shimmer);
-    if (q.shimmerSpeed != null) setShimmerSpeed(q.shimmerSpeed);
+    if (q.shimmerSpeed != null) setShimmerSpeed(Math.min(16, Math.max(1, Number(q.shimmerSpeed))));
     if (q.shimmerWidth != null) setShimmerWidth(q.shimmerWidth);
+    if (q.shimmerIntensity != null) setShimmerIntensity(q.shimmerIntensity);
+    if (q.shimmerPosition != null) setShimmerPosition(q.shimmerPosition);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- run once on mount; applyPreset/setSidebarOpenPersisted are stable
   }, []);
 
@@ -333,7 +358,7 @@ export default function App() {
       const search = buildUrlState({
         presetIndex, pattern, palette, bgShade, warpShade, weftShade, gridSize,
         warpGradient, weftGradient, gradSteps, rectAspect, cornerRadius, canvasAspect, copyFormat, sidebarOpen,
-        useAllColorways, colorwaySeed, shimmer, shimmerSpeed, shimmerWidth,
+        useAllColorways, colorwaySeed, shimmer, shimmerSpeed, shimmerWidth, shimmerIntensity, shimmerPosition,
       });
       const url = search ? `${window.location.pathname}?${search}` : window.location.pathname;
       if (window.location.pathname + (window.location.search || '') !== url) {
@@ -341,36 +366,7 @@ export default function App() {
       }
     }, 400);
     return () => { clearTimeout(urlSyncTimeoutRef.current); };
-  }, [presetIndex, pattern, palette, bgShade, warpShade, weftShade, gridSize, warpGradient, weftGradient, gradSteps, rectAspect, cornerRadius, canvasAspect, copyFormat, sidebarOpen, useAllColorways, colorwaySeed, shimmer, shimmerSpeed, shimmerWidth]);
-
-  /** Keyboard shortcuts when focus is not in input/select/textarea. Mod+C = copy; Mod+1..8 = preset 0–7; Mod+Shift+R or F5 = reload; Mod+\ or Mod+B = toggle sidebar. */
-  useEffect(() => {
-    const onKeyDown = (e) => {
-      if (e.target.closest('input, select, textarea')) return;
-      const mod = e.metaKey || e.ctrlKey;
-      if (mod && e.key === 'c') {
-        e.preventDefault();
-        handleCopy();
-        return;
-      }
-      if (mod && e.key >= '1' && e.key <= '8') {
-        e.preventDefault();
-        applyPreset(Number(e.key) - 1);
-        return;
-      }
-      if ((mod && e.shiftKey && e.key === 'R') || e.key === 'F5') {
-        e.preventDefault();
-        handleReload();
-        return;
-      }
-      if ((mod && e.key === '\\') || (mod && e.key === 'b')) {
-        e.preventDefault();
-        setSidebarOpenPersisted(!sidebarOpen);
-      }
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [handleCopy, applyPreset, handleReload, setSidebarOpenPersisted, sidebarOpen]);
+  }, [presetIndex, pattern, palette, bgShade, warpShade, weftShade, gridSize, warpGradient, weftGradient, gradSteps, rectAspect, cornerRadius, canvasAspect, copyFormat, sidebarOpen, useAllColorways, colorwaySeed, shimmer, shimmerSpeed, shimmerWidth, shimmerIntensity, shimmerPosition]);
 
   /** Capture canvas at 2× resolution as PNG and copy to clipboard. */
   const handleCopy2xPng = useCallback(async () => {
@@ -418,6 +414,45 @@ export default function App() {
     else handleCopySvg();
   }, [copyFormat, handleCopy2xPng, handleCopySvg]);
 
+  /** WebM recording via canvas.captureStream + MediaRecorder. Starts/stops and downloads on stop. */
+  const [isRecording, setIsRecording] = useState(false);
+  const mediaRecorderRef = useRef(null);
+  const recordingChunksRef = useRef([]);
+
+  const startRecording = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || typeof canvas.captureStream !== 'function') return;
+    try {
+      const stream = canvas.captureStream(30);
+      const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9') ? 'video/webm;codecs=vp9' : 'video/webm';
+      const recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 5e6 });
+      recordingChunksRef.current = [];
+      recorder.ondataavailable = (e) => { if (e.data.size) recordingChunksRef.current.push(e.data); };
+      recorder.onstop = () => {
+        const blob = new Blob(recordingChunksRef.current, { type: mimeType });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `shaderbox-${Date.now()}.webm`;
+        a.click();
+        URL.revokeObjectURL(url);
+        setIsRecording(false);
+      };
+      recorder.start(1000);
+      mediaRecorderRef.current = recorder;
+      setIsRecording(true);
+    } catch (err) {
+      console.warn('Recording failed:', err);
+    }
+  }, []);
+
+  const stopRecording = useCallback(() => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+      mediaRecorderRef.current.stop();
+      mediaRecorderRef.current = null;
+    }
+  }, []);
+
   const applyPreset = useCallback((index) => {
     if (index == null || index < 0 || index >= PRESETS.length) return;
     const p = PRESETS[index];
@@ -434,6 +469,72 @@ export default function App() {
   const handleReload = useCallback(() => {
     window.location.reload();
   }, []);
+
+  /** Randomize all generator params (pattern, palette, shades, grid, gradients, shimmer, etc.). */
+  const handleRandomize = useCallback(() => {
+    const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
+    const randInt = (lo, hi) => lo + Math.floor(Math.random() * (hi - lo + 1));
+    const rand = (lo, hi) => lo + Math.random() * (hi - lo);
+    setPresetIndex(null);
+    setPattern(randInt(0, PATTERNS.length - 1));
+    setPalette(randInt(0, 3));
+    setBgShade(randInt(0, 4));
+    setWarpShade(randInt(0, 4));
+    setWeftShade(randInt(0, 4));
+    setGridSize(pick(GRID_SNAPS));
+    setWarpGradient({
+      startShade: randInt(0, 3),
+      endShade: randInt(0, 3),
+      direction: randInt(0, 1),
+      range: [randInt(0, 100), randInt(0, 100)],
+    });
+    setWeftGradient({
+      startShade: randInt(0, 3),
+      endShade: randInt(0, 3),
+      direction: randInt(0, 1),
+      range: [randInt(0, 100), randInt(0, 100)],
+    });
+    setGradSteps(Math.random() < 0.5 ? 0 : randInt(2, 16));
+    setRectAspect(Number(rand(0.5, 1.5).toFixed(2)));
+    setCornerRadius(Number(rand(0.05, 0.4).toFixed(2)));
+    setCanvasAspect(Number(rand(0.6, 1.5).toFixed(2)));
+    setShimmer(Math.random() < 0.5);
+    setShimmerSpeed(randInt(1, 16));
+    setShimmerWidth(Number(rand(0.25, 24).toFixed(2)));
+    setShimmerIntensity(Number(rand(0.1, 0.8).toFixed(2)));
+    setShimmerPosition(Number(rand(0, 1).toFixed(2)));
+    setUseAllColorways(Math.random() < 0.5);
+    setColorwaySeed(randInt(0, 100));
+  }, []);
+
+  /** Keyboard shortcuts when focus is not in input/select/textarea. Mod+C = copy; Mod+1..8 = preset 0–7; Mod+Shift+R or F5 = reload; Mod+\ or Mod+B = toggle sidebar. */
+  useEffect(() => {
+    const onKeyDown = (e) => {
+      if (e.target.closest('input, select, textarea')) return;
+      const mod = e.metaKey || e.ctrlKey;
+      if (mod && e.key === 'c') {
+        e.preventDefault();
+        handleCopy();
+        return;
+      }
+      if (mod && e.key >= '1' && e.key <= '8') {
+        e.preventDefault();
+        applyPreset(Number(e.key) - 1);
+        return;
+      }
+      if ((mod && e.shiftKey && e.key === 'R') || e.key === 'F5') {
+        e.preventDefault();
+        handleReload();
+        return;
+      }
+      if ((mod && e.key === '\\') || (mod && e.key === 'b')) {
+        e.preventDefault();
+        setSidebarOpenPersisted(!sidebarOpen);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [handleCopy, applyPreset, handleReload, setSidebarOpenPersisted, sidebarOpen]);
 
   const patternOptions = PATTERNS.map((p, i) => ({
     value: i,
@@ -460,14 +561,16 @@ export default function App() {
     return (
       <div className="flex min-h-0 flex-col bg-surface" style={{ height: '100dvh' }}>
         <nav className="flex min-h-9 shrink-0 items-center gap-3 border-b border-border-subtle bg-surface-elevated px-3 py-2" aria-label="App mode">
-          <h1 className="shrink-0 text-[13px] font-semibold tracking-[-0.01em] text-text">Shader Sandbox</h1>
+          <h1 className={`shrink-0 ${typeBase} font-semibold tracking-[-0.01em] text-text`}>Shader Sandbox</h1>
           <div className="flex items-center gap-1">
             <button type="button" className={navBtnInactive} onClick={() => setView('weaving')} aria-pressed={false} aria-label="Weaving draft">Weaving</button>
             <button type="button" className={navBtnActive} onClick={() => setView('imageRects')} aria-pressed aria-label="Image to colored rects">Image Rects</button>
           </div>
         </nav>
         <div className="min-h-0 flex-1 overflow-hidden">
-          <AppV2 />
+          <Suspense fallback={<div className="flex h-full items-center justify-center text-text-secondary">Loading…</div>}>
+            <AppV2 />
+          </Suspense>
         </div>
       </div>
     );
@@ -476,7 +579,7 @@ export default function App() {
   return (
     <div className="flex min-h-0 flex-col bg-surface" style={{ height: '100dvh' }}>
       <nav className="flex min-h-9 shrink-0 items-center gap-3 border-b border-border-subtle bg-surface-elevated px-3 py-2" aria-label="App mode">
-        <h1 className="shrink-0 text-[13px] font-semibold tracking-[-0.01em] text-text">Shader Sandbox</h1>
+        <h1 className={`shrink-0 ${typeBase} font-semibold tracking-[-0.01em] text-text`}>Shader Sandbox</h1>
         <div className="flex items-center gap-1">
           <button type="button" className={navBtnActive} onClick={() => setView('weaving')} aria-pressed aria-label="Weaving draft">Weaving</button>
           <button type="button" className={navBtnInactive} onClick={() => setView('imageRects')} aria-pressed={false} aria-label="Image to colored rects">Image Rects</button>
@@ -490,300 +593,337 @@ export default function App() {
           style={{ width: sidebarOpen ? 288 : 0, maxWidth: sidebarOpen ? 288 : 0, minWidth: 0 }}
         >
         <div className="flex flex-col gap-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <button type="button" className={btnGhost} onClick={handleReload} aria-label="Reload">
-              <Icon name="refresh" className="text-[16px]" />
-              <span>Reload</span>
-            </button>
-            {/* Copy format: segment (PNG | SVG) + circular copy button — matches Figma node 55-41 */}
-            <div className="inline-flex h-7 shrink-0 items-center gap-1 rounded-md border border-border-subtle bg-surface-elevated overflow-hidden">
-              <div className="flex h-full">
-                {['png', 'svg'].map((fmt) => (
-                  <button
-                    key={fmt}
-                    type="button"
-                    className={`flex min-w-[36px] items-center justify-center px-2 text-[10px] font-medium uppercase transition-colors border-r border-border-subtle last:border-r-0 ${copyFormat === fmt ? 'bg-accent/15 text-accent' : 'text-text-secondary hover:bg-surface-hover hover:text-text'}`}
-                    aria-pressed={copyFormat === fmt}
-                    aria-label={`Format: ${fmt}`}
-                    onClick={() => setCopyFormat(fmt)}
-                  >
-                    {fmt}
-                  </button>
-                ))}
+          <div className={sidebarGroup}>
+            <div className={sidebarGroupTitle}>Actions</div>
+            <div className="flex flex-wrap items-center gap-2">
+              <button type="button" className={btnGhost} onClick={handleReload} aria-label="Reload">
+                <Icon name="refresh" className={iconMd} />
+                <span>Reload</span>
+              </button>
+              <button type="button" className={btnGhost} onClick={handleRandomize} aria-label="Randomize all parameters" title="Randomize pattern, palette, shades, grid, gradients, shimmer, and more">
+                <Icon name="shuffle" className={iconMd} />
+                <span>Randomize</span>
+              </button>
+              <div className="inline-flex h-7 shrink-0 items-center gap-1 rounded-md border border-border-subtle bg-surface-elevated overflow-hidden">
+                <div className="flex h-full">
+                  {['png', 'svg'].map((fmt) => (
+                    <button
+                      key={fmt}
+                      type="button"
+                      className={`flex min-w-[36px] items-center justify-center px-2 ${typeControl} uppercase transition-colors border-r border-border-subtle last:border-r-0 ${copyFormat === fmt ? 'bg-accent/15 text-accent' : 'text-text-secondary hover:bg-surface-hover hover:text-text'}`}
+                      aria-pressed={copyFormat === fmt}
+                      aria-label={`Format: ${fmt}`}
+                      onClick={() => setCopyFormat(fmt)}
+                    >
+                      {fmt}
+                    </button>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-border-subtle bg-surface-elevated text-text-secondary transition-colors hover:border-accent hover:bg-accent/10 hover:text-accent focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/20"
+                  title={copyFormat === 'png' ? 'Copy canvas at 2× as PNG' : 'Copy as SVG (canvas embedded as image)'}
+                  aria-label={copyFormat === 'png' ? 'Copy PNG' : 'Copy SVG'}
+                  onClick={handleCopy}
+                >
+                  <Icon name="content_copy" className={iconSm} />
+                </button>
               </div>
               <button
                 type="button"
-                className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-border-subtle bg-surface-elevated text-text-secondary transition-colors hover:border-accent hover:bg-accent/10 hover:text-accent focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/20"
-                title={copyFormat === 'png' ? 'Copy canvas at 2× as PNG' : 'Copy as SVG (canvas embedded as image)'}
-                aria-label={copyFormat === 'png' ? 'Copy PNG' : 'Copy SVG'}
-                onClick={handleCopy}
+                className={`inline-flex h-7 items-center gap-1.5 rounded-md border px-2.5 ${typeControl} transition-colors ${isRecording ? 'border-error bg-error/15 text-error' : 'border-border-subtle bg-surface-input text-text-secondary hover:bg-surface-hover hover:text-text'}`}
+                aria-label={isRecording ? 'Stop recording' : 'Record WebM'}
+                title={isRecording ? 'Stop and download WebM' : 'Record canvas as WebM video'}
+                onClick={isRecording ? stopRecording : startRecording}
               >
-                <Icon name="content_copy" className="text-[14px]" />
+                <Icon name={isRecording ? 'stop' : 'videocam'} className={iconSm} />
+                {isRecording ? 'Stop' : 'Record'}
               </button>
             </div>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <GroupIcon name="tune" title="Preset" />
-            <Select.Root
-              value={presetIndex != null ? String(presetIndex) : 'custom'}
-              onValueChange={(v) => (v === 'custom' ? setPresetIndex(null) : applyPreset(Number(v)))}
-            >
-              <Select.Trigger className={selectTrigger} title="Preset (weave + colorway + shades + grad)" aria-label="Preset">
-                <Select.Value placeholder="Preset…" />
-                <Icon name="expand_more" className="text-[18px] opacity-60" />
-              </Select.Trigger>
-              <Select.Portal>
-                <Select.Content className={selectContent} position="popper" sideOffset={4}>
-                  <Select.Viewport>
-                    {presetOptions.map((opt) => (
-                      <Select.Item key={opt.value} className={selectItem} value={opt.value}>
-                        <Select.ItemText>{opt.label}</Select.ItemText>
-                        <Select.ItemIndicator className="absolute right-2 inline-flex items-center" />
-                      </Select.Item>
-                    ))}
-                  </Select.Viewport>
-                </Select.Content>
-              </Select.Portal>
-            </Select.Root>
-            <AppSelect value={palette} onValueChange={(v) => { setPalette(v); setPresetIndex(null); }} options={paletteOptions} title="Colorway" placeholder="Colorway" />
+          <div className={sidebarGroup}>
+            <div className={sidebarGroupTitle}>Preset & colorway</div>
+            <div className="flex flex-wrap items-center gap-2">
+              <GroupIcon name="tune" title="Preset" />
+              <Select.Root
+                value={presetIndex != null ? String(presetIndex) : 'custom'}
+                onValueChange={(v) => (v === 'custom' ? setPresetIndex(null) : applyPreset(Number(v)))}
+              >
+                <Select.Trigger className={selectTrigger} title="Preset (weave + colorway + shades + grad)" aria-label="Preset">
+                  <Select.Value placeholder="Preset…" />
+                  <Icon name="expand_more" className={`${iconLg} opacity-60`} />
+                </Select.Trigger>
+                <Select.Portal>
+                  <Select.Content className={selectContent} position="popper" sideOffset={4}>
+                    <Select.Viewport>
+                      {presetOptions.map((opt) => (
+                        <Select.Item key={opt.value} className={selectItem} value={opt.value}>
+                          <Select.ItemText>{opt.label}</Select.ItemText>
+                          <Select.ItemIndicator className="absolute right-2 inline-flex items-center" />
+                        </Select.Item>
+                      ))}
+                    </Select.Viewport>
+                  </Select.Content>
+                </Select.Portal>
+              </Select.Root>
+              <AppSelect value={palette} onValueChange={(v) => { setPalette(v); setPresetIndex(null); }} options={paletteOptions} title="Colorway" placeholder="Colorway" />
+            </div>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="shrink-0 text-[10px] font-medium uppercase tracking-wider text-text-muted" title="Weave pattern">Weave</span>
-            <AppSelect value={pattern} onValueChange={(v) => { setPattern(v); setPresetIndex(null); }} options={patternOptions} title="Weave pattern" placeholder="Weave" />
+          <div className={sidebarGroup}>
+            <div className={sidebarGroupTitle}>Weave</div>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className={`shrink-0 ${typeLabel}`} title="Weave pattern">Weave</span>
+              <AppSelect value={pattern} onValueChange={(v) => { setPattern(v); setPresetIndex(null); }} options={patternOptions} title="Weave pattern" placeholder="Weave" />
+            </div>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <GroupIcon name="palette" title="Shades" />
-            <AppSelect value={bgShade} onValueChange={(v) => { setBgShade(v); setPresetIndex(null); }} options={shadeOptions('BG')} title="Background shade" placeholder="BG" />
-            <AppSelect
-              value={warpShade}
-              onValueChange={(v) => {
-                const shade = Number(v);
-                setWarpShade(shade);
-                setPresetIndex(null);
-                setWarpGradient((g) => ({ ...g, startShade: shade, endShade: shade }));
-              }}
-              options={shadeOptions('Warp')}
-              title="Warp shade"
-              placeholder="Warp"
-            />
-            <AppSelect
-              value={weftShade}
-              onValueChange={(v) => {
-                const shade = Number(v);
-                setWeftShade(shade);
-                setPresetIndex(null);
-                setWeftGradient((g) => ({ ...g, startShade: shade, endShade: shade }));
-              }}
-              options={shadeOptions('Weft')}
-              title="Weft shade"
-              placeholder="Weft"
-            />
+          <div className={sidebarGroup}>
+            <div className={sidebarGroupTitle}>Shades</div>
+            <div className="flex flex-wrap items-center gap-2">
+              <GroupIcon name="palette" title="Shades" />
+              <AppSelect value={bgShade} onValueChange={(v) => { setBgShade(v); setPresetIndex(null); }} options={shadeOptions('BG')} title="Background shade" placeholder="BG" />
+              <AppSelect
+                value={warpShade}
+                onValueChange={(v) => {
+                  const shade = Number(v);
+                  setWarpShade(shade);
+                  setPresetIndex(null);
+                  setWarpGradient((g) => ({ ...g, startShade: shade, endShade: shade }));
+                }}
+                options={shadeOptions('Warp')}
+                title="Warp shade"
+                placeholder="Warp"
+              />
+              <AppSelect
+                value={weftShade}
+                onValueChange={(v) => {
+                  const shade = Number(v);
+                  setWeftShade(shade);
+                  setPresetIndex(null);
+                  setWeftGradient((g) => ({ ...g, startShade: shade, endShade: shade }));
+                }}
+                options={shadeOptions('Weft')}
+                title="Weft shade"
+                placeholder="Weft"
+              />
+            </div>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <GroupIcon name="gradient" title="Warp gradient range" />
-            <Label.Root className="sr-only" htmlFor="warp-range">Warp gradient range</Label.Root>
-            <Slider.Root
-              id="warp-range"
-              className="relative flex w-24 shrink-0 touch-none items-center"
-              value={warpGradient.range}
-              onValueChange={([a, b]) => {
-                setPresetIndex(null);
-                const snap = gradSteps >= 2;
-                setWarpGradient((g) => ({
-                  ...g,
-                  range: snap ? [snapGradRangeValue(a, gradSteps), snapGradRangeValue(b, gradSteps)] : [a, b],
-                }));
-              }}
-              min={0}
-              max={100}
-              step={gradSteps >= 2 ? 100 / gradSteps : 5}
-              aria-label="Warp gradient range"
-            >
-              <Slider.Track className="relative h-1.5 grow rounded-full bg-surface-input">
-                <Slider.Range className="absolute h-full rounded-full bg-accent" />
-              </Slider.Track>
-              <Slider.Thumb className="block h-4 w-4 rounded-full border border-border bg-surface shadow focus:ring-2 focus:ring-accent/40" />
-              <Slider.Thumb className="block h-4 w-4 rounded-full border border-border bg-surface shadow focus:ring-2 focus:ring-accent/40" />
-            </Slider.Root>
-            <span className="w-14 tabular-nums text-[13px] text-text">{warpGradient.range[0]}–{warpGradient.range[1]}</span>
+          <div className={sidebarGroup}>
+            <div className={sidebarGroupTitle}>Warp gradient</div>
+            <div className="flex flex-wrap items-center gap-2">
+              <GroupIcon name="gradient" title="Warp gradient range" />
+              <Label.Root className="sr-only" htmlFor="warp-range">Warp gradient range</Label.Root>
+              <Slider.Root
+                id="warp-range"
+                className="relative flex w-24 shrink-0 touch-none items-center"
+                value={warpGradient.range}
+                onValueChange={([a, b]) => {
+                  setPresetIndex(null);
+                  const snap = gradSteps >= 2;
+                  setWarpGradient((g) => ({
+                    ...g,
+                    range: snap ? [snapGradRangeValue(a, gradSteps), snapGradRangeValue(b, gradSteps)] : [a, b],
+                  }));
+                }}
+                min={0}
+                max={100}
+                step={gradSteps >= 2 ? 100 / gradSteps : 5}
+                aria-label="Warp gradient range"
+              >
+                <Slider.Track className="relative h-1.5 grow rounded-full bg-surface-input">
+                  <Slider.Range className="absolute h-full rounded-full bg-accent" />
+                </Slider.Track>
+                <Slider.Thumb className="block h-4 w-4 rounded-full border border-border bg-surface shadow focus:ring-2 focus:ring-accent/40" />
+                <Slider.Thumb className="block h-4 w-4 rounded-full border border-border bg-surface shadow focus:ring-2 focus:ring-accent/40" />
+              </Slider.Root>
+              <span className={`w-14 ${typeValue}`}>{warpGradient.range[0]}–{warpGradient.range[1]}</span>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <GroupIcon name="gradient" title="Warp gradient" />
+              <AppSelect value={warpGradient.startShade} onValueChange={(s) => { setPresetIndex(null); setWarpGradient((g) => ({ ...g, startShade: s })); }} options={shadeOptions()} title="Warp start" placeholder="Start" />
+              <AppSelect value={warpGradient.endShade} onValueChange={(s) => { setPresetIndex(null); setWarpGradient((g) => ({ ...g, endShade: s })); }} options={shadeOptions()} title="Warp end" placeholder="End" />
+              <DirectionSwitch value={warpGradient.direction} onValueChange={(d) => { setPresetIndex(null); setWarpGradient((g) => ({ ...g, direction: d })); }} options={directionOptions} title="Warp direction" ariaLabel="Warp gradient direction" />
+            </div>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <GroupIcon name="gradient" title="Warp gradient" />
-            <AppSelect value={warpGradient.startShade} onValueChange={(s) => { setPresetIndex(null); setWarpGradient((g) => ({ ...g, startShade: s })); }} options={shadeOptions()} title="Warp start" placeholder="Start" />
-            <AppSelect value={warpGradient.endShade} onValueChange={(s) => { setPresetIndex(null); setWarpGradient((g) => ({ ...g, endShade: s })); }} options={shadeOptions()} title="Warp end" placeholder="End" />
-            <DirectionSwitch value={warpGradient.direction} onValueChange={(d) => { setPresetIndex(null); setWarpGradient((g) => ({ ...g, direction: d })); }} options={directionOptions} title="Warp direction" ariaLabel="Warp gradient direction" />
+          <div className={sidebarGroup}>
+            <div className={sidebarGroupTitle}>Weft gradient</div>
+            <div className="flex flex-wrap items-center gap-2">
+              <GroupIcon name="gradient" title="Weft gradient range" />
+              <Label.Root className="sr-only" htmlFor="weft-range">Weft gradient range</Label.Root>
+              <Slider.Root
+                id="weft-range"
+                className="relative flex w-24 shrink-0 touch-none items-center"
+                value={weftGradient.range}
+                onValueChange={([a, b]) => {
+                  setPresetIndex(null);
+                  const snap = gradSteps >= 2;
+                  setWeftGradient((g) => ({
+                    ...g,
+                    range: snap ? [snapGradRangeValue(a, gradSteps), snapGradRangeValue(b, gradSteps)] : [a, b],
+                  }));
+                }}
+                min={0}
+                max={100}
+                step={gradSteps >= 2 ? 100 / gradSteps : 5}
+                aria-label="Weft gradient range"
+              >
+                <Slider.Track className="relative h-1.5 grow rounded-full bg-surface-input">
+                  <Slider.Range className="absolute h-full rounded-full bg-accent" />
+                </Slider.Track>
+                <Slider.Thumb className="block h-4 w-4 rounded-full border border-border bg-surface shadow focus:ring-2 focus:ring-accent/40" />
+                <Slider.Thumb className="block h-4 w-4 rounded-full border border-border bg-surface shadow focus:ring-2 focus:ring-accent/40" />
+              </Slider.Root>
+              <span className={`w-14 ${typeValue}`}>{weftGradient.range[0]}–{weftGradient.range[1]}</span>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <GroupIcon name="gradient" title="Weft gradient" />
+              <AppSelect value={weftGradient.startShade} onValueChange={(s) => { setPresetIndex(null); setWeftGradient((g) => ({ ...g, startShade: s })); }} options={shadeOptions()} title="Weft start" placeholder="Start" />
+              <AppSelect value={weftGradient.endShade} onValueChange={(s) => { setPresetIndex(null); setWeftGradient((g) => ({ ...g, endShade: s })); }} options={shadeOptions()} title="Weft end" placeholder="End" />
+              <DirectionSwitch value={weftGradient.direction} onValueChange={(d) => { setPresetIndex(null); setWeftGradient((g) => ({ ...g, direction: d })); }} options={directionOptionsWeft} title="Weft direction" ariaLabel="Weft gradient direction" />
+            </div>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <GroupIcon name="gradient" title="Weft gradient range" />
-            <Label.Root className="sr-only" htmlFor="weft-range">Weft gradient range</Label.Root>
-            <Slider.Root
-              id="weft-range"
-              className="relative flex w-24 shrink-0 touch-none items-center"
-              value={weftGradient.range}
-              onValueChange={([a, b]) => {
-                setPresetIndex(null);
-                const snap = gradSteps >= 2;
-                setWeftGradient((g) => ({
-                  ...g,
-                  range: snap ? [snapGradRangeValue(a, gradSteps), snapGradRangeValue(b, gradSteps)] : [a, b],
-                }));
-              }}
-              min={0}
-              max={100}
-              step={gradSteps >= 2 ? 100 / gradSteps : 5}
-              aria-label="Weft gradient range"
-            >
-              <Slider.Track className="relative h-1.5 grow rounded-full bg-surface-input">
-                <Slider.Range className="absolute h-full rounded-full bg-accent" />
-              </Slider.Track>
-              <Slider.Thumb className="block h-4 w-4 rounded-full border border-border bg-surface shadow focus:ring-2 focus:ring-accent/40" />
-              <Slider.Thumb className="block h-4 w-4 rounded-full border border-border bg-surface shadow focus:ring-2 focus:ring-accent/40" />
-            </Slider.Root>
-            <span className="w-14 tabular-nums text-[13px] text-text">{weftGradient.range[0]}–{weftGradient.range[1]}</span>
+          <div className={sidebarGroup}>
+            <div className={sidebarGroupTitle}>Grid & layout</div>
+            <div className="flex flex-wrap items-center gap-2">
+              <GroupIcon name="grid_on" title="Resolution" />
+              <Label.Root className="sr-only" htmlFor="grid-slider">Tile size</Label.Root>
+              <Slider.Root
+                id="grid-slider"
+                className="relative flex w-20 shrink-0 touch-none select-none items-center"
+                value={[getGridSizeIndex(gridSize)]}
+                onValueChange={([i]) => setGridSize(GRID_SNAPS[i])}
+                min={0}
+                max={GRID_SNAPS.length - 1}
+                step={1}
+                aria-label={`Grid: ${gridSize} cells`}
+              >
+                <Slider.Track className="relative h-1.5 grow rounded-full bg-surface-input">
+                  <Slider.Range className="absolute h-full rounded-full bg-accent" />
+                </Slider.Track>
+                <Slider.Thumb className="block h-4 w-4 rounded-full border border-border bg-surface shadow focus:outline-none focus:ring-2 focus:ring-accent/40" />
+              </Slider.Root>
+              <span className={`w-6 ${typeValue}`}>{gridSize}</span>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <GroupIcon name="timeline" title="Quantization" />
+              <Label.Root className="sr-only" htmlFor="grad-steps-slider">Gradation steps</Label.Root>
+              <Slider.Root
+                id="grad-steps-slider"
+                className="relative flex w-20 shrink-0 touch-none select-none items-center"
+                value={[gradSteps]}
+                onValueChange={([v]) => setGradSteps(v)}
+                min={0}
+                max={16}
+                step={1}
+                aria-label={`Gradation steps: ${gradSteps === 0 ? 'smooth' : gradSteps}`}
+              >
+                <Slider.Track className="relative h-1.5 grow rounded-full bg-surface-input">
+                  <Slider.Range className="absolute h-full rounded-full bg-accent" />
+                </Slider.Track>
+                <Slider.Thumb className="block h-4 w-4 rounded-full border border-border bg-surface shadow focus:outline-none focus:ring-2 focus:ring-accent/40" />
+              </Slider.Root>
+              <span className={`w-8 ${typeValue}`} title="0 = smooth gradient">{gradSteps === 0 ? 'Smooth' : gradSteps}</span>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <GroupIcon name="aspect_ratio" title="Ratio" />
+              <Label.Root className="sr-only" htmlFor="rect-aspect-slider">Rect aspect ratio</Label.Root>
+              <Slider.Root
+                id="rect-aspect-slider"
+                className="relative flex w-20 shrink-0 touch-none select-none items-center"
+                value={[rectAspect]}
+                onValueChange={([v]) => setRectAspect(v)}
+                min={0.5}
+                max={1.5}
+                step={0.05}
+                aria-label={`Rect aspect: ${rectAspect.toFixed(2)}`}
+              >
+                <Slider.Track className="relative h-1.5 grow rounded-full bg-surface-input">
+                  <Slider.Range className="absolute h-full rounded-full bg-accent" />
+                </Slider.Track>
+                <Slider.Thumb className="block h-4 w-4 rounded-full border border-border bg-surface shadow focus:outline-none focus:ring-2 focus:ring-accent/40" />
+              </Slider.Root>
+              <span className={`w-10 ${typeValue}`} title="Warp rect width/height">{rectAspect.toFixed(2)}</span>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <GroupIcon name="crop" title="Canvas aspect" />
+              <Label.Root className="sr-only" htmlFor="canvas-aspect-slider">Canvas aspect ratio</Label.Root>
+              <Slider.Root
+                id="canvas-aspect-slider"
+                className="relative flex w-20 shrink-0 touch-none select-none items-center"
+                value={[canvasAspect]}
+                onValueChange={([v]) => setCanvasAspect(v)}
+                min={0.5}
+                max={2}
+                step={0.05}
+                aria-label={`Canvas aspect: ${canvasAspect.toFixed(2)}`}
+              >
+                <Slider.Track className="relative h-1.5 grow rounded-full bg-surface-input">
+                  <Slider.Range className="absolute h-full rounded-full bg-accent" />
+                </Slider.Track>
+                <Slider.Thumb className="block h-4 w-4 rounded-full border border-border bg-surface shadow focus:outline-none focus:ring-2 focus:ring-accent/40" />
+              </Slider.Root>
+              <span className={`w-10 ${typeValue}`} title="Canvas width/height">{canvasAspect.toFixed(2)}</span>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <GroupIcon name="rounded_corner" title="Radius" />
+              <Label.Root className="sr-only" htmlFor="radius-slider">Corner radius</Label.Root>
+              <Slider.Root
+                id="radius-slider"
+                className="relative flex w-20 shrink-0 touch-none select-none items-center"
+                value={[cornerRadius]}
+                onValueChange={([v]) => setCornerRadius(v)}
+                min={0}
+                max={0.5}
+                step={0.01}
+                aria-label={`Corner radius: ${cornerRadius.toFixed(2)}`}
+              >
+                <Slider.Track className="relative h-1.5 grow rounded-full bg-surface-input">
+                  <Slider.Range className="absolute h-full rounded-full bg-accent" />
+                </Slider.Track>
+                <Slider.Thumb className="block h-4 w-4 rounded-full border border-border bg-surface shadow focus:outline-none focus:ring-2 focus:ring-accent/40" />
+              </Slider.Root>
+              <span className={`w-10 ${typeValue}`} title="Rect corner radius in cell space">{cornerRadius.toFixed(2)}</span>
+            </div>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <GroupIcon name="gradient" title="Weft gradient" />
-            <AppSelect value={weftGradient.startShade} onValueChange={(s) => { setPresetIndex(null); setWeftGradient((g) => ({ ...g, startShade: s })); }} options={shadeOptions()} title="Weft start" placeholder="Start" />
-            <AppSelect value={weftGradient.endShade} onValueChange={(s) => { setPresetIndex(null); setWeftGradient((g) => ({ ...g, endShade: s })); }} options={shadeOptions()} title="Weft end" placeholder="End" />
-            <DirectionSwitch value={weftGradient.direction} onValueChange={(d) => { setPresetIndex(null); setWeftGradient((g) => ({ ...g, direction: d })); }} options={directionOptionsWeft} title="Weft direction" ariaLabel="Weft gradient direction" />
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <GroupIcon name="grid_on" title="Resolution" />
-            <Label.Root className="sr-only" htmlFor="grid-slider">Tile size</Label.Root>
-            <Slider.Root
-              id="grid-slider"
-              className="relative flex w-20 shrink-0 touch-none select-none items-center"
-              value={[getGridSizeIndex(gridSize)]}
-              onValueChange={([i]) => setGridSize(GRID_SNAPS[i])}
-              min={0}
-              max={GRID_SNAPS.length - 1}
-              step={1}
-              aria-label={`Grid: ${gridSize} cells`}
-            >
-              <Slider.Track className="relative h-1.5 grow rounded-full bg-surface-input">
-                <Slider.Range className="absolute h-full rounded-full bg-accent" />
-              </Slider.Track>
-              <Slider.Thumb className="block h-4 w-4 rounded-full border border-border bg-surface shadow focus:outline-none focus:ring-2 focus:ring-accent/40" />
-            </Slider.Root>
-            <span className="w-6 tabular-nums text-[13px] text-text">{gridSize}</span>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <GroupIcon name="timeline" title="Quantization" />
-            <Label.Root className="sr-only" htmlFor="grad-steps-slider">Gradation steps</Label.Root>
-            <Slider.Root
-              id="grad-steps-slider"
-              className="relative flex w-20 shrink-0 touch-none select-none items-center"
-              value={[gradSteps]}
-              onValueChange={([v]) => setGradSteps(v)}
-              min={0}
-              max={16}
-              step={1}
-              aria-label={`Gradation steps: ${gradSteps === 0 ? 'smooth' : gradSteps}`}
-            >
-              <Slider.Track className="relative h-1.5 grow rounded-full bg-surface-input">
-                <Slider.Range className="absolute h-full rounded-full bg-accent" />
-              </Slider.Track>
-              <Slider.Thumb className="block h-4 w-4 rounded-full border border-border bg-surface shadow focus:outline-none focus:ring-2 focus:ring-accent/40" />
-            </Slider.Root>
-            <span className="w-8 tabular-nums text-[13px] text-text" title="0 = smooth gradient">{gradSteps === 0 ? 'Smooth' : gradSteps}</span>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <GroupIcon name="aspect_ratio" title="Ratio" />
-            <Label.Root className="sr-only" htmlFor="rect-aspect-slider">Rect aspect ratio</Label.Root>
-            <Slider.Root
-              id="rect-aspect-slider"
-              className="relative flex w-20 shrink-0 touch-none select-none items-center"
-              value={[rectAspect]}
-              onValueChange={([v]) => setRectAspect(v)}
-              min={0.5}
-              max={1.5}
-              step={0.05}
-              aria-label={`Rect aspect: ${rectAspect.toFixed(2)}`}
-            >
-              <Slider.Track className="relative h-1.5 grow rounded-full bg-surface-input">
-                <Slider.Range className="absolute h-full rounded-full bg-accent" />
-              </Slider.Track>
-              <Slider.Thumb className="block h-4 w-4 rounded-full border border-border bg-surface shadow focus:outline-none focus:ring-2 focus:ring-accent/40" />
-            </Slider.Root>
-            <span className="w-10 tabular-nums text-[13px] text-text" title="Warp rect width/height">{rectAspect.toFixed(2)}</span>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <GroupIcon name="crop" title="Canvas aspect" />
-            <Label.Root className="sr-only" htmlFor="canvas-aspect-slider">Canvas aspect ratio</Label.Root>
-            <Slider.Root
-              id="canvas-aspect-slider"
-              className="relative flex w-20 shrink-0 touch-none select-none items-center"
-              value={[canvasAspect]}
-              onValueChange={([v]) => setCanvasAspect(v)}
-              min={0.5}
-              max={2}
-              step={0.05}
-              aria-label={`Canvas aspect: ${canvasAspect.toFixed(2)}`}
-            >
-              <Slider.Track className="relative h-1.5 grow rounded-full bg-surface-input">
-                <Slider.Range className="absolute h-full rounded-full bg-accent" />
-              </Slider.Track>
-              <Slider.Thumb className="block h-4 w-4 rounded-full border border-border bg-surface shadow focus:outline-none focus:ring-2 focus:ring-accent/40" />
-            </Slider.Root>
-            <span className="w-10 tabular-nums text-[13px] text-text" title="Canvas width/height">{canvasAspect.toFixed(2)}</span>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <GroupIcon name="rounded_corner" title="Radius" />
-            <Label.Root className="sr-only" htmlFor="radius-slider">Corner radius</Label.Root>
-            <Slider.Root
-              id="radius-slider"
-              className="relative flex w-20 shrink-0 touch-none select-none items-center"
-              value={[cornerRadius]}
-              onValueChange={([v]) => setCornerRadius(v)}
-              min={0}
-              max={0.5}
-              step={0.01}
-              aria-label={`Corner radius: ${cornerRadius.toFixed(2)}`}
-            >
-              <Slider.Track className="relative h-1.5 grow rounded-full bg-surface-input">
-                <Slider.Range className="absolute h-full rounded-full bg-accent" />
-              </Slider.Track>
-              <Slider.Thumb className="block h-4 w-4 rounded-full border border-border bg-surface shadow focus:outline-none focus:ring-2 focus:ring-accent/40" />
-            </Slider.Root>
-            <span className="w-10 tabular-nums text-[13px] text-text" title="Rect corner radius in cell space">{cornerRadius.toFixed(2)}</span>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <GroupIcon name="auto_awesome" title="Shimmer" />
-            <button
-              type="button"
-              className={`flex h-7 min-w-16 items-center justify-center rounded-md border px-2.5 text-[10px] font-medium transition-colors ${shimmer ? 'border-accent bg-accent/15 text-accent' : 'border-border-subtle bg-surface-input text-text-secondary hover:bg-surface-hover hover:text-text'}`}
-              aria-pressed={shimmer}
-              aria-label="Toggle shimmer effect"
-              onClick={() => setShimmer((s) => !s)}
-            >
-              Shimmer
-            </button>
-            {shimmer && (
+          <div className={sidebarGroup}>
+            <div className={sidebarGroupTitle}>Shimmer</div>
+            <div className="flex flex-wrap items-center gap-2">
+              <GroupIcon name="auto_awesome" title="Shimmer" />
+              <button
+                type="button"
+                className={`flex h-7 min-w-16 items-center justify-center rounded-md border px-2.5 ${typeControl} transition-colors ${shimmer ? 'border-accent bg-accent/15 text-accent' : 'border-border-subtle bg-surface-input text-text-secondary hover:bg-surface-hover hover:text-text'}`}
+                aria-pressed={shimmer}
+                aria-label="Toggle shimmer effect"
+                onClick={() => setShimmer((s) => !s)}
+              >
+                Shimmer
+              </button>
+              {shimmer && (
               <>
-                <Label.Root className="sr-only" htmlFor="shimmer-speed">Shimmer speed</Label.Root>
+                <Label.Root className="sr-only" htmlFor="shimmer-speed">Shimmer speed (cells/s)</Label.Root>
                 <Slider.Root
                   id="shimmer-speed"
                   className="relative flex w-16 shrink-0 touch-none items-center"
                   value={[shimmerSpeed]}
                   onValueChange={([v]) => setShimmerSpeed(v)}
-                  min={0.2}
-                  max={8}
-                  step={0.2}
-                  aria-label="Shimmer speed"
+                  min={1}
+                  max={16}
+                  step={1}
+                  aria-label="Shimmer speed (cells per second)"
                 >
                   <Slider.Track className="relative h-1.5 grow rounded-full bg-surface-input">
                     <Slider.Range className="absolute h-full rounded-full bg-accent" />
                   </Slider.Track>
                   <Slider.Thumb className="block h-4 w-4 rounded-full border border-border bg-surface shadow focus:ring-2 focus:ring-accent/40" />
                 </Slider.Root>
+                <span className={`w-8 ${typeCaption} tabular-nums`} title="Cells per second">Cells/s</span>
                 <Label.Root className="sr-only" htmlFor="shimmer-width">Shimmer width</Label.Root>
                 <Slider.Root
                   id="shimmer-width"
                   className="relative flex w-16 shrink-0 touch-none items-center"
                   value={[shimmerWidth]}
                   onValueChange={([v]) => setShimmerWidth(v)}
-                  min={0.5}
-                  max={6}
+                  min={0.25}
+                  max={24}
                   step={0.25}
                   aria-label="Shimmer width"
                 >
@@ -792,22 +932,71 @@ export default function App() {
                   </Slider.Track>
                   <Slider.Thumb className="block h-4 w-4 rounded-full border border-border bg-surface shadow focus:ring-2 focus:ring-accent/40" />
                 </Slider.Root>
+                <Label.Root className="sr-only" htmlFor="shimmer-intensity">Shimmer intensity</Label.Root>
+                <Slider.Root
+                  id="shimmer-intensity"
+                  className="relative flex w-16 shrink-0 touch-none items-center"
+                  value={[shimmerIntensity]}
+                  onValueChange={([v]) => setShimmerIntensity(v)}
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  aria-label="Shimmer intensity"
+                >
+                  <Slider.Track className="relative h-1.5 grow rounded-full bg-surface-input">
+                    <Slider.Range className="absolute h-full rounded-full bg-accent" />
+                  </Slider.Track>
+                  <Slider.Thumb className="block h-4 w-4 rounded-full border border-border bg-surface shadow focus:ring-2 focus:ring-accent/40" />
+                </Slider.Root>
+                <span className={`w-6 ${typeCaption}`}>Intensity</span>
+                <Label.Root className="sr-only" htmlFor="shimmer-position">Shimmer position</Label.Root>
+                <Slider.Root
+                  id="shimmer-position"
+                  className="relative flex w-16 shrink-0 touch-none items-center"
+                  value={[shimmerPosition]}
+                  onValueChange={([v]) => setShimmerPosition(v)}
+                  min={0}
+                  max={1}
+                  step={0.01}
+                  aria-label="Shimmer position (phase)"
+                >
+                  <Slider.Track className="relative h-1.5 grow rounded-full bg-surface-input">
+                    <Slider.Range className="absolute h-full rounded-full bg-accent" />
+                  </Slider.Track>
+                  <Slider.Thumb className="block h-4 w-4 rounded-full border border-border bg-surface shadow focus:ring-2 focus:ring-accent/40" />
+                </Slider.Root>
+                <span className={`w-6 ${typeCaption}`}>Position</span>
               </>
             )}
+            </div>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <GroupIcon name="palette" title="All colorways" />
-            <button
-              type="button"
-              className={`flex h-7 min-w-16 items-center justify-center rounded-md border px-2.5 text-[10px] font-medium transition-colors ${useAllColorways ? 'border-accent bg-accent/15 text-accent' : 'border-border-subtle bg-surface-input text-text-secondary hover:bg-surface-hover hover:text-text'}`}
-              aria-pressed={useAllColorways}
-              aria-label="Use all 4 colorways (randomized per cell)"
-              onClick={() => setUseAllColorways((u) => !u)}
-            >
-              Use all 4 colorways
-            </button>
-            {useAllColorways && (
+          <div className={sidebarGroup}>
+            <div className={sidebarGroupTitle}>Colorways</div>
+            <div className="flex flex-wrap items-center gap-2">
+              <GroupIcon name="palette" title="All colorways" />
+              <button
+                type="button"
+                className={`flex h-7 min-w-16 items-center justify-center rounded-md border px-2.5 ${typeControl} transition-colors ${useAllColorways ? 'border-accent bg-accent/15 text-accent' : 'border-border-subtle bg-surface-input text-text-secondary hover:bg-surface-hover hover:text-text'}`}
+                aria-pressed={useAllColorways}
+                aria-label="Use all 4 colorways (randomized per cell)"
+                onClick={() => setUseAllColorways((u) => !u)}
+              >
+                Use all 4 colorways
+              </button>
+              {useAllColorways && (
               <>
+                {[0, 1, 2, 3].map((n) => (
+                  <button
+                    key={n}
+                    type="button"
+                    className={`flex h-7 w-7 items-center justify-center rounded-md border px-0 ${typeControl} transition-colors ${colorwaySeed === n ? 'border-accent bg-accent/15 text-accent' : 'border-border-subtle bg-surface-input text-text-secondary hover:bg-surface-hover hover:text-text'}`}
+                    aria-label={`Colorway seed ${n}`}
+                    aria-pressed={colorwaySeed === n}
+                    onClick={() => setColorwaySeed(n)}
+                  >
+                    {n}
+                  </button>
+                ))}
                 <Label.Root className="sr-only" htmlFor="colorway-seed">Colorway seed</Label.Root>
                 <Slider.Root
                   id="colorway-seed"
@@ -824,25 +1013,26 @@ export default function App() {
                   </Slider.Track>
                   <Slider.Thumb className="block h-4 w-4 rounded-full border border-border bg-surface shadow focus:ring-2 focus:ring-accent/40" />
                 </Slider.Root>
-                <span className="w-8 tabular-nums text-[13px] text-text">Seed: {colorwaySeed}</span>
+                <span className={`w-8 ${typeValue}`}>Seed: {colorwaySeed}</span>
               </>
             )}
+            </div>
           </div>
         </div>
         </aside>
         <button
           type="button"
-          className="flex h-full min-w-6 shrink-0 items-center justify-center border-border-subtle bg-surface-elevated text-text-muted transition-colors hover:bg-surface-hover hover:text-text focus:outline-none focus:ring-1 focus:ring-accent/20"
+          className={`flex h-full min-w-6 shrink-0 items-center justify-center border-border-subtle bg-surface-elevated ${typeBase} text-text-muted transition-colors hover:bg-surface-hover hover:text-text focus:outline-none focus:ring-1 focus:ring-accent/20`}
           onClick={() => setSidebarOpenPersisted(!sidebarOpen)}
           aria-label={sidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'}
           title={sidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'}
         >
-          <Icon name={sidebarOpen ? 'chevron_left' : 'chevron_right'} className="text-[18px]" />
+          <Icon name={sidebarOpen ? 'chevron_left' : 'chevron_right'} className={iconLg} />
         </button>
       </div>
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         <main className="flex min-h-0 flex-1 items-center justify-center overflow-auto p-4">
-          <ShaderCanvas patternIndex={pattern} palette={palette} bgShade={bgShade} warpShade={warpShade} weftShade={weftShade} gridSize={gridSize} warpGradient={warpGradient} weftGradient={weftGradient} gradSteps={gradSteps} rectAspect={rectAspect} cornerRadius={cornerRadius} canvasAspect={canvasAspect} shimmer={shimmer} shimmerSpeed={shimmerSpeed} shimmerWidth={shimmerWidth} useAllColorways={useAllColorways} colorwaySeed={colorwaySeed} patterns={PATTERNS} onFpsChange={setFps} onCanvasRef={(el) => { canvasRef.current = el; }} />
+          <ShaderCanvas patternIndex={pattern} palette={palette} bgShade={bgShade} warpShade={warpShade} weftShade={weftShade} gridSize={gridSize} warpGradient={warpGradient} weftGradient={weftGradient} gradSteps={gradSteps} rectAspect={rectAspect} cornerRadius={cornerRadius} canvasAspect={canvasAspect} shimmer={shimmer} shimmerSpeed={shimmerSpeed} shimmerWidth={shimmerWidth} shimmerIntensity={shimmerIntensity} shimmerPosition={shimmerPosition} useAllColorways={useAllColorways} colorwaySeed={colorwaySeed} patterns={PATTERNS} onFpsChange={setFps} onCanvasRef={(el) => { canvasRef.current = el; }} />
         </main>
 
         <footer className="flex min-h-9 shrink-0 flex-wrap items-center gap-2 border-t border-border-subtle bg-surface-elevated px-3 py-2">

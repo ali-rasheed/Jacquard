@@ -25,6 +25,10 @@
   --radius-pill: 9999px;
   --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
   --font-icons: 'Material Symbols Outlined', sans-serif;
+  /* Type scale: xs = labels/caps, sm = controls/dropdowns, base = body/values */
+  --text-xs: 10px;
+  --text-sm: 11px;
+  --text-base: 13px;
 }
 
 /* Shared tokens for ShaderEditor and other modules (Linear-style) */

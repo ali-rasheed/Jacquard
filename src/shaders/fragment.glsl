@@ -33,10 +33,12 @@ uniform float u_weftStartPos;
 uniform float u_weftEndPos;
 uniform float u_gradSteps;        // 0 or 1 = smooth; >= 2 = discrete bands
 
-// Shimmer: 0 = off, 1 = on. Optional: speed (time scale), width (band size in cells).
+// Shimmer: 0 = off, 1 = on. Optional: speed, width (cells), intensity (highlight strength), position (0–1 phase offset).
 uniform float u_shimmer;
 uniform float u_shimmerSpeed;
 uniform float u_shimmerWidth;
+uniform float u_shimmerIntensity;
+uniform float u_shimmerPosition;
 
 // All 4 colorways: 0 = single u_palette, 1 = per-cell palette from u_colorwaySeed hash (mod 4).
 uniform float u_useAllColorways;
@@ -233,13 +235,18 @@ void main() {
 
     vec4 outColor = mix(bgVec, inRectVec, cell);
 
-    // Shimmer: time-based highlight band when u_shimmer > 0 (speed and width optional).
+    // Shimmer: looping highlight band along diagonal. Period = one full diagonal; band wraps.
     if (u_shimmer > 0.5) {
       float speed = max(0.001, u_shimmerSpeed);
       float width = max(0.01, u_shimmerWidth);
-      float phase = (cellID.x + cellID.y) - u_time * speed;
-      float band = 1.0 - smoothstep(0.0, width, abs(phase));
-      outColor.rgb += band * 0.25;
+      float period = gridSize * (1.0 + aspect);
+      float positionOffset = u_shimmerPosition * period;
+      float bandCenter = mod(u_time * speed + positionOffset, period);
+      float diag = cellID.x + cellID.y;
+      float phase = mod(diag - bandCenter + 0.5 * period, period) - 0.5 * period;
+      float d = abs(phase);
+      float band = 1.0 - smoothstep(0.0, width, d);
+      outColor.rgb += band * u_shimmerIntensity;
     }
 
     gl_FragColor = outColor;

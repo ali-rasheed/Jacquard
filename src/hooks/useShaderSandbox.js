@@ -47,6 +47,8 @@ function getUniformLocs(gl, program) {
     shimmer: gl.getUniformLocation(program, 'u_shimmer'),
     shimmerSpeed: gl.getUniformLocation(program, 'u_shimmerSpeed'),
     shimmerWidth: gl.getUniformLocation(program, 'u_shimmerWidth'),
+    shimmerIntensity: gl.getUniformLocation(program, 'u_shimmerIntensity'),
+    shimmerPosition: gl.getUniformLocation(program, 'u_shimmerPosition'),
     useAllColorways: gl.getUniformLocation(program, 'u_useAllColorways'),
     colorwaySeed: gl.getUniformLocation(program, 'u_colorwaySeed'),
   };
@@ -95,7 +97,7 @@ function getPaletteColor(paletteIndex, shadeIndex) {
   return PALETTE_RGBA[p][s];
 }
 
-export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, palette, bgShade, warpShade, weftShade, gridSize, warpGradient, weftGradient, gradSteps, rectAspect, cornerRadius, shimmer, shimmerSpeed, shimmerWidth, useAllColorways, colorwaySeed, patterns, onFpsChange) {
+export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, palette, bgShade, warpShade, weftShade, gridSize, warpGradient, weftGradient, gradSteps, rectAspect, cornerRadius, shimmer, shimmerSpeed, shimmerWidth, shimmerIntensity, shimmerPosition, useAllColorways, colorwaySeed, patterns, onFpsChange) {
   const canvasRef = useRef(null);
   const containerRef = useRef(null);
   const vertexSourceRef = useRef(vertexSource);
@@ -128,6 +130,8 @@ export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, pal
   const shimmerRef = useRef(shimmer);
   const shimmerSpeedRef = useRef(shimmerSpeed);
   const shimmerWidthRef = useRef(shimmerWidth);
+  const shimmerIntensityRef = useRef(shimmerIntensity);
+  const shimmerPositionRef = useRef(shimmerPosition);
   const useAllColorwaysRef = useRef(useAllColorways);
   const colorwaySeedRef = useRef(colorwaySeed);
   patternIndexRef.current = patternIndex;
@@ -142,6 +146,8 @@ export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, pal
   shimmerRef.current = shimmer ?? 0;
   shimmerSpeedRef.current = shimmerSpeed ?? 2.0;
   shimmerWidthRef.current = shimmerWidth ?? 2.0;
+  shimmerIntensityRef.current = shimmerIntensity ?? 0.25;
+  shimmerPositionRef.current = shimmerPosition ?? 0.0;
   useAllColorwaysRef.current = useAllColorways ?? 0;
   colorwaySeedRef.current = colorwaySeed ?? 0;
 
@@ -250,6 +256,8 @@ export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, pal
       if (uniformLocs.shimmer != null) gl.uniform1f(uniformLocs.shimmer, shimmerRef.current);
       if (uniformLocs.shimmerSpeed != null) gl.uniform1f(uniformLocs.shimmerSpeed, shimmerSpeedRef.current);
       if (uniformLocs.shimmerWidth != null) gl.uniform1f(uniformLocs.shimmerWidth, shimmerWidthRef.current);
+      if (uniformLocs.shimmerIntensity != null) gl.uniform1f(uniformLocs.shimmerIntensity, shimmerIntensityRef.current);
+      if (uniformLocs.shimmerPosition != null) gl.uniform1f(uniformLocs.shimmerPosition, shimmerPositionRef.current);
       if (uniformLocs.useAllColorways != null) gl.uniform1f(uniformLocs.useAllColorways, useAllColorwaysRef.current);
       if (uniformLocs.colorwaySeed != null) gl.uniform1f(uniformLocs.colorwaySeed, colorwaySeedRef.current);
 
