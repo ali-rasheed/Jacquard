@@ -19,6 +19,9 @@ uniform float u_patternIndex;
 uniform float u_tileW;
 uniform float u_tileH;
 uniform float u_patternTexHeight;
+uniform float u_rectRadius;   // corner radius in cell space (0 = sharp, ~0.18 = default)
+uniform float u_rectAspect;   // rect width/height in cell space (e.g. 0.85 = 34/40)
+uniform float u_rectRatio;    // scale of rect within cell (1 = full cell, <1 = inset)
 
 // --- WEAVE PATTERN LOOKUP (from v1 fragment.glsl) ---
 // row, col = cell position; returns 0 = warp, 1 = weft for rect orientation.
@@ -118,13 +121,15 @@ void main() {
     rectVec = getPaletteColor(u_palette, shade);
   }
 
-  // --- ROUNDED RECT: orient by weave (same as v1) ---
+  // --- ROUNDED RECT: orient by weave (same as v1). Size/radius from uniforms. ---
   // Warp = portrait (halfX, halfY), weft = landscape (halfY, halfX).
   float isWeft = getPatternFromTexture(cellID.y, cellID.x);
   vec2 p = cellUV - 0.5;
-  float halfY = 0.5;
-  float halfX = halfY * (34.0 / 40.0);
-  float cornerRadius = 0.18;
+  float ratio = clamp(u_rectRatio, 0.01, 1.0);
+  float aspectClamped = clamp(u_rectAspect, 0.2, 2.0);
+  float halfY = 0.5 * ratio;
+  float halfX = halfY * aspectClamped;
+  float cornerRadius = clamp(u_rectRadius, 0.0, 0.5);
   vec2 halfSize = isWeft > 0.5 ? vec2(halfY, halfX) : vec2(halfX, halfY);
   float d = roundedRect(p, halfSize, cornerRadius);
   float cell = 1.0 - smoothstep(0.0, 0.01, d);

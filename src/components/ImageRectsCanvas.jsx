@@ -9,8 +9,12 @@ import vertexSource from '../shaders/vertex.glsl?raw';
 import { PATTERNS } from '../patterns';
 import { typeFps } from '../uiConstants';
 
-function ImageRectsCanvasInner({ imageSource, gridSize, palette, bgShade, colorizeMode, quantizeSteps, rectShade, shadeFrom, patternIndex, patterns, onFpsChange, onCanvasRef }) {
-  const { canvasRef, containerRef, error, fps } = useImageRectsSandbox(
+/**
+ * Container aspect ratio follows the loaded image so the canvas is not stretched.
+ * When no image is loaded, fallback is 1:1.
+ */
+function ImageRectsCanvasInner({ imageSource, gridSize, palette, bgShade, colorizeMode, quantizeSteps, rectShade, shadeFrom, patternIndex, patterns, rectRadius, rectAspect, rectRatio, onFpsChange, onCanvasRef }) {
+  const { canvasRef, containerRef, error, fps, imageSize } = useImageRectsSandbox(
     vertexSource,
     fragmentSource,
     imageSource ?? '',
@@ -23,14 +27,21 @@ function ImageRectsCanvasInner({ imageSource, gridSize, palette, bgShade, colori
     shadeFrom ?? 0,
     patternIndex ?? 0,
     patterns ?? PATTERNS,
+    rectRadius ?? 0.18,
+    rectAspect ?? 0.85,
+    rectRatio ?? 1.0,
     onFpsChange
   );
+
+  const aspectRatio = imageSize
+    ? `${imageSize.width} / ${imageSize.height}`
+    : '1 / 1';
 
   return (
     <div
       ref={containerRef}
       className="relative flex flex-initial flex-col overflow-hidden rounded-md border border-border-subtle bg-surface-secondary w-100"
-      style={{ aspectRatio: '1 / 1' }}
+      style={{ aspectRatio }}
     >
       <canvas ref={(el) => { canvasRef.current = el; onCanvasRef?.(el); }} className="block flex-1 bg-surface" />
       <div className={`absolute right-2 top-2 rounded-full border border-border-subtle bg-surface-elevated px-2.5 py-0.5 font-mono ${typeFps} font-medium text-text-secondary`}>

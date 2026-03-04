@@ -33,13 +33,18 @@ uniform float u_weftStartPos;
 uniform float u_weftEndPos;
 uniform float u_gradSteps;        // 0 or 1 = smooth; >= 2 = discrete bands
 
-// Shimmer: 0 = off, 1 = on. Optional: speed, width (cells), intensity, position (0–1 phase), rotation (0–1 = 0–2π rad).
+// Shimmer: 0 = off, 1 = on. Optional: speed, width, intensity, position, rotation, noise amount/seed/min/max.
 uniform float u_shimmer;
 uniform float u_shimmerSpeed;
 uniform float u_shimmerWidth;
 uniform float u_shimmerIntensity;
 uniform float u_shimmerPosition;
 uniform float u_shimmerRotation;
+uniform float u_shimmerNoise;
+uniform float u_shimmerNoiseSeed;
+uniform float u_shimmerNoiseMin;
+uniform float u_shimmerNoiseMax;
+uniform float u_shimmerBlendMode;  // 0=Add, 1=Mul, 2=Screen, 3=Overlay, 4=SoftLight, 5=HardLight, 6=ColorDodge, 7=ColorBurn, 8=LinearBurn, 9=Difference, 10=Exclusion
 
 // All 4 colorways: 0 = single u_palette, 1 = per-cell palette from u_colorwaySeed hash (mod 4).
 uniform float u_useAllColorways;
@@ -237,9 +242,10 @@ void main() {
 
     vec4 outColor = mix(bgVec, inRectVec, cell);
 
-    // Shimmer: looping highlight band; direction = u_shimmerRotation (0–1 → 0–2π). Period = grid extent along that direction.
+    // Shimmer: quantized to each shot/pick (discrete steps); per-shot noise on intensity.
+    // Band center advances by whole steps (floor(u_time * speed)); period in same units.
     if (u_shimmer > 0.5) {
-      float speed = max(0.001, u_shimmerSpeed);
+      float speed = max(0.0, u_shimmerSpeed);
       float width = max(0.01, u_shimmerWidth);
       float angle = u_shimmerRotation * 6.28318530718; // 0–1 → 0–2π
       float cosA = cos(angle);
@@ -247,12 +253,46 @@ void main() {
       float period = gridSize * (aspect * abs(cosA) + abs(sinA));
       period = max(period, 1.0);
       float positionOffset = u_shimmerPosition * period;
-      float bandCenter = mod(u_time * speed + positionOffset, period);
+      // When speed is 0 (paused), band stays fixed; otherwise advance by time.
+      float timeStep = speed <= 0.0 ? 0.0 : floor(u_time * max(0.001, speed));
+      float bandCenter = mod(timeStep + floor(positionOffset), period);
       float along = cellID.x * cosA + cellID.y * sinA;
       float phase = mod(along - bandCenter + 0.5 * period, period) - 0.5 * period;
       float d = abs(phase);
       float band = 1.0 - smoothstep(0.0, width, d);
-      outColor.rgb += band * u_shimmerIntensity;
+      float seedOff = u_shimmerNoiseSeed * 43758.5453;
+      float shotNoise = hash(vec2(floor(along) + seedOff, timeStep));
+      float noiseAmount = max(0.0, u_shimmerNoise);
+      float rawFactor = 1.0 + (shotNoise - 0.5) * 2.0 * noiseAmount;
+      float nMin = clamp(u_shimmerNoiseMin, 0.0, 2.0);
+      float nMax = clamp(u_shimmerNoiseMax, 0.0, 2.0);
+      float noiseFactor = clamp(rawFactor, min(nMin, nMax), max(nMin, nMax));
+      float blendFactor = band * u_shimmerIntensity * noiseFactor;
+      int mode = int(clamp(u_shimmerBlendMode, 0.0, 10.0) + 0.5);
+      vec3 o = outColor.rgb;
+      if (mode == 0) {
+        outColor.rgb += blendFactor;
+      } else if (mode == 1) {
+        outColor.rgb *= 1.0 - blendFactor;
+      } else if (mode == 2) {
+        outColor.rgb = 1.0 - (1.0 - o) * (1.0 - blendFactor);
+      } else if (mode == 3) {
+        outColor.rgb = mix(o * (1.0 + blendFactor), o + blendFactor * (1.0 - o), step(0.5, o));
+      } else if (mode == 4) {
+        outColor.rgb = o + blendFactor * o * (1.0 - o);
+      } else if (mode == 5) {
+        outColor.rgb = mix(2.0 * o * blendFactor, blendFactor + o * (1.0 - blendFactor), step(0.5, o));
+      } else if (mode == 6) {
+        outColor.rgb = min(vec3(1.0), o / (1.0 - blendFactor + 1e-6));
+      } else if (mode == 7) {
+        outColor.rgb = max(vec3(0.0), 1.0 - (1.0 - o) / (blendFactor + 1e-6));
+      } else if (mode == 8) {
+        outColor.rgb = max(vec3(0.0), o + blendFactor - 1.0);
+      } else if (mode == 9) {
+        outColor.rgb = abs(o - blendFactor);
+      } else {
+        outColor.rgb = o + blendFactor - 2.0 * o * blendFactor;
+      }
     }
 
     gl_FragColor = outColor;

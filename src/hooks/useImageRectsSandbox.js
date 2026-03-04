@@ -58,14 +58,24 @@ function uploadImageToTexture(gl, texture, image) {
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
 }
 
-export function useImageRectsSandbox(vertexSource, fragmentSource, imageSource, gridSize, palette, bgShade, colorizeMode, quantizeSteps, rectShade, shadeFrom, patternIndex, patterns, onFpsChange) {
+/**
+ * When image loads, the hook reports its size via onImageSize(w, h) and imageSize state
+ * so the UI can match aspect ratio and resolution (e.g. canvas/capture dimensions).
+ * Image is cached by source so changing grid/palette etc. does not reload it.
+ */
+export function useImageRectsSandbox(vertexSource, fragmentSource, imageSource, gridSize, palette, bgShade, colorizeMode, quantizeSteps, rectShade, shadeFrom, patternIndex, patterns, rectRadius, rectAspect, rectRatio, onFpsChange, onImageSize) {
   const canvasRef = useRef(null);
   const containerRef = useRef(null);
   const onFpsChangeRef = useRef(onFpsChange);
+  const onImageSizeRef = useRef(onImageSize);
+  /** Keep loaded image by source so changing grid/palette etc. doesn't reload the image. */
+  const imageCacheRef = useRef({ source: null, img: null });
   const [error, setError] = useState('');
   const [fps, setFps] = useState(0);
+  const [imageSize, setImageSize] = useState(null);
 
   onFpsChangeRef.current = onFpsChange;
+  onImageSizeRef.current = onImageSize;
 
   useEffect(() => {
     onFpsChangeRef.current?.(fps);
@@ -130,6 +140,9 @@ export function useImageRectsSandbox(vertexSource, fragmentSource, imageSource, 
       gl.uniform1f(uniformLocs.quantizeSteps, quantizeSteps);
       gl.uniform1f(uniformLocs.rectShade, rectShade);
       gl.uniform1f(uniformLocs.shadeFrom, shadeFrom);
+      gl.uniform1f(uniformLocs.rectRadius, rectRadius ?? 0.18);
+      gl.uniform1f(uniformLocs.rectAspect, rectAspect ?? 0.85);
+      gl.uniform1f(uniformLocs.rectRatio, rectRatio ?? 1.0);
       const pat = list[Math.min(Math.max(0, Math.floor(patternIndex)), list.length - 1)] ?? list[0];
       gl.uniform1f(uniformLocs.patternIndex, Math.floor(patternIndex));
       gl.uniform1f(uniformLocs.tileW, pat?.tileW ?? 8);
@@ -171,6 +184,9 @@ export function useImageRectsSandbox(vertexSource, fragmentSource, imageSource, 
         quantizeSteps: gl.getUniformLocation(program, 'u_quantizeSteps'),
         rectShade: gl.getUniformLocation(program, 'u_rectShade'),
         shadeFrom: gl.getUniformLocation(program, 'u_shadeFrom'),
+        rectRadius: gl.getUniformLocation(program, 'u_rectRadius'),
+        rectAspect: gl.getUniformLocation(program, 'u_rectAspect'),
+        rectRatio: gl.getUniformLocation(program, 'u_rectRatio'),
       };
 
       imageTexture = createPlaceholderTexture(gl);
@@ -186,16 +202,36 @@ export function useImageRectsSandbox(vertexSource, fragmentSource, imageSource, 
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
 
+      const cache = imageCacheRef.current;
       if (imageSource) {
-        const img = new Image();
-        img.crossOrigin = 'anonymous';
-        img.onload = () => {
-          uploadImageToTexture(gl, imageTexture, img);
-        };
-        img.onerror = () => {
-          setError('Failed to load image');
-        };
-        img.src = imageSource;
+        if (cache.source === imageSource && cache.img?.complete) {
+          uploadImageToTexture(gl, imageTexture, cache.img);
+          setImageSize({ width: cache.img.naturalWidth, height: cache.img.naturalHeight });
+          onImageSizeRef.current?.(cache.img.naturalWidth, cache.img.naturalHeight);
+        } else {
+          cache.source = null;
+          cache.img = null;
+          const img = new Image();
+          img.crossOrigin = 'anonymous';
+          img.onload = () => {
+            cache.source = imageSource;
+            cache.img = img;
+            uploadImageToTexture(gl, imageTexture, img);
+            const w = img.naturalWidth;
+            const h = img.naturalHeight;
+            setImageSize({ width: w, height: h });
+            onImageSizeRef.current?.(w, h);
+          };
+          img.onerror = () => {
+            setError('Failed to load image');
+            setImageSize(null);
+          };
+          img.src = imageSource;
+        }
+      } else {
+        cache.source = null;
+        cache.img = null;
+        setImageSize(null);
       }
 
       setupGeometry();
@@ -218,12 +254,12 @@ export function useImageRectsSandbox(vertexSource, fragmentSource, imageSource, 
       if (patternTexture) gl.deleteTexture(patternTexture);
       if (program) gl.deleteProgram(program);
     };
-  }, [vertexSource, fragmentSource, imageSource, gridSize, palette, bgShade, colorizeMode, quantizeSteps, rectShade, shadeFrom, patternIndex, patterns]);
+  }, [vertexSource, fragmentSource, imageSource, gridSize, palette, bgShade, colorizeMode, quantizeSteps, rectShade, shadeFrom, patternIndex, patterns, rectRadius, rectAspect, rectRatio]);
 
   useEffect(() => {
     const cleanup = run();
     return () => cleanup?.();
   }, [run]);
 
-  return { canvasRef, containerRef, error, fps };
+  return { canvasRef, containerRef, error, fps, imageSize };
 }

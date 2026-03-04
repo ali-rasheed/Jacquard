@@ -9,12 +9,11 @@
  * Optimizations (Vercel React): cache uniform locations (js-cache-property-access),
  * ref for onFpsChange to avoid effect churn (advanced-use-latest).
  */
-const DPR = 2;
 import { useRef, useEffect, useCallback, useState } from 'react';
+import { RECT_ASPECT_DEFAULT } from '../constants';
 import { buildPatternTexture, PATTERNS } from '../patterns';
 
-/** Default rect aspect 36×40 (warp orientation). */
-const RECT_ASPECT_DEFAULT = 36 / 40;
+const DPR = 2;
 
 function getUniformLocs(gl, program) {
   return {
@@ -50,6 +49,11 @@ function getUniformLocs(gl, program) {
     shimmerIntensity: gl.getUniformLocation(program, 'u_shimmerIntensity'),
     shimmerPosition: gl.getUniformLocation(program, 'u_shimmerPosition'),
     shimmerRotation: gl.getUniformLocation(program, 'u_shimmerRotation'),
+    shimmerNoise: gl.getUniformLocation(program, 'u_shimmerNoise'),
+    shimmerNoiseSeed: gl.getUniformLocation(program, 'u_shimmerNoiseSeed'),
+    shimmerNoiseMin: gl.getUniformLocation(program, 'u_shimmerNoiseMin'),
+    shimmerNoiseMax: gl.getUniformLocation(program, 'u_shimmerNoiseMax'),
+    shimmerBlendMode: gl.getUniformLocation(program, 'u_shimmerBlendMode'),
     useAllColorways: gl.getUniformLocation(program, 'u_useAllColorways'),
     colorwaySeed: gl.getUniformLocation(program, 'u_colorwaySeed'),
   };
@@ -98,7 +102,7 @@ function getPaletteColor(paletteIndex, shadeIndex) {
   return PALETTE_RGBA[p][s];
 }
 
-export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, palette, bgShade, warpShade, weftShade, gridSize, warpGradient, weftGradient, gradSteps, rectAspect, cornerRadius, shimmer, shimmerSpeed, shimmerWidth, shimmerIntensity, shimmerPosition, shimmerRotation, useAllColorways, colorwaySeed, patterns, onFpsChange) {
+export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, palette, bgShade, warpShade, weftShade, gridSize, warpGradient, weftGradient, gradSteps, rectAspect, cornerRadius, shimmer, shimmerSpeed, shimmerWidth, shimmerIntensity, shimmerPosition, shimmerRotation, shimmerNoise, shimmerNoiseSeed, shimmerNoiseMin, shimmerNoiseMax, shimmerBlendMode, useAllColorways, colorwaySeed, patterns, onFpsChange) {
   const canvasRef = useRef(null);
   const containerRef = useRef(null);
   const vertexSourceRef = useRef(vertexSource);
@@ -134,6 +138,11 @@ export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, pal
   const shimmerIntensityRef = useRef(shimmerIntensity);
   const shimmerPositionRef = useRef(shimmerPosition);
   const shimmerRotationRef = useRef(shimmerRotation);
+  const shimmerNoiseRef = useRef(shimmerNoise);
+  const shimmerNoiseSeedRef = useRef(shimmerNoiseSeed);
+  const shimmerNoiseMinRef = useRef(shimmerNoiseMin);
+  const shimmerNoiseMaxRef = useRef(shimmerNoiseMax);
+  const shimmerBlendModeRef = useRef(shimmerBlendMode);
   const useAllColorwaysRef = useRef(useAllColorways);
   const colorwaySeedRef = useRef(colorwaySeed);
   patternIndexRef.current = patternIndex;
@@ -151,6 +160,11 @@ export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, pal
   shimmerIntensityRef.current = shimmerIntensity ?? 0.25;
   shimmerPositionRef.current = shimmerPosition ?? 0.0;
   shimmerRotationRef.current = shimmerRotation ?? 0.125; // 0.125 ≈ 45° (diagonal)
+  shimmerNoiseRef.current = shimmerNoise ?? 0.3;
+  shimmerNoiseSeedRef.current = shimmerNoiseSeed ?? 0;
+  shimmerNoiseMinRef.current = shimmerNoiseMin ?? 0.5;
+  shimmerNoiseMaxRef.current = shimmerNoiseMax ?? 1.5;
+  shimmerBlendModeRef.current = shimmerBlendMode ?? 0;
   useAllColorwaysRef.current = useAllColorways ?? 0;
   colorwaySeedRef.current = colorwaySeed ?? 0;
 
@@ -262,6 +276,11 @@ export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, pal
       if (uniformLocs.shimmerIntensity != null) gl.uniform1f(uniformLocs.shimmerIntensity, shimmerIntensityRef.current);
       if (uniformLocs.shimmerPosition != null) gl.uniform1f(uniformLocs.shimmerPosition, shimmerPositionRef.current);
       if (uniformLocs.shimmerRotation != null) gl.uniform1f(uniformLocs.shimmerRotation, shimmerRotationRef.current);
+      if (uniformLocs.shimmerNoise != null) gl.uniform1f(uniformLocs.shimmerNoise, shimmerNoiseRef.current);
+      if (uniformLocs.shimmerNoiseSeed != null) gl.uniform1f(uniformLocs.shimmerNoiseSeed, shimmerNoiseSeedRef.current);
+      if (uniformLocs.shimmerNoiseMin != null) gl.uniform1f(uniformLocs.shimmerNoiseMin, shimmerNoiseMinRef.current);
+      if (uniformLocs.shimmerNoiseMax != null) gl.uniform1f(uniformLocs.shimmerNoiseMax, shimmerNoiseMaxRef.current);
+      if (uniformLocs.shimmerBlendMode != null) gl.uniform1f(uniformLocs.shimmerBlendMode, shimmerBlendModeRef.current);
       if (uniformLocs.useAllColorways != null) gl.uniform1f(uniformLocs.useAllColorways, useAllColorwaysRef.current);
       if (uniformLocs.colorwaySeed != null) gl.uniform1f(uniformLocs.colorwaySeed, colorwaySeedRef.current);
 
