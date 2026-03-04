@@ -46,9 +46,9 @@ uniform float u_colorwaySeed;
 
 // Reveal animation: time when current wave started (resets on pattern change)
 uniform float u_revealStartTime;
-// Rect aspect: halfX/halfY (warp orientation). Default 36/40 = 0.9; range ~0.5–1.5.
+// Rect aspect: width/height in cell space (halfX/halfY). Spec 36×40 → 0.9. Kept ≤1 so rects fit in cell (no clipping).
 uniform float u_rectAspect;
-uniform float u_cornerRadius;     // Rounded rect corner radius in cell space (~0.18 = 6/40)
+uniform float u_cornerRadius;     // Rounded rect corner radius in cell space (~0.18 ≈ 6/40)
 
 
 // ============================================================
@@ -190,11 +190,12 @@ void main() {
     float isWeft = getPatternFromTexture(cellID.y, cellID.x);
 
     // --- ROUNDED RECT — ORIENT BY WARP/WEFT ---
-    // Warp = rect (halfX, halfY); weft = (halfY, halfX). halfX/halfY = u_rectAspect.
+    // Warp = rect (halfX, halfY); weft = (halfY, halfX). Clamp aspect to 1.0 so rect fits in cell (no crop).
     vec2 p = cellUV - 0.5;
 
     float halfY = 0.5;
-    float halfX = halfY * clamp(u_rectAspect, 0.3, 2.0);
+    float aspectClamped = clamp(u_rectAspect, 0.3, 1.0);
+    float halfX = halfY * aspectClamped;
     float cornerRadius = clamp(u_cornerRadius, 0.0, 0.5);
     vec2 halfSize = isWeft > 0.5 ? vec2(halfY, halfX) : vec2(halfX, halfY);
     float d = roundedRect(p, halfSize, cornerRadius);

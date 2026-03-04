@@ -7,6 +7,7 @@ import { memo } from 'react';
 import { useShaderSandbox } from '../hooks/useShaderSandbox';
 import fragmentSource from '../shaders/fragment.glsl?raw';
 import vertexSource from '../shaders/vertex.glsl?raw';
+import { typeFps } from '../uiConstants';
 
 /** Default rect aspect 36×40. Must match App.jsx RECT_ASPECT_DEFAULT. */
 const RECT_ASPECT_DEFAULT = 36 / 40;
@@ -44,7 +45,7 @@ function ShaderCanvasInner({ patternIndex, palette, bgShade, warpShade, weftShad
       style={{ aspectRatio: canvasAspect }}
     >
       <canvas ref={(el) => { canvasRef.current = el; onCanvasRef?.(el); }} className="block flex-1 bg-surface" />
-      <div className="absolute right-2 top-2 rounded-full border border-border-subtle bg-surface-elevated px-2.5 py-0.5 font-mono text-[12px] font-medium text-text-secondary">
+      <div className={`absolute right-2 top-2 rounded-full border border-border-subtle bg-surface-elevated px-2.5 py-0.5 font-mono ${typeFps} font-medium text-text-secondary`}>
         {fps || '--'} fps
       </div>
       {error ? (

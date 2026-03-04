@@ -7,6 +7,7 @@ import { useImageRectsSandbox } from '../hooks/useImageRectsSandbox';
 import fragmentSource from '../shaders/fragmentImageRects.glsl?raw';
 import vertexSource from '../shaders/vertex.glsl?raw';
 import { PATTERNS } from '../patterns';
+import { typeFps } from '../uiConstants';
 
 function ImageRectsCanvasInner({ imageSource, gridSize, palette, bgShade, colorizeMode, quantizeSteps, rectShade, shadeFrom, patternIndex, patterns, onFpsChange, onCanvasRef }) {
   const { canvasRef, containerRef, error, fps } = useImageRectsSandbox(
@@ -32,7 +33,7 @@ function ImageRectsCanvasInner({ imageSource, gridSize, palette, bgShade, colori
       style={{ aspectRatio: '1 / 1' }}
     >
       <canvas ref={(el) => { canvasRef.current = el; onCanvasRef?.(el); }} className="block flex-1 bg-surface" />
-      <div className="absolute right-2 top-2 rounded-full border border-border-subtle bg-surface-elevated px-2.5 py-0.5 font-mono text-[12px] font-medium text-text-secondary">
+      <div className={`absolute right-2 top-2 rounded-full border border-border-subtle bg-surface-elevated px-2.5 py-0.5 font-mono ${typeFps} font-medium text-text-secondary`}>
         {fps || '--'} fps
       </div>
       {error ? (

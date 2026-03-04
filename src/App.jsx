@@ -8,12 +8,29 @@ import * as Slider from '@radix-ui/react-slider';
 import * as Label from '@radix-ui/react-label';
 import { ShaderCanvas } from './components/ShaderCanvas';
 import { PATTERNS } from './patterns';
+import {
+  PALETTE_NAMES,
+  PALETTE_SWATCH_COLORS,
+  SHADE_NAMES,
+  typeBase,
+  typeLabel,
+  typeControl,
+  typeValue,
+  typeCaption,
+  iconSm,
+  iconMd,
+  iconLg,
+  btnGhost,
+  selectTrigger,
+  selectContent,
+  selectItem,
+  pill,
+  sidebarGroup,
+  sidebarGroupTitle,
+} from './uiConstants';
 
 /** Lazy load to avoid circular/order-dependent init in production bundle (TDZ). */
 const AppV2 = lazy(() => import('./AppV2.jsx'));
-
-const PALETTE_NAMES = ['Citrine', 'Garnet', 'Lapis', 'Peridot'];
-const SHADE_NAMES = ['950', '500', '100', '400', 'Transparent'];
 
 /** Material Symbol icon per weave pattern id — used in weave dropdown only. */
 const WEAVE_ICONS = {
@@ -116,7 +133,7 @@ function parseUrlState(search) {
   grad('warp');
   grad('weft');
   num('steps', 'gradSteps', 0, 16);
-  num('rect', 'rectAspect', 0.5, 1.5);
+  num('rect', 'rectAspect', 0.5, 1);
   num('corner', 'cornerRadius', 0, 0.5);
   num('canvas', 'canvasAspect', 0.5, 2);
   num('all', 'useAllColorways', 0, 1);
@@ -175,29 +192,6 @@ function buildUrlState(state) {
   return s.length <= URL_STATE_MAX_LEN ? s : '';
 }
 
-/** Type scale: xs=10px (labels, caps, compact UI), sm=11px (dropdowns), base=13px (body, values). */
-const typeXs = 'text-[10px]';
-const typeSm = 'text-[11px]';
-const typeBase = 'text-[13px]';
-const typeLabel = 'text-[10px] font-medium uppercase tracking-wider text-text-muted';
-const typeControl = 'text-[10px] font-medium';
-const typeValue = 'text-[13px] tabular-nums text-text';
-const typeCaption = 'text-[10px] text-text-secondary';
-const iconSm = 'text-[14px]';
-const iconMd = 'text-[16px]';
-const iconLg = 'text-[18px]';
-
-const btnGhost =
-  `inline-flex h-7 items-center gap-1.5 rounded-md border border-border-subtle bg-transparent px-2.5 py-1 ${typeControl} text-text-secondary outline-none transition-colors hover:border-border hover:bg-surface-hover hover:text-text focus:border-accent focus:outline-none`;
-const selectTrigger =
-  `inline-flex h-7 min-w-[4rem] items-center justify-between gap-2 rounded-md border border-border-subtle bg-surface-input px-2 py-0.5 ${typeXs} text-text outline-none transition-colors hover:border-border focus:border-accent focus:ring-1 focus:ring-accent/20 data-[placeholder]:text-text-secondary`;
-const selectContent = 'z-50 min-w-[var(--radix-select-trigger-width)] overflow-hidden rounded-md border border-border-subtle bg-surface-elevated shadow-md';
-const selectItem =
-  `relative flex cursor-default select-none items-center rounded py-1.5 pl-2.5 pr-8 ${typeSm} outline-none data-[highlighted]:bg-surface-hover data-[highlighted]:text-text`;
-const pill = `inline-flex items-center rounded-full tracking-wide bg-surface-elevated border border-border-subtle px-2 py-0.5 ${typeXs} uppercase font-mono font-medium text-text-secondary`;
-/** Rounded container for related sidebar controls; use with sidebarGroupTitle for optional label. */
-const sidebarGroup = 'rounded-lg border border-border-subtle bg-surface-elevated/50 flex flex-col gap-2 p-2.5';
-const sidebarGroupTitle = typeLabel;
 /** Icon-only group header; use title for tooltip. */
 const GroupIcon = ({ name, title, className = '' }) => (
   <span title={title} className={`shrink-0 ${className}`}>
@@ -336,7 +330,7 @@ export default function App() {
     if (q.warpGradient) setWarpGradient(q.warpGradient);
     if (q.weftGradient) setWeftGradient(q.weftGradient);
     if (q.gradSteps != null) setGradSteps(q.gradSteps);
-    if (q.rectAspect != null) setRectAspect(q.rectAspect);
+    if (q.rectAspect != null) setRectAspect(Math.min(1, Math.max(0.5, Number(q.rectAspect))));
     if (q.cornerRadius != null) setCornerRadius(q.cornerRadius);
     if (q.canvasAspect != null) setCanvasAspect(q.canvasAspect);
     if (q.copyFormat != null) setCopyFormat(q.copyFormat);
@@ -495,7 +489,7 @@ export default function App() {
       range: [randInt(0, 100), randInt(0, 100)],
     });
     setGradSteps(Math.random() < 0.5 ? 0 : randInt(2, 16));
-    setRectAspect(Number(rand(0.5, 1.5).toFixed(2)));
+    setRectAspect(Number(rand(0.5, 1).toFixed(2)));
     setCornerRadius(Number(rand(0.05, 0.4).toFixed(2)));
     setCanvasAspect(Number(rand(0.6, 1.5).toFixed(2)));
     setShimmer(Math.random() < 0.5);
@@ -541,7 +535,6 @@ export default function App() {
     label: p.name,
     icon: WEAVE_ICONS[p.id] ?? 'texture',
   }));
-  const paletteOptions = PALETTE_NAMES.map((name, i) => ({ value: i, label: name }));
   const shadeOptions = (prefix) => SHADE_NAMES.map((name, i) => ({ value: i, label: prefix ? `${prefix}: ${name}` : name }));
   const presetOptions = [
     { value: 'custom', label: 'Preset…' },
@@ -666,7 +659,23 @@ export default function App() {
                   </Select.Content>
                 </Select.Portal>
               </Select.Root>
-              <AppSelect value={palette} onValueChange={(v) => { setPalette(v); setPresetIndex(null); }} options={paletteOptions} title="Colorway" placeholder="Colorway" />
+              <div className="flex items-center gap-1" role="group" aria-label="Colorway palette">
+                {PALETTE_SWATCH_COLORS.map((color, i) => (
+                  <button
+                    key={i}
+                    type="button"
+                    className="h-7 w-7 shrink-0 rounded-md border-2 transition-colors focus:outline-none focus:ring-2 focus:ring-accent/40"
+                    style={{
+                      backgroundColor: color,
+                      borderColor: palette === i ? 'var(--color-accent)' : 'var(--color-border-subtle)',
+                    }}
+                    title={PALETTE_NAMES[i]}
+                    aria-label={`Colorway: ${PALETTE_NAMES[i]}`}
+                    aria-pressed={palette === i}
+                    onClick={() => { setPalette(i); setPresetIndex(null); }}
+                  />
+                ))}
+              </div>
             </div>
           </div>
           <div className={sidebarGroup}>
@@ -824,24 +833,24 @@ export default function App() {
               <span className={`w-8 ${typeValue}`} title="0 = smooth gradient">{gradSteps === 0 ? 'Smooth' : gradSteps}</span>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <GroupIcon name="aspect_ratio" title="Ratio" />
-              <Label.Root className="sr-only" htmlFor="rect-aspect-slider">Rect aspect ratio</Label.Root>
+              <GroupIcon name="aspect_ratio" title="Rect ratio (36×40 = 0.9)" />
+              <Label.Root className="sr-only" htmlFor="rect-aspect-slider">Rect aspect ratio (36×40 spec = 0.9)</Label.Root>
               <Slider.Root
                 id="rect-aspect-slider"
                 className="relative flex w-20 shrink-0 touch-none select-none items-center"
                 value={[rectAspect]}
                 onValueChange={([v]) => setRectAspect(v)}
                 min={0.5}
-                max={1.5}
+                max={1}
                 step={0.05}
-                aria-label={`Rect aspect: ${rectAspect.toFixed(2)}`}
+                aria-label={`Rect aspect: ${rectAspect.toFixed(2)} (spec 36×40 = 0.9)`}
               >
                 <Slider.Track className="relative h-1.5 grow rounded-full bg-surface-input">
                   <Slider.Range className="absolute h-full rounded-full bg-accent" />
                 </Slider.Track>
                 <Slider.Thumb className="block h-4 w-4 rounded-full border border-border bg-surface shadow focus:outline-none focus:ring-2 focus:ring-accent/40" />
               </Slider.Root>
-              <span className={`w-10 ${typeValue}`} title="Warp rect width/height">{rectAspect.toFixed(2)}</span>
+              <span className={`w-10 ${typeValue}`} title="Warp rect width/height. Spec: 36×40 = 0.9">{(rectAspect ?? RECT_ASPECT_DEFAULT).toFixed(2)}</span>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <GroupIcon name="crop" title="Canvas aspect" />
