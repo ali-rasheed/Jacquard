@@ -1,16 +1,16 @@
 /**
  * AppV2 — Image to colored rects. Pick an image; shader draws a grid of rounded rects
  * colored by the image (one sample per cell). Weave pattern sets rect orientation (warp/weft) per cell.
- * Inherits v1 patterns: copy (PNG/SVG), WebM recording, URL state, shortcuts, SliderWithInput, WEAVE_ICONS, Reload/Randomize.
+ * Inherits v1 patterns: copy (PNG/WebP), WebM recording, URL state, shortcuts, SliderWithInput, WEAVE_ICONS, Reload/Randomize.
  */
 import { useState, useCallback, useEffect, useRef } from 'react';
-import * as Select from '@radix-ui/react-select';
+import { motion } from 'motion/react';
 import * as Label from '@radix-ui/react-label';
 import { ImageRectsCanvas } from './components/ImageRectsCanvas';
 import { SliderWithInput } from './components/SliderWithInput';
 import { useCanvasRecorder, supportsMP4 } from './hooks/useCanvasRecorder';
 import { PATTERNS } from './patterns';
-import { GRID_SNAPS, getGridSizeIndex, PNG_COPY_SCALE, URL_STATE_MAX_LEN, WEAVE_ICONS } from './constants';
+import { COPY_SCALES, EXPORT_MAX_DIMENSION, GRID_SNAPS, getGridSizeIndex, URL_STATE_MAX_LEN, WEAVE_ICONS } from './constants';
 import {
   PALETTE_NAMES,
   PALETTE_SWATCH_COLORS,
@@ -18,69 +18,20 @@ import {
   SHADE_TRANSPARENT_ICON,
   typeBase,
   typeLabel,
-  typeControl,
   controlLabel,
   iconSm,
   iconMd,
-  iconLg,
   iconXs,
   btnGhost,
-  selectTrigger,
-  selectContent,
-  selectItem,
   pill,
   sidebarGroup,
   sidebarGroupSticky,
   sidebarGroupTitle,
+  paletteSwatch,
+  paletteSwatchSelected,
+  paletteSwatchUnselected,
 } from './uiConstants';
-
-/** Material Symbol icon (site-wide font). */
-const Icon = ({ name, className = '' }) => (
-  <span className={`icon inline-block shrink-0 ${className}`} aria-hidden>{name}</span>
-);
-/** Icon-only group header; optional xs lock superscript when locked. */
-const GroupIcon = ({ name, title, locked = false }) => (
-  <span title={title} className="relative inline-flex shrink-0">
-    <Icon name={name} className={`${iconLg} text-text-muted`} />
-    {locked && (
-      <span className="absolute -top-0.5 -right-0.5 leading-none" aria-hidden title="Locked">
-        <Icon name="lock" className={`${iconXs} text-text-muted`} />
-      </span>
-    )}
-  </span>
-);
-
-function AppSelect({ value, onValueChange, options, placeholder, title, id: idProp, labelText }) {
-  const selected = options.find((o) => Number(o.value) === Number(value));
-  const label = labelText ?? title;
-  return (
-    <>
-      {idProp && label && <Label.Root className="sr-only" htmlFor={idProp}>{label}</Label.Root>}
-      <Select.Root value={String(value)} onValueChange={(v) => onValueChange(typeof selected?.value === 'number' ? Number(v) : v)}>
-        <Select.Trigger id={idProp} className={selectTrigger} title={title} aria-label={title ?? placeholder}>
-          <span className="flex min-w-0 items-center gap-1.5">
-            {selected?.icon && <Icon name={selected.icon} className={`shrink-0 ${iconMd} text-text-muted`} />}
-            <Select.Value placeholder={placeholder} />
-          </span>
-          <Icon name="expand_more" className={`${iconLg} opacity-60`} />
-        </Select.Trigger>
-        <Select.Portal>
-          <Select.Content className={selectContent} position="popper" sideOffset={4}>
-            <Select.Viewport>
-              {options.map((opt, i) => (
-                <Select.Item key={opt.id ?? i} className={selectItem} value={String(opt.value)}>
-                  {opt.icon && <Icon name={opt.icon} className={`mr-1.5 shrink-0 ${iconMd} text-text-muted`} />}
-                  <Select.ItemText>{opt.label}</Select.ItemText>
-                  <Select.ItemIndicator className="absolute right-2 inline-flex items-center" />
-                </Select.Item>
-              ))}
-            </Select.Viewport>
-          </Select.Content>
-        </Select.Portal>
-      </Select.Root>
-    </>
-  );
-}
+import { Icon, GroupIcon, AppSelect, SegmentedControl, SegmentedControlButton, IconButton } from './components/ui';
 
 const MODE_OPTIONS = [
   { value: 'colorize', label: 'Colorization' },
@@ -107,7 +58,7 @@ function parseUrlStateV2(search) {
   };
   num('grid', 'gridSize', 8, 96);
   num('pal', 'palette', 0, 3);
-  num('bg', 'bgShade', 0, 4);
+  num('bg', 'bgShade', 0, 5);
   num('cm', 'colorizeMode', 0, 1);
   num('q', 'quantizeSteps', 0, 32);
   num('sf', 'shadeFrom', 0, 3);
@@ -116,7 +67,9 @@ function parseUrlStateV2(search) {
   num('ra', 'rectAspect', 0.3, 1.5);
   num('rratio', 'rectRatio', 0.2, 1);
   const cf = params.get('cf');
-  if (cf === 'svg' || cf === 'png') out.copyFormat = cf;
+  if (cf === 'webp' || cf === 'png') out.copyFormat = cf;
+  const cs = params.get('cs');
+  if (cs !== null && [1, 2, 4, 8].includes(Number(cs))) out.copyScale = Number(cs);
   return out;
 }
 
@@ -124,7 +77,7 @@ function parseUrlStateV2(search) {
 function buildUrlStateV2(state) {
   const def = {
     gridSize: 32, palette: 0, bgShade: 2, colorizeMode: 1, quantizeSteps: 0, shadeFrom: 0,
-    patternIndex: 0, rectRadius: 0.18, rectAspect: 0.85, rectRatio: 1, copyFormat: 'png',
+    patternIndex: 0, rectRadius: 0.18, rectAspect: 0.85, rectRatio: 1, copyFormat: 'png', copyScale: 2,
   };
   const p = new URLSearchParams();
   if (state.gridSize !== def.gridSize) p.set('grid', String(state.gridSize));
@@ -138,11 +91,13 @@ function buildUrlStateV2(state) {
   if (state.rectAspect !== def.rectAspect) p.set('ra', String(Number(state.rectAspect.toFixed(2))));
   if (state.rectRatio !== def.rectRatio) p.set('rratio', String(Number(state.rectRatio.toFixed(2))));
   if (state.copyFormat !== def.copyFormat) p.set('cf', state.copyFormat);
+  if (state.copyScale !== def.copyScale) p.set('cs', String(state.copyScale));
   const s = p.toString();
   return s.length <= URL_STATE_MAX_LEN ? s : '';
 }
 
-export default function AppV2() {
+/** menuHidden: when true, sidebar is hidden until hover (fixed overlay); when false, always visible. Passed from App.jsx for v2 (Image Rects) to match v1/v3/v4 toggle. */
+export default function AppV2({ menuHidden = true }) {
   const [imageSource, setImageSource] = useState('');
   const [gridSize, setGridSize] = useState(32);
   const [palette, setPalette] = useState(0);
@@ -156,17 +111,33 @@ export default function AppV2() {
   const [rectAspect, setRectAspect] = useState(0.85);     // rect width/height (e.g. 34/40)
   const [rectRatio, setRectRatio] = useState(1.0);        // rect scale within cell (1 = full)
   const [fps, setFps] = useState(0);
-  const [copyFormat, setCopyFormat] = useState('png');   // 'png' | 'svg'
+  const [copyFormat, setCopyFormat] = useState('png');   // 'png' | 'webp'
+  const [copyScale, setCopyScale] = useState(2);        // 1 | 2 | 4 | 8
   const canvasRef = useRef(null);
+  const imageRectsCaptureRef = useRef(null);            // { captureAtResolution(w, h) } when canvas ready
   const appliedUrlRef = useRef(false);
 
-  /** Copy canvas at PNG_COPY_SCALE× resolution as PNG to clipboard (v1–v4). */
+  const IMAGE_RECTS_DPR = 2; // matches useImageRectsSandbox DPR
+  const capToMax = useCallback((width, height) => {
+    if (width <= EXPORT_MAX_DIMENSION && height <= EXPORT_MAX_DIMENSION) return [width, height];
+    const r = Math.min(EXPORT_MAX_DIMENSION / width, EXPORT_MAX_DIMENSION / height);
+    return [Math.round(width * r), Math.round(height * r)];
+  }, []);
+
+  /** Copy at copyScale×. Uses captureAtResolution when available so sharpness matches resolution. */
   const handleCopy2xPng = useCallback(async () => {
     const canvas = canvasRef.current;
     if (!canvas || !canvas.width || !canvas.height) return;
-    const scale = PNG_COPY_SCALE;
-    const w = canvas.width * scale;
-    const h = canvas.height * scale;
+    if (imageRectsCaptureRef.current?.captureAtResolution) {
+      const displayW = canvas.width / IMAGE_RECTS_DPR;
+      const displayH = canvas.height / IMAGE_RECTS_DPR;
+      const [w, h] = capToMax(Math.round(displayW * copyScale), Math.round(displayH * copyScale));
+      const blob = await imageRectsCaptureRef.current.captureAtResolution(w, h);
+      if (blob) await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+      return;
+    }
+    const w = canvas.width * copyScale;
+    const h = canvas.height * copyScale;
     const off = document.createElement('canvas');
     off.width = w;
     off.height = h;
@@ -175,36 +146,53 @@ export default function AppV2() {
     ctx.drawImage(canvas, 0, 0, w, h);
     const blob = await new Promise((resolve) => off.toBlob(resolve, 'image/png'));
     if (blob) await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
-  }, []);
+  }, [copyScale, capToMax]);
 
-  /** Build SVG with canvas as embedded raster (2×), copy as image/svg+xml and text/plain (same as v1). */
-  const handleCopySvg = useCallback(async () => {
+  /** Copy at copyScale× as WebP. Uses captureAtResolution when available, then converts to WebP. */
+  const handleCopyWebp = useCallback(async () => {
     const canvas = canvasRef.current;
     if (!canvas || !canvas.width || !canvas.height) return;
-    const scale = 2;
-    const w = canvas.width * scale;
-    const h = canvas.height * scale;
+    if (imageRectsCaptureRef.current?.captureAtResolution) {
+      const displayW = canvas.width / IMAGE_RECTS_DPR;
+      const displayH = canvas.height / IMAGE_RECTS_DPR;
+      const [w, h] = capToMax(Math.round(displayW * copyScale), Math.round(displayH * copyScale));
+      const pngBlob = await imageRectsCaptureRef.current.captureAtResolution(w, h);
+      if (!pngBlob) return;
+      const pngUrl = URL.createObjectURL(pngBlob);
+      const webpBlob = await new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => {
+          const off = document.createElement('canvas');
+          off.width = img.naturalWidth;
+          off.height = img.naturalHeight;
+          const ctx = off.getContext('2d');
+          if (!ctx) { reject(new Error('2D context failed')); return; }
+          ctx.drawImage(img, 0, 0);
+          off.toBlob(resolve, 'image/webp', 0.92);
+        };
+        img.onerror = () => reject(new Error('Image load failed'));
+        img.src = pngUrl;
+      });
+      URL.revokeObjectURL(pngUrl);
+      if (webpBlob) await navigator.clipboard.write([new ClipboardItem({ 'image/webp': webpBlob })]);
+      return;
+    }
+    const w = canvas.width * copyScale;
+    const h = canvas.height * copyScale;
     const off = document.createElement('canvas');
     off.width = w;
     off.height = h;
     const ctx = off.getContext('2d');
     if (!ctx) return;
     ctx.drawImage(canvas, 0, 0, w, h);
-    const dataUrl = off.toDataURL('image/png');
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><image href="${dataUrl}" width="${w}" height="${h}"/></svg>`;
-    const blob = new Blob([svg], { type: 'image/svg+xml' });
-    await navigator.clipboard.write([
-      new ClipboardItem({
-        'image/svg+xml': blob,
-        'text/plain': new Blob([svg], { type: 'text/plain' }),
-      }),
-    ]);
-  }, []);
+    const blob = await new Promise((resolve) => off.toBlob(resolve, 'image/webp', 0.92));
+    if (blob) await navigator.clipboard.write([new ClipboardItem({ 'image/webp': blob })]);
+  }, [copyScale, capToMax]);
 
   const handleCopy = useCallback(() => {
     if (copyFormat === 'png') handleCopy2xPng();
-    else handleCopySvg();
-  }, [copyFormat, handleCopy2xPng, handleCopySvg]);
+    else handleCopyWebp();
+  }, [copyFormat, handleCopy2xPng, handleCopyWebp]);
 
   /** Video recording (WebM or MP4). */
   const { isRecording, isProcessing, recordFormat, setRecordFormat, startRecording: recStart, stopRecording } = useCanvasRecorder('shaderbox-image-rects');
@@ -251,6 +239,7 @@ export default function AppV2() {
     if (q.rectAspect != null) setRectAspect(q.rectAspect);
     if (q.rectRatio != null) setRectRatio(q.rectRatio);
     if (q.copyFormat != null) setCopyFormat(q.copyFormat);
+    if (q.copyScale != null) setCopyScale(q.copyScale);
   }, []);
 
   /** Sync state to URL (debounced). */
@@ -259,7 +248,7 @@ export default function AppV2() {
     urlSyncTimeoutRef.current = setTimeout(() => {
       const search = buildUrlStateV2({
         gridSize, palette, bgShade, colorizeMode, quantizeSteps, shadeFrom, patternIndex,
-        rectRadius, rectAspect, rectRatio, copyFormat,
+        rectRadius, rectAspect, rectRatio, copyFormat, copyScale,
       });
       const url = search ? `${window.location.pathname}?${search}` : window.location.pathname;
       if (window.location.pathname + (window.location.search || '') !== url) {
@@ -267,7 +256,7 @@ export default function AppV2() {
       }
     }, 400);
     return () => { clearTimeout(urlSyncTimeoutRef.current); };
-  }, [gridSize, palette, bgShade, colorizeMode, quantizeSteps, shadeFrom, patternIndex, rectRadius, rectAspect, rectRatio, copyFormat]);
+  }, [gridSize, palette, bgShade, colorizeMode, quantizeSteps, shadeFrom, patternIndex, rectRadius, rectAspect, rectRatio, copyFormat, copyScale]);
 
   /** Keyboard shortcuts: Mod+C copy, Mod+Shift+R / F5 reload (no presets in v2). */
   useEffect(() => {
@@ -310,9 +299,20 @@ export default function AppV2() {
     };
   }, [imageSource]);
 
+  const sidebarClass = menuHidden
+    ? 'fixed left-0 top-0 z-10 flex h-full w-72 flex-col gap-3 overflow-y-auto overflow-x-auto border-r border-border-subtle bg-surface px-3 py-3'
+    : 'flex w-72 shrink-0 flex-col gap-3 overflow-y-auto overflow-x-auto border-r border-border-subtle bg-surface px-3 py-3';
+
   return (
     <div className="flex h-full min-h-0 flex-row overflow-hidden bg-surface">
-      <aside className="flex w-72 shrink-0 flex-col gap-3 overflow-y-auto overflow-x-auto border-r border-border-subtle bg-surface px-3 py-3" aria-label="Image Rects controls">
+      <motion.aside
+        className={sidebarClass}
+        initial={false}
+        animate={{ opacity: menuHidden ? 0 : 1 }}
+        whileHover={menuHidden ? { opacity: 1 } : undefined}
+        transition={{ duration: 0.2 }}
+        aria-label="Image Rects controls"
+      >
         <h1 className={`shrink-0 ${typeBase} font-semibold tracking-[-0.01em] text-text`}>
           Image to Colored Rects
         </h1>
@@ -328,58 +328,58 @@ export default function AppV2() {
                 <Icon name="shuffle" className={iconMd} />
                 <span>Randomize</span>
               </button>
-              <div className="inline-flex h-7 shrink-0 items-center gap-1 rounded-md border border-border-subtle bg-surface-elevated overflow-hidden">
+              <SegmentedControl>
                 <div className="flex h-full">
-                  {['png', 'svg'].map((fmt) => (
-                    <button
+                  {COPY_SCALES.map((s) => (
+                    <SegmentedControlButton
+                      key={s}
+                      active={copyScale === s}
+                      aria-pressed={copyScale === s}
+                      aria-label={`Copy resolution: ${s}×`}
+                      onClick={() => setCopyScale(s)}
+                    >
+                      {s}×
+                    </SegmentedControlButton>
+                  ))}
+                </div>
+                <div className="flex h-full">
+                  {['png', 'webp'].map((fmt) => (
+                    <SegmentedControlButton
                       key={fmt}
-                      type="button"
-                      className={`flex min-w-[36px] items-center justify-center px-2 ${typeControl} uppercase transition-colors border-r border-border-subtle last:border-r-0 ${copyFormat === fmt ? 'bg-accent/15 text-accent' : 'text-text-secondary hover:bg-surface-hover hover:text-text'}`}
+                      format
+                      active={copyFormat === fmt}
                       aria-pressed={copyFormat === fmt}
                       aria-label={`Format: ${fmt}`}
                       onClick={() => setCopyFormat(fmt)}
                     >
                       {fmt}
-                    </button>
+                    </SegmentedControlButton>
                   ))}
                 </div>
-                <button
-                  type="button"
-                  className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-border-subtle bg-surface-elevated text-text-secondary transition-colors hover:border-accent hover:bg-accent/10 hover:text-accent focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/20"
-                  title={copyFormat === 'png' ? `Copy canvas at ${PNG_COPY_SCALE}× as PNG` : 'Copy as SVG (canvas embedded as image)'}
-                  aria-label={copyFormat === 'png' ? 'Copy PNG' : 'Copy SVG'}
-                  onClick={handleCopy}
-                >
+                <IconButton size="sm" title={`Copy canvas at ${copyScale}× as ${copyFormat.toUpperCase()}`} aria-label={`Copy ${copyFormat.toUpperCase()}`} onClick={handleCopy}>
                   <Icon name="content_copy" className={iconSm} />
-                </button>
-              </div>
-              <div className="inline-flex h-7 shrink-0 items-center gap-1 rounded-md border border-border-subtle bg-surface-elevated overflow-hidden">
+                </IconButton>
+              </SegmentedControl>
+              <SegmentedControl>
                 <div className="flex h-full">
                   {(supportsMP4 ? ['mp4', 'webm'] : ['webm']).map((fmt) => (
-                    <button
+                    <SegmentedControlButton
                       key={fmt}
-                      type="button"
-                      className={`flex min-w-[36px] items-center justify-center px-2 ${typeControl} uppercase transition-colors border-r border-border-subtle last:border-r-0 ${recordFormat === fmt ? 'bg-accent/15 text-accent' : 'text-text-secondary hover:bg-surface-hover hover:text-text'}`}
+                      format
+                      active={recordFormat === fmt}
                       aria-pressed={recordFormat === fmt}
                       aria-label={`Record format: ${fmt}`}
                       onClick={() => setRecordFormat(fmt)}
                       disabled={isRecording}
                     >
                       {fmt}
-                    </button>
+                    </SegmentedControlButton>
                   ))}
                 </div>
-                <button
-                  type="button"
-                  className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full border transition-colors ${isRecording || isProcessing ? 'border-error bg-error/15 text-error' : 'border-border-subtle bg-surface-elevated text-text-secondary hover:border-accent hover:bg-accent/10 hover:text-accent'} focus:outline-none focus:ring-1 focus:ring-accent/20`}
-                  title={isProcessing ? 'Processing…' : isRecording ? `Stop and download ${recordFormat.toUpperCase()}` : `Record canvas as ${recordFormat.toUpperCase()}`}
-                  aria-label={isProcessing ? 'Processing video' : isRecording ? 'Stop recording' : 'Start recording'}
-                  onClick={isRecording ? stopRecording : startRecording}
-                  disabled={isProcessing}
-                >
+                <IconButton size="sm" variant={isRecording || isProcessing ? 'danger' : 'default'} title={isProcessing ? 'Processing…' : isRecording ? `Stop and download ${recordFormat.toUpperCase()}` : `Record canvas as ${recordFormat.toUpperCase()}`} aria-label={isProcessing ? 'Processing video' : isRecording ? 'Stop recording' : 'Start recording'} onClick={isRecording ? stopRecording : startRecording} disabled={isProcessing}>
                   <Icon name={isProcessing ? 'hourglass_empty' : isRecording ? 'stop' : 'videocam'} className={iconSm} />
-                </button>
-              </div>
+                </IconButton>
+              </SegmentedControl>
               <label className={btnGhost + ' cursor-pointer'}>
                 <Icon name="upload_file" className={iconMd} />
                 <span>Pick image</span>
@@ -407,13 +407,13 @@ export default function AppV2() {
                 placeholder="Mode"
               />
               <span className={`${controlLabel} ${typeLabel}`} title="Weave pattern">Weave</span>
-              <AppSelect id="weave-pattern-v2" labelText="Weave pattern" value={patternIndex} onValueChange={setPatternIndex} options={patternOptions} title="Weave pattern" placeholder="Weave" />
+              <AppSelect id="weave-pattern-v2" labelText="Weave pattern" value={patternIndex} onValueChange={(v) => setPatternIndex(Number(v))} options={patternOptions} title="Weave pattern" placeholder="Weave" />
               <div className="flex items-center gap-1" role="group" aria-label="Colorway palette">
                 {PALETTE_SWATCH_COLORS.map((color, i) => (
                   <button
                     key={i}
                     type="button"
-                    className="h-7 w-7 shrink-0 rounded-md border-2 transition-colors focus:outline-none focus:ring-2 focus:ring-accent/40"
+                    className={`${paletteSwatch} ${palette === i ? paletteSwatchSelected : paletteSwatchUnselected}`}
                     style={{
                       backgroundColor: color,
                       borderColor: palette === i ? 'var(--color-accent)' : 'var(--color-border-subtle)',
@@ -523,27 +523,28 @@ export default function AppV2() {
             </div>
           </div>
         </div>
-      </aside>
+      </motion.aside>
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         <main className="flex min-h-0 flex-1 items-center justify-center overflow-auto p-4">
-        <ImageRectsCanvas
-          imageSource={imageSource}
-          gridSize={gridSize}
-          palette={palette}
-          bgShade={bgShade}
-          colorizeMode={colorizeMode}
-          quantizeSteps={quantizeSteps}
-          rectShade={rectShade}
-          shadeFrom={shadeFrom}
-          patternIndex={patternIndex}
-          patterns={PATTERNS}
-          rectRadius={rectRadius}
-          rectAspect={rectAspect}
-          rectRatio={rectRatio}
-          onFpsChange={setFps}
-          onCanvasRef={(el) => { canvasRef.current = el; }}
-        />
+          <ImageRectsCanvas
+            imageSource={imageSource}
+            gridSize={gridSize}
+            palette={palette}
+            bgShade={bgShade}
+            colorizeMode={colorizeMode}
+            quantizeSteps={quantizeSteps}
+            rectShade={rectShade}
+            shadeFrom={shadeFrom}
+            patternIndex={patternIndex}
+            patterns={PATTERNS}
+            rectRadius={rectRadius}
+            rectAspect={rectAspect}
+            rectRatio={rectRatio}
+            onFpsChange={setFps}
+            onCanvasRef={(el) => { canvasRef.current = el; }}
+            onCaptureReady={(api) => { imageRectsCaptureRef.current = api; }}
+          />
         </main>
 
         <footer className="relative h-[100px] shrink-0 overflow-hidden border-t border-border-subtle bg-surface-elevated">

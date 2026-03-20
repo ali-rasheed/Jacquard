@@ -26,13 +26,6 @@ export const PATTERNS = [
     rows: [170, 85, 170, 85, 170, 85, 170, 85].map((v) => row8(v)),
   },
   {
-    id: 'matt-regular',
-    name: 'Matt Weave Regular (2×2)',
-    tileW: 4,
-    tileH: 4,
-    rows: [3, 3, 12, 12, 3, 3, 12, 12].map((v) => row8(v)),
-  },
-  {
     id: 'matt-rib-irregular',
     name: 'Matt Rib Weave Irregular',
     tileW: 4,

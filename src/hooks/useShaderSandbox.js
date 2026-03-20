@@ -10,7 +10,7 @@
  * ref for onFpsChange to avoid effect churn (advanced-use-latest).
  */
 import { useRef, useEffect, useCallback, useState } from 'react';
-import { RECT_ASPECT_DEFAULT } from '../constants';
+import { EXPORT_MAX_DIMENSION, RECT_ASPECT_DEFAULT } from '../constants';
 import { buildPatternTexture, PATTERNS } from '../patterns';
 
 const DPR = 2;
@@ -45,6 +45,8 @@ function getUniformLocs(gl, program) {
     cornerRadius: gl.getUniformLocation(program, 'u_cornerRadius'),
     shimmer: gl.getUniformLocation(program, 'u_shimmer'),
     shimmerSpeed: gl.getUniformLocation(program, 'u_shimmerSpeed'),
+    shimmerTime: gl.getUniformLocation(program, 'u_shimmerTime'),
+    shimmerPhase: gl.getUniformLocation(program, 'u_shimmerPhase'),
     shimmerWidth: gl.getUniformLocation(program, 'u_shimmerWidth'),
     shimmerIntensity: gl.getUniformLocation(program, 'u_shimmerIntensity'),
     shimmerPosition: gl.getUniformLocation(program, 'u_shimmerPosition'),
@@ -56,6 +58,7 @@ function getUniformLocs(gl, program) {
     shimmerBlendMode: gl.getUniformLocation(program, 'u_shimmerBlendMode'),
     useAllColorways: gl.getUniformLocation(program, 'u_useAllColorways'),
     colorwaySeed: gl.getUniformLocation(program, 'u_colorwaySeed'),
+    colorwayNoiseScale: gl.getUniformLocation(program, 'u_colorwayNoiseScale'),
   };
 }
 
@@ -90,7 +93,7 @@ function createProgram(gl, vertexSource, fragmentSource) {
 
 // ENS palette RGBA (0–1), matches shader getPaletteColor. [palette][shade] = [r,g,b,a]; shade 0–4 = 950,500,100,400,Transparent.
 const PALETTE_RGBA = [
-  [[0.247, 0.114, 0.035, 1], [0.569, 0.294, 0.110, 1], [0.973, 0.969, 0.886, 1], [0.855, 0.725, 0.525, 1], [0, 0, 0, 0]],
+  [[0.247, 0.114, 0.035, 1], [0.596, 0.302, 0.106, 1], [0.973, 0.969, 0.886, 1], [0.855, 0.725, 0.525, 1], [0, 0, 0, 0]],
   [[0.322, 0.024, 0.141, 1], [0.941, 0.216, 0.576, 1], [0.984, 0.922, 0.941, 1], [0.988, 0.706, 0.812, 1], [0, 0, 0, 0]],
   [[0.008, 0.161, 0.231, 1], [0.0, 0.502, 0.737, 1], [0.902, 0.953, 0.973, 1], [0.455, 0.725, 0.875, 1], [0, 0, 0, 0]],
   [[0.012, 0.188, 0.063, 1], [0.0, 0.486, 0.137, 1], [0.843, 0.914, 0.89, 1], [0.51, 0.816, 0.561, 1], [0, 0, 0, 0]],
@@ -102,7 +105,7 @@ function getPaletteColor(paletteIndex, shadeIndex) {
   return PALETTE_RGBA[p][s];
 }
 
-export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, palette, bgShade, warpShade, weftShade, gridSize, warpGradient, weftGradient, gradSteps, rectAspect, cornerRadius, shimmer, shimmerSpeed, shimmerWidth, shimmerIntensity, shimmerPosition, shimmerRotation, shimmerNoise, shimmerNoiseSeed, shimmerNoiseMin, shimmerNoiseMax, shimmerBlendMode, useAllColorways, colorwaySeed, patterns, onFpsChange) {
+export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, palette, bgShade, warpShade, weftShade, gridSize, warpGradient, weftGradient, gradSteps, rectAspect, cornerRadius, shimmer, shimmerSpeed, shimmerWidth, shimmerIntensity, shimmerPosition, shimmerRotation, shimmerNoise, shimmerNoiseSeed, shimmerNoiseMin, shimmerNoiseMax, shimmerBlendMode, useAllColorways, colorwaySeed, colorwayNoiseScale, shimmerPlaying, shimmerPausedAtTime, shimmerPhase, onShimmerTime, patterns, onFpsChange, onCaptureReady) {
   const canvasRef = useRef(null);
   const containerRef = useRef(null);
   const vertexSourceRef = useRef(vertexSource);
@@ -111,9 +114,15 @@ export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, pal
   const prevShaderRef = useRef({ vertex: null, fragment: null });
   const warpGradientRef = useRef(warpGradient);
   const weftGradientRef = useRef(weftGradient);
+  const onCaptureReadyRef = useRef(onCaptureReady);
   // When patterns is omitted, callers pass (..., onFpsChange) so the 7th arg is the callback
   const callback = typeof patterns === 'function' ? patterns : onFpsChange;
   const onFpsChangeRef = useRef(callback);
+  onCaptureReadyRef.current = onCaptureReady;
+  const shimmerPlayingRef = useRef(shimmerPlaying ?? true);
+  const shimmerPausedAtTimeRef = useRef(shimmerPausedAtTime ?? 0);
+  const shimmerPhaseRef = useRef(shimmerPhase ?? 0);
+  const onShimmerTimeRef = useRef(onShimmerTime);
   const [error, setError] = useState('');
   const [fps, setFps] = useState(0);
 
@@ -145,6 +154,7 @@ export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, pal
   const shimmerBlendModeRef = useRef(shimmerBlendMode);
   const useAllColorwaysRef = useRef(useAllColorways);
   const colorwaySeedRef = useRef(colorwaySeed);
+  const colorwayNoiseScaleRef = useRef(colorwayNoiseScale);
   patternIndexRef.current = patternIndex;
   paletteRef.current = palette;
   bgShadeRef.current = bgShade;
@@ -167,6 +177,11 @@ export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, pal
   shimmerBlendModeRef.current = shimmerBlendMode ?? 0;
   useAllColorwaysRef.current = useAllColorways ?? 0;
   colorwaySeedRef.current = colorwaySeed ?? 0;
+  colorwayNoiseScaleRef.current = colorwayNoiseScale ?? 1;
+  shimmerPlayingRef.current = shimmerPlaying ?? true;
+  shimmerPausedAtTimeRef.current = shimmerPausedAtTime ?? 0;
+  shimmerPhaseRef.current = shimmerPhase ?? 0;
+  onShimmerTimeRef.current = onShimmerTime;
 
   useEffect(() => {
     onFpsChangeRef.current?.(fps);
@@ -237,6 +252,10 @@ export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, pal
       gl.bindTexture(gl.TEXTURE_2D, patternTexture);
       gl.uniform1i(uniformLocs.patternSampler, 0);
       gl.uniform1f(uniformLocs.time, time);
+      const effectiveShimmerTime = shimmerPlayingRef.current ? time : shimmerPausedAtTimeRef.current;
+      if (uniformLocs.shimmerTime != null) gl.uniform1f(uniformLocs.shimmerTime, effectiveShimmerTime);
+      if (uniformLocs.shimmerPhase != null) gl.uniform1f(uniformLocs.shimmerPhase, shimmerPhaseRef.current);
+      onShimmerTimeRef.current?.(time);
       gl.uniform2f(uniformLocs.resolution, canvas.width, canvas.height);
       gl.uniform1f(uniformLocs.patternIndex, Math.floor(pIndex));
       gl.uniform1f(uniformLocs.tileW, tileW);
@@ -283,6 +302,7 @@ export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, pal
       if (uniformLocs.shimmerBlendMode != null) gl.uniform1f(uniformLocs.shimmerBlendMode, shimmerBlendModeRef.current);
       if (uniformLocs.useAllColorways != null) gl.uniform1f(uniformLocs.useAllColorways, useAllColorwaysRef.current);
       if (uniformLocs.colorwaySeed != null) gl.uniform1f(uniformLocs.colorwaySeed, colorwaySeedRef.current);
+      if (uniformLocs.colorwayNoiseScale != null) gl.uniform1f(uniformLocs.colorwayNoiseScale, colorwayNoiseScaleRef.current);
 
       gl.clearColor(0, 0, 0, 0);
       gl.clear(gl.COLOR_BUFFER_BIT);
@@ -339,16 +359,45 @@ export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, pal
       gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
       gl.vertexAttribPointer(posLoc, 2, gl.FLOAT, false, 0, 0);
 
+      /** Renders one frame at (w, h), returns PNG blob. Pauses/resumes animation. Capped to EXPORT_MAX_DIMENSION so toBlob won't fail. */
+      const captureAtResolution = async (w, h) => {
+        let tw = Math.max(1, Math.round(w));
+        let th = Math.max(1, Math.round(h));
+        if (tw > EXPORT_MAX_DIMENSION || th > EXPORT_MAX_DIMENSION) {
+          const r = Math.min(EXPORT_MAX_DIMENSION / tw, EXPORT_MAX_DIMENSION / th);
+          tw = Math.round(tw * r);
+          th = Math.round(th * r);
+        }
+        if (animationId) cancelAnimationFrame(animationId);
+        animationId = null;
+        const prevW = canvas.width;
+        const prevH = canvas.height;
+        canvas.width = tw;
+        canvas.height = th;
+        gl.viewport(0, 0, tw, th);
+        render();
+        const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+        canvas.width = prevW;
+        canvas.height = prevH;
+        gl.viewport(0, 0, prevW, prevH);
+        resize();
+        animate();
+        if (!blob) throw new Error('Export failed (try lower scale)');
+        return blob;
+      };
+
       resize();
       window.addEventListener('resize', resize);
       resizeObserver = new ResizeObserver(() => resize());
       resizeObserver.observe(container);
       animate();
+      onCaptureReadyRef.current?.({ captureAtResolution });
     } catch (err) {
       setError(err.message);
     }
 
     return () => {
+      onCaptureReadyRef.current?.(null);
       recompileRef.current = null;
       if (resizeObserver && container) {
         try {

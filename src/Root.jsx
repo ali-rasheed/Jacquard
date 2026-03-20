@@ -1,5 +1,5 @@
 /**
- * Root — Renders the unified App (Weaving + Image Rects).
+ * Root — Renders the unified App (Weaving  Image Rects).
  * Mode switch lives inside App; V1 logic unchanged when Weaving is selected.
  * Error boundary surfaces render errors (e.g. in production build) instead of a black screen.
  */

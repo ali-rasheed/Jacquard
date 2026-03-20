@@ -25,6 +25,7 @@ export function ImageRectsHalftoneStage({
   rectRadius,
   rectAspect,
   rectRatio,
+  patternFit = 'fit',
   // Halftone
   size,
   softness,
@@ -210,7 +211,7 @@ export function ImageRectsHalftoneStage({
             grainMixer={0}
             grainOverlay={0}
             grainSize={0.5}
-            fit="cover"
+            fit={patternFit === 'fill' ? 'cover' : 'contain'}
             webGlContextAttributes={WEB_GL_ATTRS}
           />
         ) : (

@@ -7,13 +7,14 @@ import { useImageRectsSandbox } from '../hooks/useImageRectsSandbox';
 import fragmentSource from '../shaders/fragmentImageRects.glsl?raw';
 import vertexSource from '../shaders/vertex.glsl?raw';
 import { PATTERNS } from '../patterns';
-import { typeFps } from '../uiConstants';
+import { fpsPill } from '../uiConstants';
 
 /**
  * Container aspect ratio follows the loaded image so the canvas is not stretched.
  * When no image is loaded, fallback is 1:1.
+ * patternFit: 'fill' = container fills view; 'fit' = container fits inside view.
  */
-function ImageRectsCanvasInner({ imageSource, gridSize, palette, bgShade, colorizeMode, quantizeSteps, rectShade, shadeFrom, patternIndex, patterns, rectRadius, rectAspect, rectRatio, onFpsChange, onCanvasRef }) {
+function ImageRectsCanvasInner({ imageSource, gridSize, palette, bgShade, colorizeMode, quantizeSteps, rectShade, shadeFrom, patternIndex, patterns, rectRadius, rectAspect, rectRatio, patternFit = 'fit', onFpsChange, onCanvasRef, onCaptureReady }) {
   const { canvasRef, containerRef, error, fps, imageSize } = useImageRectsSandbox(
     vertexSource,
     fragmentSource,
@@ -30,21 +31,24 @@ function ImageRectsCanvasInner({ imageSource, gridSize, palette, bgShade, colori
     rectRadius ?? 0.18,
     rectAspect ?? 0.85,
     rectRatio ?? 1.0,
-    onFpsChange
+    onFpsChange,
+    undefined,
+    onCaptureReady
   );
 
   const aspectRatio = imageSize
     ? `${imageSize.width} / ${imageSize.height}`
     : '1 / 1';
 
+  const fill = patternFit === 'fill';
   return (
     <div
       ref={containerRef}
-      className="relative flex flex-initial flex-col overflow-hidden rounded-md border border-border-subtle bg-surface-secondary w-100"
+      className={`relative flex flex-col overflow-hidden rounded-md border border-border-subtle bg-surface-secondary w-100 ${fill ? 'flex-1 min-h-0 min-w-0' : 'flex-initial'}`}
       style={{ aspectRatio }}
     >
       <canvas ref={(el) => { canvasRef.current = el; onCanvasRef?.(el); }} className="block flex-1 bg-surface" />
-      <div className={`absolute right-2 top-2 rounded-full border border-border-subtle bg-surface-elevated px-2.5 py-0.5 font-mono ${typeFps} font-medium text-text-secondary`}>
+      <div className={fpsPill}>
         {fps || '--'} fps
       </div>
       {error ? (

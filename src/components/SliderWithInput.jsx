@@ -120,6 +120,7 @@ function SingleSliderWithInput({
         type="text"
         inputMode="decimal"
         className={inputNumber}
+        size={Math.max(3, Math.min(10, inputStr.length + 1))}
         value={inputStr}
         onChange={(e) => setInputStr(e.target.value)}
         onBlur={commitInput}
@@ -243,6 +244,7 @@ function RangeSliderWithInput({
           type="text"
           inputMode="decimal"
           className={inputNumber}
+          size={Math.max(3, Math.min(10, inputA.length + 1))}
           value={inputA}
           onChange={(e) => setInputA(e.target.value)}
           onBlur={commitA}
@@ -257,6 +259,7 @@ function RangeSliderWithInput({
           type="text"
           inputMode="decimal"
           className={inputNumber}
+          size={Math.max(3, Math.min(10, inputB.length + 1))}
           value={inputB}
           onChange={(e) => setInputB(e.target.value)}
           onBlur={commitB}

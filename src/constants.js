@@ -3,13 +3,21 @@
  * Single source of truth for weaving presets and shared numeric constants.
  */
 
-/** Scale factor for PNG copy to clipboard (v1–v4). */
-export const PNG_COPY_SCALE = 3;
+/** Copy-to-clipboard resolution options (scale × display size). Used for all views (v1–v4). */
+export const COPY_SCALES = [1, 2, 4, 8];
+
+/** Device pixel ratio used for weaving canvas (useShaderSandbox). Export uses this to compute display size. */
+export const WEAVING_DPR = 2;
+
+/** Scale factors for Export PNG (download). Larger = higher resolution file. */
+export const EXPORT_SCALES = [2, 4, 8, 12];
+
+/** Max pixels per side for export (toBlob can fail on very large canvases). Aspect ratio preserved when capping. */
+export const EXPORT_MAX_DIMENSION = 8000;
 
 /** Material Symbol icon per weave pattern id (used in weave dropdown). */
 export const WEAVE_ICONS = {
   'plain': 'grid_on',
-  'matt-regular': 'view_module',
   'matt-rib-irregular': 'widgets',
   'weft-rib-regular': 'horizontal_rule',
   'satin': 'blur_linear',
@@ -51,6 +59,36 @@ export const PRESETS = [
   { id: 'garnet-twill-grad', label: 'Garnet · 2/2 Twill · Grad', pattern: 6, palette: 1, bgShade: 0, warpShade: 0, weftShade: 3, ...grad(0, 3, 1, 2) },
   { id: 'lapis-satin-grad', label: 'Lapis · Satin · Grad', pattern: 4, palette: 2, bgShade: 2, warpShade: 1, weftShade: 2, ...grad(0, 2, 2, 3, 1, 1) },
   { id: 'peridot-houndstooth-grad', label: 'Peridot · Houndstooth · Grad', pattern: 11, palette: 3, bgShade: 1, warpShade: 0, weftShade: 1, ...grad(0, 3, 1, 3, 0, 1) },
+  // Extended preset from URL: Lapis · Houndstooth · grad + rect/shimmer/all colorways
+  {
+    id: 'lapis-houndstooth-shimmer',
+    label: 'Lapis · Houndstooth · Shimmer',
+    pattern: 11,
+    palette: 2,
+    bgShade: 2,
+    warpShade: 3,
+    weftShade: 1,
+    warpGradient: { startShade: 3, endShade: 3, direction: 1, range: [11, 63] },
+    weftGradient: { startShade: 2, endShade: 0, direction: 1, range: [19, 39] },
+    gridSize: 48,
+    gradSteps: 2,
+    rectAspect: 0.68,
+    cornerRadius: 0.33,
+    canvasAspect: 1.5,
+    useAllColorways: true,
+    colorwaySeed: 19,
+    shimmer: true,
+    shimmerSpeed: 2,
+    shimmerWidth: 14.97,
+    shimmerIntensity: 0.64,
+    shimmerPosition: 0.61,
+    shimmerRotation: 0.422,
+    shimmerNoise: 0.14,
+    shimmerNoiseSeed: 0.6,
+    shimmerNoiseMin: 0.5,
+    shimmerNoiseMax: 1,
+    shimmerBlendMode: 2,
+  },
 ];
 
 /** Default rect aspect 36×40 (warp orientation). Shared by App, ShaderCanvas, useShaderSandbox. */

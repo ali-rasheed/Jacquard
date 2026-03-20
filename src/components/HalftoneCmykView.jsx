@@ -17,11 +17,9 @@ import {
   selectItem,
   sidebarGroup,
   sidebarGroupTitle,
+  inputText,
 } from '../uiConstants';
-
-const Icon = ({ name, className = '' }) => (
-  <span className={`icon inline-block shrink-0 ${className}`} aria-hidden>{name}</span>
-);
+import { Icon } from './ui';
 
 const DEFAULT_IMAGE = 'https://paper.design/flowers.webp';
 const TYPE_OPTIONS = [
@@ -95,7 +93,7 @@ export default function HalftoneCmykView() {
             value={imageUrl}
             onChange={(e) => setImageUrl(e.target.value || DEFAULT_IMAGE)}
             placeholder={DEFAULT_IMAGE}
-            className="w-full rounded border border-border-subtle bg-surface-input px-2 py-1.5 text-left text-[11px] text-text outline-none focus:border-accent focus:ring-1 focus:ring-accent/20"
+            className={inputText}
             aria-label="Image URL"
           />
         </div>

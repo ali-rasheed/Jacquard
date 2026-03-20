@@ -25,8 +25,13 @@ export function WeavingHalftoneStage({
   rectAspect,
   cornerRadius,
   canvasAspect,
+  patternFit = 'fit',
   shimmer,
   shimmerSpeed,
+  shimmerPlaying,
+  shimmerPausedAtTime,
+  shimmerPhase,
+  onShimmerTime,
   shimmerWidth,
   shimmerIntensity,
   shimmerPosition,
@@ -210,6 +215,10 @@ export function WeavingHalftoneStage({
           canvasAspect={canvasAspect ?? 1}
           shimmer={shimmer}
           shimmerSpeed={shimmerSpeed}
+          shimmerPlaying={shimmerPlaying}
+          shimmerPausedAtTime={shimmerPausedAtTime}
+          shimmerPhase={shimmerPhase}
+          onShimmerTime={onShimmerTime}
           shimmerWidth={shimmerWidth}
           shimmerIntensity={shimmerIntensity}
           shimmerPosition={shimmerPosition}
@@ -254,7 +263,7 @@ export function WeavingHalftoneStage({
             grainMixer={0}
             grainOverlay={0}
             grainSize={0.5}
-            fit="cover"
+            fit={patternFit === 'fill' ? 'cover' : 'contain'}
             webGlContextAttributes={WEB_GL_ATTRS}
           />
         ) : (

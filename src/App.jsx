@@ -11,15 +11,19 @@ import { SliderWithInput } from './components/SliderWithInput';
 import { useCanvasRecorder, supportsMP4 } from './hooks/useCanvasRecorder';
 import { halftoneCmykPresets } from '@paper-design/shaders-react';
 import { PATTERNS } from './patterns';
+import { getCopyCanvas } from './copyHelpers';
 import {
+  EXPORT_MAX_DIMENSION,
+  EXPORT_SCALES,
   GRID_SNAPS,
   getGridSizeIndex,
   PRESETS,
-  PNG_COPY_SCALE,
+  COPY_SCALES,
   RECT_ASPECT_DEFAULT,
   snapGradRangeValue,
   URL_STATE_MAX_LEN,
   WEAVE_ICONS,
+  WEAVING_DPR,
 } from './constants';
 import {
   PALETTE_NAMES,
@@ -27,14 +31,12 @@ import {
   SHADE_NAMES,
   typeBase,
   typeLabel,
-  typeControl,
   typeValue,
   typeCaption,
   iconSm,
   iconMd,
   iconLg,
   iconXs,
-  iconXxs2,
   SHADE_TRANSPARENT_ICON,
   btnGhost,
   selectTrigger,
@@ -45,7 +47,20 @@ import {
   sidebarGroupSticky,
   sidebarGroupTitle,
   controlLabel,
+  navBtnActive,
+  navBtnInactive,
+  menuToggle,
+  menuToggleActive,
+  menuToggleInactive,
+  toggleBtn,
+  toggleBtnActive,
+  toggleBtnIcon,
+  paletteSwatch,
+  paletteSwatchSm,
+  paletteSwatchSelected,
+  paletteSwatchUnselected,
 } from './uiConstants';
+import { Icon, GroupIcon, AppSelect, DirectionSwitch, SegmentedControl, SegmentedControlButton, IconButton } from './components/ui';
 
 /** Lazy load to avoid circular/order-dependent init in production bundle (TDZ). */
 const AppV2 = lazy(() => import('./AppV2.jsx'));
@@ -78,11 +93,11 @@ function parseUrlState(search) {
   };
   num('p', 'pattern', 0, PATTERNS.length - 1);
   num('pal', 'palette', 0, 3);
-  num('bg', 'bgShade', 0, 4);
-  num('warp', 'warpShade', 0, 4);
-  num('weft', 'weftShade', 0, 4);
+  num('bg', 'bgShade', 0, 5);
+  num('warp', 'warpShade', 0, 5);
+  num('weft', 'weftShade', 0, 5);
   num('grid', 'gridSize', 8, 64);
-  num('preset', 'presetIndex', 0, 7);
+  num('preset', 'presetIndex', 0, PRESETS.length - 1);
   grad('warp');
   grad('weft');
   num('steps', 'gradSteps', 0, 16);
@@ -91,6 +106,7 @@ function parseUrlState(search) {
   num('canvas', 'canvasAspect', 0.5, 2);
   num('all', 'useAllColorways', 0, 1);
   num('seed', 'colorwaySeed', 0, 999);
+  num('cns', 'colorwayNoiseScale', 0.25, 3);
   num('shimmer', 'shimmer', 0, 1);
   num('shimmerSp', 'shimmerSpeed', 1, 16);
   num('shimmerW', 'shimmerWidth', 0.25, 24);
@@ -103,12 +119,18 @@ function parseUrlState(search) {
   num('shimmerNMax', 'shimmerNoiseMax', 0, 2);
   num('shimmerBlend', 'shimmerBlendMode', 0, 10);
   const cf = params.get('cf');
-  if (cf === 'svg' || cf === 'png') out.copyFormat = cf;
+  if (cf === 'webp' || cf === 'png') out.copyFormat = cf;
+  const cs = params.get('cs');
+  if (cs !== null && [1, 2, 4, 8].includes(Number(cs))) out.copyScale = Number(cs);
   const v = params.get('v');
   if (v === '1') out.view = 'weaving';
   else if (v === '2') out.view = 'imageRects';
   else if (v === '3') out.view = 'weavingHalftone';
   else if (v === '4') out.view = 'imageRectsHalftone';
+  const display = params.get('display');
+  if (display === 'fill' || display === 'fit') out.patternFit = display;
+  const menu = params.get('menu');
+  if (menu === '1') out.menuHidden = false; // menu=1 → sidebar always visible
   return out;
 }
 const VIEW_TO_V = { weaving: 1, imageRects: 2, weavingHalftone: 3, imageRectsHalftone: 4 };
@@ -123,9 +145,10 @@ function getInitialView() {
 function buildUrlState(state) {
   const def = {
     view: 'weaving',
+    menuHidden: true,
     pattern: 0, palette: 0, bgShade: 2, warpShade: 1, weftShade: 3, gridSize: 32,
     presetIndex: null, gradSteps: 0, rectAspect: RECT_ASPECT_DEFAULT, cornerRadius: 0.18, canvasAspect: 1,
-    copyFormat: 'png', useAllColorways: false, colorwaySeed: 0,
+    copyFormat: 'png', copyScale: 2, useAllColorways: false, colorwaySeed: 0, colorwayNoiseScale: 1, patternFit: 'fit',
     shimmer: false, shimmerSpeed: 2, shimmerWidth: 2, shimmerIntensity: 0.25, shimmerPosition: 0, shimmerRotation: 0.125, shimmerNoise: 0.3, shimmerNoiseSeed: 0, shimmerNoiseMin: 0.5, shimmerNoiseMax: 1.5, shimmerBlendMode: 0,
     warpGradient: { startShade: 0, endShade: 3, direction: 0, range: [0, 100] },
     weftGradient: { startShade: 0, endShade: 3, direction: 0, range: [0, 100] },
@@ -133,7 +156,7 @@ function buildUrlState(state) {
   const p = new URLSearchParams();
   const viewNum = state.view != null ? VIEW_TO_V[state.view] : undefined;
   if (viewNum != null && viewNum !== 1) p.set('v', String(viewNum));
-  if (state.presetIndex != null && state.presetIndex >= 0 && state.presetIndex <= 7) p.set('preset', String(state.presetIndex));
+  if (state.presetIndex != null && state.presetIndex >= 0 && state.presetIndex < PRESETS.length) p.set('preset', String(state.presetIndex));
   if (state.pattern !== def.pattern) p.set('p', String(state.pattern));
   if (state.palette !== def.palette) p.set('pal', String(state.palette));
   if (state.bgShade !== def.bgShade) p.set('bg', String(state.bgShade));
@@ -153,8 +176,10 @@ function buildUrlState(state) {
   if (state.cornerRadius !== def.cornerRadius) p.set('corner', String(Number(state.cornerRadius.toFixed(2))));
   if (state.canvasAspect !== def.canvasAspect) p.set('canvas', String(Number(state.canvasAspect.toFixed(2))));
   if (state.copyFormat !== def.copyFormat) p.set('cf', state.copyFormat);
+  if (state.copyScale !== def.copyScale) p.set('cs', String(state.copyScale));
   if (state.useAllColorways !== def.useAllColorways) p.set('all', state.useAllColorways ? '1' : '0');
   if (state.colorwaySeed !== def.colorwaySeed) p.set('seed', String(state.colorwaySeed));
+  if (state.colorwayNoiseScale !== def.colorwayNoiseScale) p.set('cns', String(Number(state.colorwayNoiseScale.toFixed(2))));
   if (state.shimmer !== def.shimmer) p.set('shimmer', state.shimmer ? '1' : '0');
   if (state.shimmerSpeed !== def.shimmerSpeed) p.set('shimmerSp', String(Math.round(state.shimmerSpeed)));
   if (state.shimmerWidth !== def.shimmerWidth) p.set('shimmerW', String(Number(state.shimmerWidth.toFixed(2))));
@@ -166,110 +191,16 @@ function buildUrlState(state) {
   if (state.shimmerNoiseMin !== def.shimmerNoiseMin) p.set('shimmerNMin', String(Number(state.shimmerNoiseMin.toFixed(2))));
   if (state.shimmerNoiseMax !== def.shimmerNoiseMax) p.set('shimmerNMax', String(Number(state.shimmerNoiseMax.toFixed(2))));
   if (state.shimmerBlendMode !== def.shimmerBlendMode) p.set('shimmerBlend', String(state.shimmerBlendMode));
+  if (state.patternFit !== def.patternFit) p.set('display', state.patternFit);
+  if (state.menuHidden === false) p.set('menu', '1');
   const s = p.toString();
   return s.length <= URL_STATE_MAX_LEN ? s : '';
 }
 
-/**
- * Section icon with optional property lock: xxs lock button at top-left (when onLockChange provided),
- * and optional locked superscript at top-right.
- */
-const GroupIcon = ({ name, title, locked = false, onLockChange, className = '' }) => (
-  <span title={title} className={`relative inline-flex shrink-0 ${className}`}>
-    {onLockChange && (
-      <button
-        type="button"
-        className={`absolute -left-0.5 -top-0.5 flex h-2 w-2 items-center justify-center rounded border border-border-subtle bg-surface-input text-text-muted transition-colors hover:border-border hover:bg-surface-hover hover:text-text focus:outline-none focus:ring-1 focus:ring-accent/40 ${locked ? 'border-accent/50 bg-accent/10 text-accent' : ''}`}
-        onClick={() => onLockChange(!locked)}
-        aria-label={locked ? 'Unlock property' : 'Lock property'}
-        title={locked ? 'Unlock' : 'Lock'}
-      >
-        <Icon name={locked ? 'lock' : 'lock_open'} className={iconXxs2} />
-      </button>
-    )}
-    <Icon name={name} className={`${iconLg} text-text-muted`} />
-    {locked && !onLockChange && (
-      <span className="absolute -top-0.5 -right-0.5 leading-none" aria-hidden title="Locked">
-        <Icon name="lock" className={`${iconXs} text-text-muted`} />
-      </span>
-    )}
-  </span>
-);
-/** Material Symbol icon — pass symbol name (e.g. refresh, arrow_downward). */
-const Icon = ({ name, className = '' }) => (
-  <span className={`icon inline-block shrink-0 ${className}`} aria-hidden>{name}</span>
-);
-
-/** Two-option switch for gradient direction (0 = first arrow, 1 = second). */
-const directionSwitch =
-  'inline-flex h-7 shrink-0 rounded-md border border-border-subtle bg-surface-input overflow-hidden';
-const directionSwitchBtn =
-  `flex h-full min-w-[28px] items-center justify-center px-2 ${typeBase} text-text-secondary transition-colors hover:bg-surface-hover hover:text-text data-[state=on]:bg-accent/15 data-[state=on]:text-accent border-r border-border-subtle last:border-r-0`;
-
-function DirectionSwitch({ value, onValueChange, options, title, ariaLabel }) {
-  return (
-    <div
-      className={directionSwitch}
-      role="group"
-      aria-label={ariaLabel ?? title}
-      title={title}
-    >
-      {options.map((opt) => (
-        <button
-          key={opt.value}
-          type="button"
-          className={directionSwitchBtn}
-          aria-pressed={value === opt.value}
-          aria-label={`${title}: ${opt.label}`}
-          data-state={value === opt.value ? 'on' : 'off'}
-          onClick={() => { onValueChange(opt.value); }}
-        >
-          {opt.icon ? <Icon name={opt.icon} className={iconLg} /> : opt.label}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-function AppSelect({ value, onValueChange, options, placeholder, title, id: idProp, labelText }) {
-  const selected = options.find((o) => Number(o.value) === Number(value));
-  const label = labelText ?? title;
-  return (
-    <>
-      {idProp && label && <Label.Root className="sr-only" htmlFor={idProp}>{label}</Label.Root>}
-      <Select.Root value={String(value)} onValueChange={(v) => onValueChange(Number(v))}>
-      <Select.Trigger id={idProp} className={selectTrigger} title={title} aria-label={title ?? placeholder}>
-        <span className="flex min-w-0 items-center gap-1.5">
-          {selected?.icon && <Icon name={selected.icon} className={`shrink-0 ${iconMd} text-text-muted`} />}
-          <Select.Value placeholder={placeholder} />
-        </span>
-        <Icon name="expand_more" className={`${iconLg} opacity-60`} />
-      </Select.Trigger>
-      <Select.Portal>
-        <Select.Content className={selectContent} position="popper" sideOffset={4}>
-          <Select.Viewport>
-            {options.map((opt, i) => (
-              <Select.Item key={opt.id ?? i} className={selectItem} value={String(opt.value)}>
-                {opt.icon && <Icon name={opt.icon} className={`mr-1.5 shrink-0 ${iconMd} text-text-muted`} />}
-                <Select.ItemText>{opt.label}</Select.ItemText>
-                <Select.ItemIndicator className="absolute right-2 inline-flex items-center" />
-              </Select.Item>
-            ))}
-          </Select.Viewport>
-        </Select.Content>
-      </Select.Portal>
-    </Select.Root>
-    </>
-  );
-}
-
-const navBtn =
-  `inline-flex h-8 items-center rounded-md border px-3 ${typeBase} font-medium outline-none transition-colors focus:ring-2 focus:ring-accent/40`;
-const navBtnActive = 'border-accent bg-accent/10 text-accent ' + navBtn;
-const navBtnInactive = 'border-border-subtle bg-transparent text-text-secondary hover:border-border hover:bg-surface-hover hover:text-text ' + navBtn;
-
 export default function App() {
   const [view, setView] = useState(getInitialView); // 'weaving' | 'weavingHalftone' | 'imageRects' | 'imageRectsHalftone' — persisted in URL ?v=1..4 so reload keeps mode
+  /** When true, sidebar is hidden until hover (v1–v4); when false, sidebar is always visible. Toggle in nav; persisted in URL ?menu=1. */
+  const [menuHidden, setMenuHidden] = useState(true);
   const [presetIndex, setPresetIndex] = useState(null); // null = custom
   const [pattern, setPattern] = useState(0);
   const [palette, setPalette] = useState(0);
@@ -284,15 +215,20 @@ export default function App() {
   const [rectAspect, setRectAspect] = useState(RECT_ASPECT_DEFAULT);
   const [cornerRadius, setCornerRadius] = useState(0.18);
   const [canvasAspect, setCanvasAspect] = useState(1);
+  const [patternFit, setPatternFit] = useState('fit'); // 'fill' = cover view, 'fit' = contain
   const [fps, setFps] = useState(0);
   /** Shimmer: looping highlight band; speed, width, intensity, position. */
   const [shimmer, setShimmer] = useState(false);
-  /** When false, shimmer band is frozen (effective speed 0). */
+  /** When false, shimmer band is frozen at current position (u_shimmerTime paused). */
   const [shimmerPlaying, setShimmerPlaying] = useState(true);
+  const [shimmerPausedAtTime, setShimmerPausedAtTime] = useState(0);
+  const shimmerTimeRef = useRef(0);
   const [shimmerSpeed, setShimmerSpeed] = useState(2);
   const [shimmerWidth, setShimmerWidth] = useState(2);
   const [shimmerIntensity, setShimmerIntensity] = useState(0.25);
   const [shimmerPosition, setShimmerPosition] = useState(0);
+  /** Band position 0–1; driven by time when playing, frozen when paused; Position slider shows this. */
+  const [shimmerPhase, setShimmerPhase] = useState(0);
   const [shimmerRotation, setShimmerRotation] = useState(0.125); // 0–1 = 0–360°; 0.125 ≈ 45° (diagonal)
   const [shimmerNoise, setShimmerNoise] = useState(0.3); // 0 = none, 1 = ±50% per-shot intensity variation
   const [shimmerNoiseSeed, setShimmerNoiseSeed] = useState(0); // 0–1 pattern variation
@@ -302,20 +238,31 @@ export default function App() {
   /** Use all 4 colorways: per-cell palette from colorwaySeed hash (mod 4). */
   const [useAllColorways, setUseAllColorways] = useState(false);
   const [colorwaySeed, setColorwaySeed] = useState(0);
+  /** Colorway noise scale: spatial scale of per-cell palette variation (>1 = finer, <1 = coarser). */
+  const [colorwayNoiseScale, setColorwayNoiseScale] = useState(1);
   /** When true, colorway seed animates 0→100 over 20m and loops. */
   const [colorwaySeedPlaying, setColorwaySeedPlaying] = useState(false);
   const colorwayAnimStartRef = useRef(0);
   const colorwayAnimFrameRef = useRef(null);
-  /** Copy format: 'png' (2× canvas) or 'svg' (SVG with embedded raster). */
+  /** Copy format: 'png' or 'webp'; copyScale: 1, 2, 4, or 8× display size. */
   const [copyFormat, setCopyFormat] = useState('png');
+  const [copyScale, setCopyScale] = useState(2);
+  /** Export scale for PNG download (one of EXPORT_SCALES). */
+  const [exportScale, setExportScale] = useState(6);
   /** Include in Randomize: rect aspect and corner radius (off = keep current when randomizing). */
   const [randomizeRectAspect, setRandomizeRectAspect] = useState(true);
   const [randomizeCornerRadius, setRandomizeCornerRadius] = useState(true);
   const canvasRef = useRef(null);
   const halftoneContainerRef = useRef(null);
   const halftoneCanvasRef = useRef(null);
+  /** Set by ShaderCanvas when view is weaving: { captureAtResolution(w,h) }. Used for high-res export. */
+  const weavingCaptureRef = useRef(null);
+  const [copyFeedback, setCopyFeedback] = useState(null); // 'Copied!' | error string | null
+  const [exportFeedback, setExportFeedback] = useState(null);
+  const copyFeedbackTimeoutRef = useRef(null);
+  const exportFeedbackTimeoutRef = useRef(null);
 
-  /** Halftone params for v3 (Weaving + Halftone) view. */
+  /** Halftone params for v3 (Weaving  Halftone) view. */
   const [halftoneSize, setHalftoneSize] = useState(0.2);
   const [halftoneSoftness, setHalftoneSoftness] = useState(1);
   const [halftoneGridNoise, setHalftoneGridNoise] = useState(0.2);
@@ -330,7 +277,7 @@ export default function App() {
   const [halftoneGainC, setHalftoneGainC] = useState(0.3);
   const [halftoneGainY, setHalftoneGainY] = useState(0.2);
   const [halftonePresetIndex, setHalftonePresetIndex] = useState(0);
-  /** Weaving + Halftone: optional image from desktop (object URL). When set, halftone uses this instead of weaving. */
+  /** Weaving  Halftone: optional image from desktop (object URL). When set, halftone uses this instead of weaving. */
   const [halftoneCustomImageUrl, setHalftoneCustomImageUrl] = useState('');
 
   /** Image Rects + Halftone combo view: image from file only (no web URL). */
@@ -422,9 +369,12 @@ export default function App() {
     if (q.rectAspect != null) setRectAspect(Math.min(1, Math.max(0.5, Number(q.rectAspect))));
     if (q.cornerRadius != null) setCornerRadius(q.cornerRadius);
     if (q.canvasAspect != null) setCanvasAspect(q.canvasAspect);
+    if (q.patternFit != null) setPatternFit(q.patternFit);
     if (q.copyFormat != null) setCopyFormat(q.copyFormat);
+    if (q.copyScale != null) setCopyScale(q.copyScale);
     if (q.useAllColorways != null) setUseAllColorways(!!q.useAllColorways);
     if (q.colorwaySeed != null) setColorwaySeed(q.colorwaySeed);
+    if (q.colorwayNoiseScale != null) setColorwayNoiseScale(q.colorwayNoiseScale);
     if (q.shimmer != null) setShimmer(!!q.shimmer);
     if (q.shimmerSpeed != null) setShimmerSpeed(Math.min(16, Math.max(1, Number(q.shimmerSpeed))));
     if (q.shimmerWidth != null) setShimmerWidth(q.shimmerWidth);
@@ -437,6 +387,7 @@ export default function App() {
     if (q.shimmerNoiseMax != null) setShimmerNoiseMax(Math.min(2, Math.max(0, Number(q.shimmerNoiseMax))));
     if (q.shimmerBlendMode != null) setShimmerBlendMode(Math.min(10, Math.max(0, Math.floor(Number(q.shimmerBlendMode)))));
     if (q.view != null) setView(q.view);
+    if (q.menuHidden === false) setMenuHidden(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- run once on mount; applyPreset is stable
   }, []);
 
@@ -445,9 +396,9 @@ export default function App() {
   useEffect(() => {
     urlSyncTimeoutRef.current = setTimeout(() => {
       const search = buildUrlState({
-        view, presetIndex, pattern, palette, bgShade, warpShade, weftShade, gridSize,
-        warpGradient, weftGradient, gradSteps, rectAspect, cornerRadius, canvasAspect, copyFormat,
-        useAllColorways, colorwaySeed, shimmer, shimmerSpeed, shimmerWidth, shimmerIntensity, shimmerPosition, shimmerRotation, shimmerNoise, shimmerNoiseSeed, shimmerNoiseMin, shimmerNoiseMax, shimmerBlendMode,
+        view, menuHidden, presetIndex, pattern, palette, bgShade, warpShade, weftShade, gridSize,
+        warpGradient, weftGradient, gradSteps, rectAspect, cornerRadius, canvasAspect, patternFit, copyFormat, copyScale,
+        useAllColorways, colorwaySeed, colorwayNoiseScale, shimmer, shimmerSpeed, shimmerWidth, shimmerIntensity, shimmerPosition, shimmerRotation, shimmerNoise, shimmerNoiseSeed, shimmerNoiseMin, shimmerNoiseMax, shimmerBlendMode,
       });
       const url = search ? `${window.location.pathname}?${search}` : window.location.pathname;
       if (window.location.pathname + (window.location.search || '') !== url) {
@@ -455,7 +406,7 @@ export default function App() {
       }
     }, 400);
     return () => { clearTimeout(urlSyncTimeoutRef.current); };
-  }, [view, presetIndex, pattern, palette, bgShade, warpShade, weftShade, gridSize, warpGradient, weftGradient, gradSteps, rectAspect, cornerRadius, canvasAspect, copyFormat, useAllColorways, colorwaySeed, shimmer, shimmerSpeed, shimmerWidth, shimmerIntensity, shimmerPosition, shimmerRotation, shimmerNoise, shimmerNoiseSeed, shimmerNoiseMin, shimmerNoiseMax, shimmerBlendMode]);
+  }, [view, menuHidden, presetIndex, pattern, palette, bgShade, warpShade, weftShade, gridSize, warpGradient, weftGradient, gradSteps, rectAspect, cornerRadius, canvasAspect, patternFit, copyFormat, copyScale, useAllColorways, colorwaySeed, colorwayNoiseScale, shimmer, shimmerSpeed, shimmerWidth, shimmerIntensity, shimmerPosition, shimmerRotation, shimmerNoise, shimmerNoiseSeed, shimmerNoiseMin, shimmerNoiseMax, shimmerBlendMode]);
 
   /** Animate colorway seed 0→100 over 20m and loop while colorwaySeedPlaying is true. */
   const COLORWAY_ANIM_DURATION_MS = 1200000; // 20 min (20× slower than 60s)
@@ -474,66 +425,184 @@ export default function App() {
     };
   }, [colorwaySeedPlaying]);
 
-  /** Capture canvas at PNG_COPY_SCALE× resolution as PNG and copy to clipboard (v1–v4). */
+  /** Shimmer phase 0–1 from time; matches shader period (gridSize * (aspect*|cos| + |sin|)). */
+  const computeShimmerPhase = useCallback((time) => {
+    const speed = Math.max(0.001, shimmerSpeed);
+    const angle = shimmerRotation * Math.PI * 2;
+    const period = Math.max(1, gridSize * (canvasAspect * Math.abs(Math.cos(angle)) + Math.abs(Math.sin(angle))));
+    const timeStep = Math.floor(time * speed);
+    return (timeStep % period) / period;
+  }, [shimmerSpeed, shimmerRotation, gridSize, canvasAspect]);
+
+  const onShimmerTime = useCallback((time) => {
+    shimmerTimeRef.current = time;
+    if (shimmer && shimmerPlaying) setShimmerPhase(computeShimmerPhase(time));
+  }, [shimmer, shimmerPlaying, computeShimmerPhase]);
+
+  /** Copy canvas at copyScale× resolution. Weaving: re-renders at target res for sharpness. Others: 2D upscale. */
   const handleCopy2xPng = useCallback(async () => {
-    const canvas =
-      view === 'weavingHalftone' || view === 'imageRectsHalftone'
-        ? (halftoneCanvasRef.current ?? halftoneContainerRef.current?.querySelector('canvas'))
-        : canvasRef.current;
-    if (!canvas || !canvas.width || !canvas.height) return;
-    const scale = PNG_COPY_SCALE;
-    const w = canvas.width * scale;
-    const h = canvas.height * scale;
+    await new Promise((r) => requestAnimationFrame(r));
+    const capToMax = (width, height) => {
+      if (width <= EXPORT_MAX_DIMENSION && height <= EXPORT_MAX_DIMENSION) return [width, height];
+      const r = Math.min(EXPORT_MAX_DIMENSION / width, EXPORT_MAX_DIMENSION / height);
+      return [Math.round(width * r), Math.round(height * r)];
+    };
+    if (view === 'weaving' && weavingCaptureRef.current?.captureAtResolution) {
+      const canvas = canvasRef.current;
+      if (!canvas?.width || !canvas?.height) throw new Error('Canvas not ready');
+      const displayW = canvas.width / WEAVING_DPR;
+      const displayH = canvas.height / WEAVING_DPR;
+      const [w, h] = capToMax(Math.round(displayW * copyScale), Math.round(displayH * copyScale));
+      const blob = await weavingCaptureRef.current.captureAtResolution(w, h);
+      if (!blob) throw new Error('toBlob failed');
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+      return;
+    }
+    const canvas = getCopyCanvas(view, canvasRef, halftoneCanvasRef, halftoneContainerRef);
+    if (!canvas || !canvas.width || !canvas.height) throw new Error('Canvas not ready');
+    const w = canvas.width * copyScale;
+    const h = canvas.height * copyScale;
     const off = document.createElement('canvas');
     off.width = w;
     off.height = h;
     const ctx = off.getContext('2d');
-    if (!ctx) return;
+    if (!ctx) throw new Error('2D context failed');
     ctx.drawImage(canvas, 0, 0, w, h);
     const blob = await new Promise((resolve) => off.toBlob(resolve, 'image/png'));
-    if (blob) await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
-  }, [view]);
+    if (!blob) throw new Error('toBlob failed');
+    await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+  }, [view, copyScale]);
 
-  /** Build SVG with canvas as embedded raster (data URL at 2×), copy as image/svg+xml and text/plain. */
-  const handleCopySvg = useCallback(async () => {
-    const canvas =
-      view === 'weavingHalftone' || view === 'imageRectsHalftone'
-        ? (halftoneCanvasRef.current ?? halftoneContainerRef.current?.querySelector('canvas'))
-        : canvasRef.current;
-    if (!canvas || !canvas.width || !canvas.height) return;
-    const scale = 2;
-    const w = canvas.width * scale;
-    const h = canvas.height * scale;
+  /** Copy canvas at copyScale× as WebP. Weaving: re-renders at target res then converts to WebP. */
+  const handleCopyWebp = useCallback(async () => {
+    await new Promise((r) => requestAnimationFrame(r));
+    const capToMax = (width, height) => {
+      if (width <= EXPORT_MAX_DIMENSION && height <= EXPORT_MAX_DIMENSION) return [width, height];
+      const r = Math.min(EXPORT_MAX_DIMENSION / width, EXPORT_MAX_DIMENSION / height);
+      return [Math.round(width * r), Math.round(height * r)];
+    };
+    if (view === 'weaving' && weavingCaptureRef.current?.captureAtResolution) {
+      const canvas = canvasRef.current;
+      if (!canvas?.width || !canvas?.height) throw new Error('Canvas not ready');
+      const displayW = canvas.width / WEAVING_DPR;
+      const displayH = canvas.height / WEAVING_DPR;
+      const [w, h] = capToMax(Math.round(displayW * copyScale), Math.round(displayH * copyScale));
+      const pngBlob = await weavingCaptureRef.current.captureAtResolution(w, h);
+      if (!pngBlob) throw new Error('toBlob failed');
+      const pngUrl = URL.createObjectURL(pngBlob);
+      const webpBlob = await new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => {
+          const off = document.createElement('canvas');
+          off.width = img.naturalWidth;
+          off.height = img.naturalHeight;
+          const ctx = off.getContext('2d');
+          if (!ctx) { reject(new Error('2D context failed')); return; }
+          ctx.drawImage(img, 0, 0);
+          off.toBlob(resolve, 'image/webp', 0.92);
+        };
+        img.onerror = () => reject(new Error('Image load failed'));
+        img.src = pngUrl;
+      });
+      URL.revokeObjectURL(pngUrl);
+      if (!webpBlob) throw new Error('toBlob WebP failed');
+      await navigator.clipboard.write([new ClipboardItem({ 'image/webp': webpBlob })]);
+      return;
+    }
+    const canvas = getCopyCanvas(view, canvasRef, halftoneCanvasRef, halftoneContainerRef);
+    if (!canvas || !canvas.width || !canvas.height) throw new Error('Canvas not ready');
+    const w = canvas.width * copyScale;
+    const h = canvas.height * copyScale;
     const off = document.createElement('canvas');
     off.width = w;
     off.height = h;
     const ctx = off.getContext('2d');
-    if (!ctx) return;
+    if (!ctx) throw new Error('2D context failed');
     ctx.drawImage(canvas, 0, 0, w, h);
-    const dataUrl = off.toDataURL('image/png');
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><image href="${dataUrl}" width="${w}" height="${h}"/></svg>`;
-    const blob = new Blob([svg], { type: 'image/svg+xml' });
-    await navigator.clipboard.write([
-      new ClipboardItem({
-        'image/svg+xml': blob,
-        'text/plain': new Blob([svg], { type: 'text/plain' }),
-      }),
-    ]);
-  }, [view]);
+    const blob = await new Promise((resolve) => off.toBlob(resolve, 'image/webp', 0.92));
+    if (!blob) throw new Error('toBlob failed');
+    await navigator.clipboard.write([new ClipboardItem({ 'image/webp': blob })]);
+  }, [view, copyScale]);
 
-  const handleCopy = useCallback(() => {
-    if (copyFormat === 'png') handleCopy2xPng();
-    else handleCopySvg();
-  }, [copyFormat, handleCopy2xPng, handleCopySvg]);
+  const handleCopy = useCallback(async () => {
+    if (copyFeedbackTimeoutRef.current) clearTimeout(copyFeedbackTimeoutRef.current);
+    setCopyFeedback(null);
+    try {
+      if (copyFormat === 'png') await handleCopy2xPng();
+      else await handleCopyWebp();
+      setCopyFeedback('Copied!');
+      copyFeedbackTimeoutRef.current = setTimeout(() => setCopyFeedback(null), 2000);
+    } catch (err) {
+      setCopyFeedback(err?.message ?? 'Copy failed');
+      copyFeedbackTimeoutRef.current = setTimeout(() => setCopyFeedback(null), 3000);
+    }
+  }, [copyFormat, handleCopy2xPng, handleCopyWebp]);
+
+  useEffect(() => () => {
+    if (copyFeedbackTimeoutRef.current) clearTimeout(copyFeedbackTimeoutRef.current);
+    if (exportFeedbackTimeoutRef.current) clearTimeout(exportFeedbackTimeoutRef.current);
+  }, []);
+
+  /** Export at exportScale× as PNG (download). Weaving view: renders shader at target resolution. Halftone views: 2D upscale of display canvas. */
+  const handleExport = useCallback(async () => {
+    if (exportFeedbackTimeoutRef.current) clearTimeout(exportFeedbackTimeoutRef.current);
+    setExportFeedback(null);
+    try {
+      await new Promise((r) => requestAnimationFrame(r));
+      const scale = Math.max(1, Math.min(24, Number(exportScale) || 4));
+
+      const capToMax = (width, height) => {
+        if (width <= EXPORT_MAX_DIMENSION && height <= EXPORT_MAX_DIMENSION) return [width, height];
+        const r = Math.min(EXPORT_MAX_DIMENSION / width, EXPORT_MAX_DIMENSION / height);
+        return [Math.round(width * r), Math.round(height * r)];
+      };
+
+      if (view === 'weaving' && weavingCaptureRef.current?.captureAtResolution) {
+        const canvas = canvasRef.current;
+        if (!canvas?.width || !canvas?.height) throw new Error('Canvas not ready');
+        const displayW = canvas.width / WEAVING_DPR;
+        const displayH = canvas.height / WEAVING_DPR;
+        let [w, h] = capToMax(Math.round(displayW * scale), Math.round(displayH * scale));
+        const blob = await weavingCaptureRef.current.captureAtResolution(w, h);
+        if (!blob) throw new Error('Export failed (try lower scale)');
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `weaving-${w}x${h}.png`;
+        a.click();
+        URL.revokeObjectURL(url);
+      } else {
+        const canvas = getCopyCanvas(view, canvasRef, halftoneCanvasRef, halftoneContainerRef);
+        if (!canvas || !canvas.width || !canvas.height) throw new Error('Canvas not ready');
+        let [w, h] = capToMax(Math.round(canvas.width * scale), Math.round(canvas.height * scale));
+        const off = document.createElement('canvas');
+        off.width = w;
+        off.height = h;
+        const ctx = off.getContext('2d');
+        if (!ctx) throw new Error('2D context failed');
+        ctx.drawImage(canvas, 0, 0, w, h);
+        const blob = await new Promise((resolve) => off.toBlob(resolve, 'image/png'));
+        if (!blob) throw new Error('Export failed (try lower scale)');
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `weaving-${w}x${h}.png`;
+        a.click();
+        URL.revokeObjectURL(url);
+      }
+      setExportFeedback('Exported!');
+      exportFeedbackTimeoutRef.current = setTimeout(() => setExportFeedback(null), 2000);
+    } catch (err) {
+      setExportFeedback(err?.message ?? 'Export failed');
+      exportFeedbackTimeoutRef.current = setTimeout(() => setExportFeedback(null), 3000);
+    }
+  }, [view, exportScale]);
 
   /** Video recording (WebM or MP4). Canvas resolved per current view. */
   const { isRecording, isProcessing, recordFormat, setRecordFormat, startRecording: recStart, stopRecording } = useCanvasRecorder('shaderbox');
 
   const startRecording = useCallback(() => {
-    const canvas =
-      view === 'weavingHalftone' || view === 'imageRectsHalftone'
-        ? (halftoneCanvasRef.current ?? halftoneContainerRef.current?.querySelector('canvas'))
-        : canvasRef.current;
+    const canvas = getCopyCanvas(view, canvasRef, halftoneCanvasRef, halftoneContainerRef);
     recStart(canvas);
   }, [view, recStart]);
 
@@ -548,10 +617,99 @@ export default function App() {
     setWeftShade(p.weftShade);
     setWarpGradient(p.warpGradient);
     setWeftGradient(p.weftGradient);
+    if (p.gridSize != null) setGridSize(GRID_SNAPS.includes(p.gridSize) ? p.gridSize : GRID_SNAPS[getGridSizeIndex(p.gridSize)]);
+    if (p.gradSteps != null) setGradSteps(p.gradSteps);
+    if (p.rectAspect != null) setRectAspect(Math.min(1, Math.max(0.5, p.rectAspect)));
+    if (p.cornerRadius != null) setCornerRadius(p.cornerRadius);
+    if (p.canvasAspect != null) setCanvasAspect(p.canvasAspect);
+    if (p.useAllColorways != null) setUseAllColorways(!!p.useAllColorways);
+    if (p.colorwaySeed != null) setColorwaySeed(p.colorwaySeed);
+    if (p.shimmer != null) setShimmer(!!p.shimmer);
+    if (p.shimmerSpeed != null) setShimmerSpeed(Math.min(16, Math.max(1, p.shimmerSpeed)));
+    if (p.shimmerWidth != null) setShimmerWidth(p.shimmerWidth);
+    if (p.shimmerIntensity != null) setShimmerIntensity(p.shimmerIntensity);
+    if (p.shimmerPosition != null) setShimmerPosition(p.shimmerPosition);
+    if (p.shimmerRotation != null) setShimmerRotation(Math.min(1, Math.max(0, p.shimmerRotation)));
+    if (p.shimmerNoise != null) setShimmerNoise(Math.min(1, Math.max(0, p.shimmerNoise)));
+    if (p.shimmerNoiseSeed != null) setShimmerNoiseSeed(Math.min(1, Math.max(0, p.shimmerNoiseSeed)));
+    if (p.shimmerNoiseMin != null) setShimmerNoiseMin(Math.min(2, Math.max(0, p.shimmerNoiseMin)));
+    if (p.shimmerNoiseMax != null) setShimmerNoiseMax(Math.min(2, Math.max(0, p.shimmerNoiseMax)));
+    if (p.shimmerBlendMode != null) setShimmerBlendMode(Math.min(10, Math.max(0, Math.floor(p.shimmerBlendMode))));
   }, []);
 
   const handleReload = useCallback(() => {
     window.location.reload();
+  }, []);
+
+  /** Reset all params to defaults (same as URL defaults). Keeps current view; F5 / Mod+Shift+R still reloads page. */
+  const handleReset = useCallback(() => {
+    setPresetIndex(null);
+    setPattern(0);
+    setPalette(0);
+    setShadesLocked(false);
+    setBgShade(2);
+    setWarpShade(1);
+    setWeftShade(3);
+    setGridSize(32);
+    setWarpGradient({ startShade: 0, endShade: 3, direction: 0, range: [0, 100] });
+    setWeftGradient({ startShade: 0, endShade: 3, direction: 0, range: [0, 100] });
+    setGradSteps(0);
+    setRectAspect(RECT_ASPECT_DEFAULT);
+    setCornerRadius(0.18);
+    setCanvasAspect(1);
+    setShimmer(false);
+    setShimmerPlaying(true);
+    setShimmerPausedAtTime(0);
+    setShimmerSpeed(2);
+    setShimmerWidth(2);
+    setShimmerIntensity(0.25);
+    setShimmerPosition(0);
+    setShimmerPhase(0);
+    setShimmerRotation(0.125);
+    setShimmerNoise(0.3);
+    setShimmerNoiseSeed(0);
+    setShimmerNoiseMin(0.5);
+    setShimmerNoiseMax(1.5);
+    setShimmerBlendMode(0);
+    setUseAllColorways(false);
+    setColorwaySeed(0);
+    setColorwayNoiseScale(1);
+    setColorwaySeedPlaying(false);
+    setCopyFormat('png');
+    setRandomizeRectAspect(true);
+    setRandomizeCornerRadius(true);
+    setHalftoneSize(0.2);
+    setHalftoneSoftness(1);
+    setHalftoneGridNoise(0.2);
+    setHalftoneContrast(1);
+    setHalftoneType('ink');
+    setHalftoneColorBack('#fbfaf4');
+    setHalftoneColorC('#00b3ff');
+    setHalftoneColorM('#fc4f9d');
+    setHalftoneColorY('#ffd900');
+    setHalftoneColorK('#231f20');
+    setHalftoneFloodC(0.15);
+    setHalftoneGainC(0.3);
+    setHalftoneGainY(0.2);
+    setHalftonePresetIndex(0);
+    setHalftoneCustomImageUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return '';
+    });
+    setComboImageSource((prev) => {
+      if (prev && prev.startsWith('blob:')) URL.revokeObjectURL(prev);
+      return '';
+    });
+    setComboGridSize(32);
+    setComboPalette(0);
+    setComboBgShade(2);
+    setComboColorizeMode(true);
+    setComboQuantizeSteps(0);
+    setComboShadeFrom(0);
+    setComboPatternIndex(0);
+    setComboRectRadius(0.18);
+    setComboRectAspect(0.85);
+    setComboRectRatio(1.0);
   }, []);
 
   /** Randomize all generator params (pattern, palette, shades, grid, gradients, shimmer, etc.). */
@@ -594,9 +752,10 @@ export default function App() {
     setShimmerNoiseMax(Number(rand(1, 1.8).toFixed(1)));
     setUseAllColorways(Math.random() < 0.5);
     setColorwaySeed(randInt(0, 100));
+    setColorwayNoiseScale(Number((0.25 + Math.random() * 2.75).toFixed(2)));
   }, [randomizeRectAspect, randomizeCornerRadius]);
 
-  /** Keyboard shortcuts when focus is not in input/select/textarea. Mod+C = copy; Mod+1..8 = preset 0–7; Mod+Shift+R or F5 = reload. */
+  /** Keyboard shortcuts when focus is not in input/select/textarea. Mod+C = copy; Mod+1..9 = preset 0–(n−1); Mod+Shift+R or F5 = reload. */
   useEffect(() => {
     const onKeyDown = (e) => {
       if (e.target.closest('input, select, textarea')) return;
@@ -606,7 +765,7 @@ export default function App() {
         handleCopy();
         return;
       }
-      if (mod && e.key >= '1' && e.key <= '8') {
+      if (mod && e.key >= '1' && e.key <= '9' && Number(e.key) <= PRESETS.length) {
         e.preventDefault();
         applyPreset(Number(e.key) - 1);
         return;
@@ -648,14 +807,24 @@ export default function App() {
           <h1 className={`shrink-0 ${typeBase} font-semibold tracking-[-0.01em] text-text`}>Shader Sandbox</h1>
           <div className="flex items-center gap-1">
             <button type="button" className={navBtnInactive} onClick={() => setView('weaving')} aria-pressed={false} aria-label="Weaving draft">Weaving</button>
-            <button type="button" className={navBtnInactive} onClick={() => setView('weavingHalftone')} aria-pressed={false} aria-label="Weaving + Halftone">Weaving + Halftone</button>
-            <button type="button" className={navBtnInactive} onClick={() => setView('imageRectsHalftone')} aria-pressed={false} aria-label="Image Rects + Halftone">Image Rects + Halftone</button>
+            <button type="button" className={navBtnInactive} onClick={() => setView('weavingHalftone')} aria-pressed={false} aria-label="Weaving  Halftone"><span className="inline-flex items-center gap-1">Weaving  <Icon name="lens_blur" className={iconSm} /></span></button>
+            <button type="button" className={navBtnInactive} onClick={() => setView('imageRectsHalftone')} aria-pressed={false} aria-label="Image Rects + Halftone"><span className="inline-flex items-center gap-1">Image Rects + <Icon name="lens_blur" className={iconSm} /></span></button>
             <button type="button" className={navBtnActive} onClick={() => setView('imageRects')} aria-pressed aria-label="Image to colored rects">Image Rects</button>
           </div>
+          <button
+            type="button"
+            className={`${menuToggle} ${menuHidden ? menuToggleInactive : menuToggleActive}`}
+            onClick={() => setMenuHidden((h) => !h)}
+            aria-pressed={!menuHidden}
+            aria-label={menuHidden ? 'Show menu' : 'Hide menu'}
+            title={menuHidden ? 'Show menu (always visible)' : 'Hide menu (show on hover)'}
+          >
+            <Icon name={menuHidden ? 'dock_to_right' : 'close'} className={iconMd} />
+          </button>
         </nav>
         <div className="min-h-0 flex-1 overflow-hidden">
           <Suspense fallback={<div className="flex h-full items-center justify-center text-text-secondary">Loading…</div>}>
-            <AppV2 />
+            <AppV2 menuHidden={menuHidden} />
           </Suspense>
         </div>
       </div>
@@ -668,87 +837,172 @@ export default function App() {
         <h1 className={`shrink-0 ${typeBase} font-semibold tracking-[-0.01em] text-text`}>Shader Sandbox</h1>
         <div className="flex items-center gap-1">
           <button type="button" className={view === 'weaving' ? navBtnActive : navBtnInactive} onClick={() => setView('weaving')} aria-pressed={view === 'weaving'} aria-label="Weaving draft">Weaving</button>
-          <button type="button" className={view === 'weavingHalftone' ? navBtnActive : navBtnInactive} onClick={() => setView('weavingHalftone')} aria-pressed={view === 'weavingHalftone'} aria-label="Weaving + Halftone">Weaving + Halftone</button>
-          <button type="button" className={view === 'imageRectsHalftone' ? navBtnActive : navBtnInactive} onClick={() => setView('imageRectsHalftone')} aria-pressed={view === 'imageRectsHalftone'} aria-label="Image Rects + Halftone">Image Rects + Halftone</button>
+          <button type="button" className={view === 'weavingHalftone' ? navBtnActive : navBtnInactive} onClick={() => setView('weavingHalftone')} aria-pressed={view === 'weavingHalftone'} aria-label="Weaving  Halftone"><span className="inline-flex items-center gap-1">Weaving  <Icon name="lens_blur" className={iconSm} /></span></button>
+          <button type="button" className={view === 'imageRectsHalftone' ? navBtnActive : navBtnInactive} onClick={() => setView('imageRectsHalftone')} aria-pressed={view === 'imageRectsHalftone'} aria-label="Image Rects + Halftone"><span className="inline-flex items-center gap-1">Image Rects + <Icon name="lens_blur" className={iconSm} /></span></button>
           <button type="button" className={navBtnInactive} onClick={() => setView('imageRects')} aria-pressed={false} aria-label="Image to colored rects">Image Rects</button>
         </div>
+        <button
+          type="button"
+          className={`${menuToggle} ${menuHidden ? menuToggleInactive : menuToggleActive}`}
+          onClick={() => setMenuHidden((h) => !h)}
+          aria-pressed={!menuHidden}
+          aria-label={menuHidden ? 'Show menu' : 'Hide menu'}
+          title={menuHidden ? 'Show menu (always visible)' : 'Hide menu (show on hover)'}
+        >
+          <Icon name={menuHidden ? 'dock_to_right' : 'close'} className={iconMd} />
+        </button>
       </nav>
       <div className="relative flex min-h-0 flex-1 flex-row overflow-hidden bg-surface">
-      {/* Floating sidebar: whole-panel opacity via motion; transparent until hover. */}
-      <motion.aside
-        className="fixed left-0 top-9 z-10 flex h-[calc(100dvh-2.25rem)] w-[288px] flex-col gap-3 overflow-y-auto overflow-x-auto border-r border-border-subtle bg-surface px-3 py-3"
-        initial={false}
-        animate={{ opacity: 0 }}
-        whileHover={{ opacity: 1 }}
-        transition={{ duration: 0.2 }}
-        aria-label="Weaving controls"
-      >
-        <div className="flex flex-col gap-3">
-          <div className={`${sidebarGroup} ${sidebarGroupSticky}`}>
-            <div className={sidebarGroupTitle}>Actions</div>
-            <div className="flex flex-wrap items-center gap-2">
-              <button type="button" className={btnGhost} onClick={handleReload} aria-label="Reload">
-                <Icon name="refresh" className={iconMd} />
-                <span>Reload</span>
-              </button>
-              <button type="button" className={btnGhost} onClick={handleRandomize} aria-label="Randomize all parameters" title="Randomize pattern, palette, shades, grid, gradients, shimmer, and more">
-                <Icon name="shuffle" className={iconMd} />
-                <span>Randomize</span>
-              </button>
-              <div className="inline-flex h-7 shrink-0 items-center gap-1 rounded-md border border-border-subtle bg-surface-elevated overflow-hidden">
-                <div className="flex h-full">
-                  {['png', 'svg'].map((fmt) => (
-                    <button
-                      key={fmt}
-                      type="button"
-                      className={`flex min-w-[36px] items-center justify-center px-2 ${typeControl} uppercase transition-colors border-r border-border-subtle last:border-r-0 ${copyFormat === fmt ? 'bg-accent/15 text-accent' : 'text-text-secondary hover:bg-surface-hover hover:text-text'}`}
-                      aria-pressed={copyFormat === fmt}
-                      aria-label={`Format: ${fmt}`}
-                      onClick={() => setCopyFormat(fmt)}
-                    >
-                      {fmt}
-                    </button>
-                  ))}
-                </div>
-                <button
-                  type="button"
-                  className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-border-subtle bg-surface-elevated text-text-secondary transition-colors hover:border-accent hover:bg-accent/10 hover:text-accent focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/20"
-                  title={copyFormat === 'png' ? `Copy canvas at ${PNG_COPY_SCALE}× as PNG` : 'Copy as SVG (canvas embedded as image)'}
-                  aria-label={copyFormat === 'png' ? 'Copy PNG' : 'Copy SVG'}
-                  onClick={handleCopy}
-                >
-                  <Icon name="content_copy" className={iconSm} />
+        {/* When menuHidden: fixed overlay (show on hover). When menu open: in-flow, no absolute positioning. */}
+        <motion.aside
+          className={menuHidden
+            ? 'fixed left-0 top-9 z-10 flex h-[calc(100dvh-2.25rem)] w-[288px] flex-col gap-1.5 overflow-y-auto overflow-x-auto border-r border-border-subtle bg-surface px-3 py-3'
+            : 'flex w-[288px] shrink-0 flex-col gap-1.5 overflow-y-auto overflow-x-auto border-r border-border-subtle bg-surface px-3 py-3'}
+          initial={false}
+          animate={{ opacity: menuHidden ? 0 : 1 }}
+          whileHover={menuHidden ? { opacity: 1 } : undefined}
+          transition={{ duration: 0.2 }}
+          aria-label="Weaving controls"
+        >
+          <div className="flex flex-col gap-1.5">
+            <div className={`${sidebarGroup} ${sidebarGroupSticky}`}>
+              <div className={sidebarGroupTitle}>Actions</div>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <button type="button" className={btnGhost} onClick={handleReset} aria-label="Reset to defaults" title="Reset all parameters to defaults">
+                  <Icon name="refresh" className={iconMd} />
+                  <span>Reset</span>
                 </button>
-              </div>
-              <div className="inline-flex h-7 shrink-0 items-center gap-1 rounded-md border border-border-subtle bg-surface-elevated overflow-hidden">
-                <div className="flex h-full">
-                  {(supportsMP4 ? ['mp4', 'webm'] : ['webm']).map((fmt) => (
-                    <button
-                      key={fmt}
-                      type="button"
-                      className={`flex min-w-[36px] items-center justify-center px-2 ${typeControl} uppercase transition-colors border-r border-border-subtle last:border-r-0 ${recordFormat === fmt ? 'bg-accent/15 text-accent' : 'text-text-secondary hover:bg-surface-hover hover:text-text'}`}
-                      aria-pressed={recordFormat === fmt}
-                      aria-label={`Record format: ${fmt}`}
-                      onClick={() => setRecordFormat(fmt)}
-                      disabled={isRecording}
-                    >
-                      {fmt}
-                    </button>
-                  ))}
-                </div>
-                <button
-                  type="button"
-                  className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full border transition-colors ${isRecording || isProcessing ? 'border-error bg-error/15 text-error' : 'border-border-subtle bg-surface-elevated text-text-secondary hover:border-accent hover:bg-accent/10 hover:text-accent'} focus:outline-none focus:ring-1 focus:ring-accent/20`}
-                  title={isProcessing ? 'Processing…' : isRecording ? `Stop and download ${recordFormat.toUpperCase()}` : `Record canvas as ${recordFormat.toUpperCase()}`}
-                  aria-label={isProcessing ? 'Processing video' : isRecording ? 'Stop recording' : 'Start recording'}
-                  onClick={isRecording ? stopRecording : startRecording}
-                  disabled={isProcessing}
-                >
-                  <Icon name={isProcessing ? 'hourglass_empty' : isRecording ? 'stop' : 'videocam'} className={iconSm} />
+                <button type="button" className={btnGhost} onClick={handleRandomize} aria-label="Randomize all parameters" title="Randomize pattern, palette, shades, grid, gradients, shimmer, and more">
+                  <Icon name="shuffle" className={iconMd} />
+                  <span>Randomize</span>
                 </button>
-              </div>
-              {view === 'weavingHalftone' && (
-                <>
+                <SegmentedControl>
+                  <div className="flex h-full">
+                    {COPY_SCALES.map((s) => (
+                      <SegmentedControlButton
+                        key={s}
+                        active={copyScale === s}
+                        aria-pressed={copyScale === s}
+                        aria-label={`Copy resolution: ${s}×`}
+                        onClick={() => setCopyScale(s)}
+                      >
+                        {s}×
+                      </SegmentedControlButton>
+                    ))}
+                  </div>
+                  <div className="flex h-full">
+                    {['png', 'webp'].map((fmt) => (
+                      <SegmentedControlButton
+                        key={fmt}
+                        format
+                        active={copyFormat === fmt}
+                        aria-pressed={copyFormat === fmt}
+                        aria-label={`Format: ${fmt}`}
+                        onClick={() => setCopyFormat(fmt)}
+                      >
+                        {fmt}
+                      </SegmentedControlButton>
+                    ))}
+                  </div>
+                  <IconButton
+                    size="sm"
+                    title={`Copy canvas at ${copyScale}× as ${copyFormat.toUpperCase()}`}
+                    aria-label={`Copy ${copyFormat.toUpperCase()}`}
+                    onClick={handleCopy}
+                  >
+                    <Icon name="content_copy" className={iconSm} />
+                  </IconButton>
+                  {copyFeedback && (
+                    <span className={`shrink-0 text-xs ${copyFeedback === 'Copied!' ? 'text-accent' : 'text-error'}`} role="status">
+                      {copyFeedback}
+                    </span>
+                  )}
+                </SegmentedControl>
+                <SegmentedControl>
+                  <div className="flex h-full">
+                    {EXPORT_SCALES.map((s) => (
+                      <SegmentedControlButton
+                        key={s}
+                        active={exportScale === s}
+                        aria-pressed={exportScale === s}
+                        aria-label={`Export at ${s}×`}
+                        onClick={() => setExportScale(s)}
+                      >
+                        {s}×
+                      </SegmentedControlButton>
+                    ))}
+                  </div>
+                  <IconButton
+                    size="sm"
+                    title={`Export PNG at ${exportScale}× (download)`}
+                    aria-label="Export PNG"
+                    onClick={handleExport}
+                  >
+                    <Icon name="file_download" className={iconSm} />
+                  </IconButton>
+                  {exportFeedback && (
+                    <span className={`shrink-0 text-xs ${exportFeedback === 'Exported!' ? 'text-accent' : 'text-error'}`} role="status">
+                      {exportFeedback}
+                    </span>
+                  )}
+                </SegmentedControl>
+                <SegmentedControl>
+                  <div className="flex h-full">
+                    {(supportsMP4 ? ['mp4', 'webm'] : ['webm']).map((fmt) => (
+                      <SegmentedControlButton
+                        key={fmt}
+                        format
+                        active={recordFormat === fmt}
+                        aria-pressed={recordFormat === fmt}
+                        aria-label={`Record format: ${fmt}`}
+                        onClick={() => setRecordFormat(fmt)}
+                        disabled={isRecording}
+                      >
+                        {fmt}
+                      </SegmentedControlButton>
+                    ))}
+                  </div>
+                  <IconButton
+                    size="sm"
+                    variant={isRecording || isProcessing ? 'danger' : 'default'}
+                    title={isProcessing ? 'Processing…' : isRecording ? `Stop and download ${recordFormat.toUpperCase()}` : `Record canvas as ${recordFormat.toUpperCase()}`}
+                    aria-label={isProcessing ? 'Processing video' : isRecording ? 'Stop recording' : 'Start recording'}
+                    onClick={isRecording ? stopRecording : startRecording}
+                    disabled={isProcessing}
+                  >
+                    <Icon name={isProcessing ? 'hourglass_empty' : isRecording ? 'stop' : 'videocam'} className={iconSm} />
+                  </IconButton>
+                </SegmentedControl>
+                {view === 'weavingHalftone' && (
+                  <>
+                    <label className={`${btnGhost} cursor-pointer`}>
+                      <Icon name="upload_file" className={iconMd} />
+                      <span>Image from desktop</span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="sr-only"
+                        onChange={handleHalftoneCustomImageFile}
+                        aria-label="Pick an image from your computer"
+                      />
+                    </label>
+                    {halftoneCustomImageUrl && (
+                      <button
+                        type="button"
+                        className={btnGhost}
+                        onClick={() => {
+                          if (halftoneCustomImageUrl) URL.revokeObjectURL(halftoneCustomImageUrl);
+                          setHalftoneCustomImageUrl('');
+                        }}
+                        aria-label="Use weaving as source"
+                      >
+                        <Icon name="refresh" className={iconMd} />
+                        <span>Use weaving</span>
+                      </button>
+                    )}
+                  </>
+                )}
+                {view === 'imageRectsHalftone' && (
                   <label className={`${btnGhost} cursor-pointer`}>
                     <Icon name="upload_file" className={iconMd} />
                     <span>Image from desktop</span>
@@ -756,807 +1010,792 @@ export default function App() {
                       type="file"
                       accept="image/*"
                       className="sr-only"
-                      onChange={handleHalftoneCustomImageFile}
-                      aria-label="Pick an image from your computer"
+                      onChange={handleComboImageFile}
+                      aria-label="Pick an image from your computer for Image Rects + Halftone"
                     />
                   </label>
-                  {halftoneCustomImageUrl && (
+                )}
+              </div>
+            </div>
+            {view === 'imageRectsHalftone' && (
+              <>
+                <div className={sidebarGroup}>
+                  <div className={sidebarGroupTitle}>Image Rects</div>
+                  {(!comboImageSource || comboImageSource.startsWith('blob:')) && (
+                    <span className={typeCaption}>{comboImageSource ? 'Using your image' : 'Pick “Image from desktop” in Actions'}</span>
+                  )}
+                  <div className="flex flex-col gap-1.5">
+                    <Label.Root className={typeLabel} htmlFor="combo-grid">Grid</Label.Root>
+                    <SliderWithInput id="combo-grid" value={comboGridSize} onValueChange={setComboGridSize} min={8} max={64} step={1} snapValues={GRID_SNAPS} snapPointCount={GRID_SNAPS.length} aria-label="Grid size" />
+                    <div className="flex items-center gap-2">
+                      <span className={typeLabel}>Palette</span>
+                      {PALETTE_SWATCH_COLORS.map((c, i) => (
+                        <button key={i} type="button" className={`${paletteSwatchSm} ${comboPalette === i ? 'border-accent' : 'border-border-subtle'}`} style={{ backgroundColor: c }} onClick={() => setComboPalette(i)} aria-label={PALETTE_NAMES[i]} />
+                      ))}
+                    </div>
+                    <Label.Root className={typeLabel} htmlFor="combo-pattern">Weave</Label.Root>
+                    <Select.Root value={String(comboPatternIndex)} onValueChange={(v) => setComboPatternIndex(Number(v))}>
+                      <Select.Trigger id="combo-pattern" className={selectTrigger} aria-label="Weave pattern">
+                        <Select.Value placeholder="Pattern" />
+                        <Icon name="expand_more" className={`${iconLg} opacity-60`} />
+                      </Select.Trigger>
+                      <Select.Portal>
+                        <Select.Content className={selectContent} position="popper" sideOffset={4}>
+                          <Select.Viewport>
+                            {PATTERNS.map((p, i) => (
+                              <Select.Item key={i} className={selectItem} value={String(i)}>
+                                <Select.ItemText>{PATTERNS[i]?.name ?? `Pattern ${i}`}</Select.ItemText>
+                                <Select.ItemIndicator className="absolute right-2 inline-flex" />
+                              </Select.Item>
+                            ))}
+                          </Select.Viewport>
+                        </Select.Content>
+                      </Select.Portal>
+                    </Select.Root>
+                    <Label.Root className={typeLabel} htmlFor="combo-radius">Radius</Label.Root>
+                    <SliderWithInput id="combo-radius" value={comboRectRadius} onValueChange={setComboRectRadius} min={0} max={0.5} step={0.01} format={(n) => n.toFixed(2)} aria-label="Rect radius" />
+                    <Label.Root className={typeLabel} htmlFor="combo-aspect">Aspect</Label.Root>
+                    <SliderWithInput id="combo-aspect" value={comboRectAspect} onValueChange={setComboRectAspect} min={0.3} max={1.5} step={0.01} format={(n) => n.toFixed(2)} aria-label="Rect aspect" />
+                    <Label.Root className={typeLabel} htmlFor="combo-ratio">Ratio</Label.Root>
+                    <SliderWithInput id="combo-ratio" value={comboRectRatio} onValueChange={setComboRectRatio} min={0.2} max={1} step={0.01} format={(n) => n.toFixed(2)} aria-label="Rect ratio" />
+                    <div className="flex items-center gap-1">
+                      <span className={typeLabel}>Mode</span>
+                      <button type="button" className={`flex-1 rounded border px-2 py-1 text-[10px] ${comboColorizeMode ? toggleBtnActive : 'border-border-subtle'}`} onClick={() => setComboColorizeMode(true)}>Color</button>
+                      <button type="button" className={`flex-1 rounded border px-2 py-1 text-[10px] ${!comboColorizeMode ? toggleBtnActive : 'border-border-subtle'}`} onClick={() => setComboColorizeMode(false)}>Brand</button>
+                    </div>
+                    <Label.Root className={typeLabel} htmlFor="combo-quantize">Quantize</Label.Root>
+                    <SliderWithInput id="combo-quantize" value={comboQuantizeSteps} onValueChange={setComboQuantizeSteps} min={0} max={32} step={1} aria-label="Quantize steps" />
+                    <Label.Root className={typeLabel} htmlFor="combo-shade">Shade from</Label.Root>
+                    <Select.Root value={String(comboShadeFrom)} onValueChange={(v) => setComboShadeFrom(Number(v))}>
+                      <Select.Trigger id="combo-shade" className={selectTrigger} aria-label="Shade from">
+                        <Select.Value />
+                        <Icon name="expand_more" className={`${iconLg} opacity-60`} />
+                      </Select.Trigger>
+                      <Select.Portal>
+                        <Select.Content className={selectContent} position="popper" sideOffset={4}>
+                          <Select.Viewport>
+                            {[{ value: 0, label: 'Color' }, { value: 1, label: 'Warp' }, { value: 2, label: 'Weft' }, { value: 3, label: 'Warp+Weft' }].map((opt) => (
+                              <Select.Item key={opt.value} className={selectItem} value={String(opt.value)}>
+                                <Select.ItemText>{opt.label}</Select.ItemText>
+                                <Select.ItemIndicator className="absolute right-2 inline-flex" />
+                              </Select.Item>
+                            ))}
+                          </Select.Viewport>
+                        </Select.Content>
+                      </Select.Portal>
+                    </Select.Root>
+                    <Label.Root className={typeLabel} htmlFor="combo-bg">BG shade</Label.Root>
+                    <Select.Root value={String(comboBgShade)} onValueChange={(v) => setComboBgShade(Number(v))}>
+                      <Select.Trigger id="combo-bg" className={selectTrigger} aria-label="Background shade">
+                        <Select.Value />
+                        <Icon name="expand_more" className={`${iconLg} opacity-60`} />
+                      </Select.Trigger>
+                      <Select.Portal>
+                        <Select.Content className={selectContent} position="popper" sideOffset={4}>
+                          <Select.Viewport>
+                            {SHADE_NAMES.map((name, i) => (
+                              <Select.Item key={i} className={selectItem} value={String(i)}>
+                                <Select.ItemText>{name}</Select.ItemText>
+                                <Select.ItemIndicator className="absolute right-2 inline-flex" />
+                              </Select.Item>
+                            ))}
+                          </Select.Viewport>
+                        </Select.Content>
+                      </Select.Portal>
+                    </Select.Root>
+                  </div>
+                </div>
+              </>
+            )}
+            {view !== 'imageRectsHalftone' && (
+              <>
+                <div className={sidebarGroup}>
+                  <div className={sidebarGroupTitle}>Preset & colorway</div>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <GroupIcon name="tune" title="Preset" />
+                    <Label.Root className="sr-only" htmlFor="preset-select">Preset (weave, colorway, shades, gradient)</Label.Root>
+                    <Select.Root
+                      value={presetIndex != null ? String(presetIndex) : 'custom'}
+                      onValueChange={(v) => (v === 'custom' ? setPresetIndex(null) : applyPreset(Number(v)))}
+                    >
+                      <Select.Trigger id="preset-select" className={selectTrigger} title="Preset (weave + colorway + shades + grad)" aria-label="Preset (weave, colorway, shades, gradient)">
+                        <Select.Value placeholder="Preset…" />
+                        <Icon name="expand_more" className={`${iconLg} opacity-60`} />
+                      </Select.Trigger>
+                      <Select.Portal>
+                        <Select.Content className={selectContent} position="popper" sideOffset={4}>
+                          <Select.Viewport>
+                            {presetOptions.map((opt) => (
+                              <Select.Item key={opt.value} className={selectItem} value={opt.value}>
+                                <Select.ItemText>{opt.label}</Select.ItemText>
+                                <Select.ItemIndicator className="absolute right-2 inline-flex items-center" />
+                              </Select.Item>
+                            ))}
+                          </Select.Viewport>
+                        </Select.Content>
+                      </Select.Portal>
+                    </Select.Root>
+                    <div className="flex items-center gap-1" role="group" aria-label="Colorway palette">
+                      {PALETTE_SWATCH_COLORS.map((color, i) => (
+                        <button
+                          key={i}
+                          type="button"
+                          className={`${paletteSwatch} ${palette === i ? paletteSwatchSelected : paletteSwatchUnselected}`}
+                          style={{
+                            backgroundColor: color,
+                            borderColor: palette === i ? 'var(--color-accent)' : 'var(--color-border-subtle)',
+                          }}
+                          title={PALETTE_NAMES[i]}
+                          aria-label={`Colorway: ${PALETTE_NAMES[i]}`}
+                          aria-pressed={palette === i}
+                          onClick={() => { setPalette(i); setPresetIndex(null); }}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                </div>
+                <div className={sidebarGroup}>
+                  <div className={sidebarGroupTitle}>Weave</div>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className={`${controlLabel} ${typeLabel}`} title="Weave pattern">Weave</span>
+                    <AppSelect id="weave-pattern" labelText="Weave pattern" value={pattern} onValueChange={(v) => { setPattern(Number(v)); setPresetIndex(null); }} options={patternOptions} title="Weave pattern" placeholder="Weave" />
+                  </div>
+                </div>
+                <div className={sidebarGroup}>
+                  <div className={sidebarGroupTitle}>Shades</div>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <GroupIcon name="palette" title="Shades" locked={shadesLocked} onLockChange={setShadesLocked} />
+                    <AppSelect id="bg-shade" labelText="Background shade" value={bgShade} onValueChange={(v) => { setBgShade(Number(v)); setPresetIndex(null); }} options={shadeOptions('BG')} title="Background shade" placeholder="BG" />
+                    <AppSelect
+                      id="warp-shade"
+                      labelText="Warp shade"
+                      value={warpShade}
+                      onValueChange={(v) => {
+                        const shade = Number(v);
+                        setWarpShade(shade);
+                        setPresetIndex(null);
+                        setWarpGradient((g) => ({ ...g, startShade: shade, endShade: shade }));
+                      }}
+                      options={shadeOptions('Warp')}
+                      title="Warp shade"
+                      placeholder="Warp"
+                    />
+                    <AppSelect
+                      id="weft-shade"
+                      labelText="Weft shade"
+                      value={weftShade}
+                      onValueChange={(v) => {
+                        const shade = Number(v);
+                        setWeftShade(shade);
+                        setPresetIndex(null);
+                        setWeftGradient((g) => ({ ...g, startShade: shade, endShade: shade }));
+                      }}
+                      options={shadeOptions('Weft')}
+                      title="Weft shade"
+                      placeholder="Weft"
+                    />
+                  </div>
+                </div>
+                <div className={sidebarGroup}>
+                  <div className={sidebarGroupTitle}>Warp gradient</div>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <GroupIcon name="gradient" title="Warp gradient range" />
+                    <Label.Root className="sr-only" htmlFor="warp-range">Warp gradient range</Label.Root>
+                    <SliderWithInput
+                      id="warp-range"
+                      value={warpGradient.range}
+                      onValueChange={([a, b]) => {
+                        setPresetIndex(null);
+                        const snap = gradSteps >= 2;
+                        setWarpGradient((g) => ({
+                          ...g,
+                          range: snap ? [snapGradRangeValue(a, gradSteps), snapGradRangeValue(b, gradSteps)] : [a, b],
+                        }));
+                      }}
+                      min={0}
+                      max={100}
+                      step={gradSteps >= 2 ? 100 / gradSteps : 5}
+                      snapPointCount={gradSteps >= 2 ? gradSteps + 1 : 5}
+                      aria-label="Warp gradient range"
+                    />
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <GroupIcon name="gradient" title="Warp gradient" />
+                    <AppSelect id="warp-start-shade" labelText="Warp gradient start shade" value={warpGradient.startShade} onValueChange={(s) => { setPresetIndex(null); setWarpGradient((g) => ({ ...g, startShade: Number(s) })); }} options={shadeOptions()} title="Warp start" placeholder="Start" />
+                    <AppSelect id="warp-end-shade" labelText="Warp gradient end shade" value={warpGradient.endShade} onValueChange={(s) => { setPresetIndex(null); setWarpGradient((g) => ({ ...g, endShade: Number(s) })); }} options={shadeOptions()} title="Warp end" placeholder="End" />
+                    <DirectionSwitch value={warpGradient.direction} onValueChange={(d) => { setPresetIndex(null); setWarpGradient((g) => ({ ...g, direction: d })); }} options={directionOptions} title="Warp direction" ariaLabel="Warp gradient direction" />
+                  </div>
+                </div>
+                <div className={sidebarGroup}>
+                  <div className={sidebarGroupTitle}>Weft gradient</div>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <GroupIcon name="gradient" title="Weft gradient range" />
+                    <Label.Root className="sr-only" htmlFor="weft-range">Weft gradient range</Label.Root>
+                    <SliderWithInput
+                      id="weft-range"
+                      value={weftGradient.range}
+                      onValueChange={([a, b]) => {
+                        setPresetIndex(null);
+                        const snap = gradSteps >= 2;
+                        setWeftGradient((g) => ({
+                          ...g,
+                          range: snap ? [snapGradRangeValue(a, gradSteps), snapGradRangeValue(b, gradSteps)] : [a, b],
+                        }));
+                      }}
+                      min={0}
+                      max={100}
+                      step={gradSteps >= 2 ? 100 / gradSteps : 5}
+                      snapPointCount={gradSteps >= 2 ? gradSteps + 1 : 5}
+                      aria-label="Weft gradient range"
+                    />
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <GroupIcon name="gradient" title="Weft gradient" />
+                    <AppSelect id="weft-start-shade" labelText="Weft gradient start shade" value={weftGradient.startShade} onValueChange={(s) => { setPresetIndex(null); setWeftGradient((g) => ({ ...g, startShade: Number(s) })); }} options={shadeOptions()} title="Weft start" placeholder="Start" />
+                    <AppSelect id="weft-end-shade" labelText="Weft gradient end shade" value={weftGradient.endShade} onValueChange={(s) => { setPresetIndex(null); setWeftGradient((g) => ({ ...g, endShade: Number(s) })); }} options={shadeOptions()} title="Weft end" placeholder="End" />
+                    <DirectionSwitch value={weftGradient.direction} onValueChange={(d) => { setPresetIndex(null); setWeftGradient((g) => ({ ...g, direction: d })); }} options={directionOptionsWeft} title="Weft direction" ariaLabel="Weft gradient direction" />
+                  </div>
+                </div>
+                <div className={sidebarGroup}>
+                  <div className={sidebarGroupTitle}>Grid & layout</div>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <GroupIcon name="grid_on" title="Resolution" />
+                    <Label.Root className="sr-only" htmlFor="grid-slider">Tile size</Label.Root>
+                    <SliderWithInput
+                      id="grid-slider"
+                      value={gridSize}
+                      onValueChange={setGridSize}
+                      min={8}
+                      max={64}
+                      step={1}
+                      snapValues={GRID_SNAPS}
+                      snapPointCount={GRID_SNAPS.length}
+                      aria-label="Tile size (grid cells)"
+                    />
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <GroupIcon name="timeline" title="Quantization" />
+                    <Label.Root className="sr-only" htmlFor="grad-steps-slider">Gradation steps</Label.Root>
+                    <SliderWithInput
+                      id="grad-steps-slider"
+                      value={gradSteps}
+                      onValueChange={setGradSteps}
+                      min={0}
+                      max={16}
+                      step={1}
+                      snapPointCount={17}
+                      format={(n) => (n === 0 ? 'Smooth' : String(n))}
+                      parse={(s) => { if (s === 'Smooth' || s === '') return 0; const n = Number(s); return Number.isFinite(n) ? n : null; }}
+                      aria-label="Gradation steps (0 = smooth)"
+                    />
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <GroupIcon name="aspect_ratio" title="Rect ratio (36×40 = 0.9)" locked={!randomizeRectAspect} onLockChange={() => setRandomizeRectAspect((v) => !v)} />
+                    <Label.Root className="sr-only" htmlFor="rect-aspect-slider">Rect aspect ratio (36×40 spec = 0.9)</Label.Root>
+                    <SliderWithInput
+                      id="rect-aspect-slider"
+                      value={rectAspect ?? RECT_ASPECT_DEFAULT}
+                      onValueChange={setRectAspect}
+                      min={0.5}
+                      max={1}
+                      step={0.05}
+                      snapPointCount={11}
+                      format={(n) => n.toFixed(2)}
+                      aria-label="Rect aspect (36×40 = 0.9)"
+                    />
+                    <IconButton size="md" onClick={() => setRectAspect(RECT_ASPECT_DEFAULT)} title="Reset rect aspect to 0.9 (36×40)" aria-label="Reset rect aspect to default">
+                      <Icon name="restart_alt" className={iconSm} />
+                    </IconButton>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <GroupIcon name="crop" title="Canvas aspect" />
+                    <Label.Root className="sr-only" htmlFor="canvas-aspect-slider">Canvas aspect ratio</Label.Root>
+                    <SliderWithInput
+                      id="canvas-aspect-slider"
+                      value={canvasAspect}
+                      onValueChange={setCanvasAspect}
+                      min={0.5}
+                      max={2}
+                      step={0.05}
+                      snapPointCount={16}
+                      format={(n) => n.toFixed(2)}
+                      aria-label="Canvas aspect ratio"
+                    />
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <GroupIcon name="fit_screen" title="Display" />
+                    <Label.Root className="sr-only" htmlFor="pattern-fit-select">Pattern display</Label.Root>
+                    <Select.Root value={patternFit} onValueChange={setPatternFit}>
+                      <Select.Trigger id="pattern-fit-select" className={selectTrigger} aria-label="Fill or fit pattern on screen">
+                        <Select.Value placeholder="Fit" />
+                      </Select.Trigger>
+                      <Select.Portal>
+                        <Select.Content className={selectContent}>
+                          <Select.Item className={selectItem} value="fit">Fit</Select.Item>
+                          <Select.Item className={selectItem} value="fill">Fill</Select.Item>
+                        </Select.Content>
+                      </Select.Portal>
+                    </Select.Root>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <GroupIcon name="rounded_corner" title="Radius" locked={!randomizeCornerRadius} onLockChange={() => setRandomizeCornerRadius((v) => !v)} />
+                    <Label.Root className="sr-only" htmlFor="radius-slider">Corner radius</Label.Root>
+                    <SliderWithInput
+                      id="radius-slider"
+                      value={cornerRadius}
+                      onValueChange={setCornerRadius}
+                      min={0}
+                      max={0.5}
+                      step={0.01}
+                      snapPointCount={11}
+                      format={(n) => n.toFixed(2)}
+                      aria-label="Corner radius"
+                    />
+                    <IconButton size="md" onClick={() => setCornerRadius(0.18)} title="Reset corner radius to 0.18" aria-label="Reset corner radius to default">
+                      <Icon name="restart_alt" className={iconSm} />
+                    </IconButton>
+                  </div>
+                </div>
+                <div className={sidebarGroup}>
+                  <div className={sidebarGroupTitle}>Shimmer</div>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <GroupIcon name="auto_awesome" title="Shimmer" />
                     <button
                       type="button"
-                      className={btnGhost}
-                      onClick={() => {
-                        if (halftoneCustomImageUrl) URL.revokeObjectURL(halftoneCustomImageUrl);
-                        setHalftoneCustomImageUrl('');
-                      }}
-                      aria-label="Use weaving as source"
+                      className={`${toggleBtn} ${shimmer ? toggleBtnActive : ''}`}
+                      aria-pressed={shimmer}
+                      aria-label="Toggle shimmer effect"
+                      onClick={() => setShimmer((s) => !s)}
                     >
-                      <Icon name="refresh" className={iconMd} />
-                      <span>Use weaving</span>
+                      Shimmer
                     </button>
-                  )}
-                </>
-              )}
-              {view === 'imageRectsHalftone' && (
-                <label className={`${btnGhost} cursor-pointer`}>
-                  <Icon name="upload_file" className={iconMd} />
-                  <span>Image from desktop</span>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    className="sr-only"
-                    onChange={handleComboImageFile}
-                    aria-label="Pick an image from your computer for Image Rects + Halftone"
-                  />
-                </label>
-              )}
-            </div>
-          </div>
-          {view === 'imageRectsHalftone' && (
-            <>
-              <div className={sidebarGroup}>
-                <div className={sidebarGroupTitle}>Image Rects</div>
-                {(!comboImageSource || comboImageSource.startsWith('blob:')) && (
-                  <span className={typeCaption}>{comboImageSource ? 'Using your image' : 'Pick “Image from desktop” in Actions'}</span>
-                )}
-                <div className="flex flex-col gap-1.5">
-                  <Label.Root className={typeLabel} htmlFor="combo-grid">Grid</Label.Root>
-                  <SliderWithInput id="combo-grid" value={comboGridSize} onValueChange={setComboGridSize} min={8} max={64} step={1} snapValues={GRID_SNAPS} snapPointCount={GRID_SNAPS.length} aria-label="Grid size" />
-                  <div className="flex items-center gap-2">
-                    <span className={typeLabel}>Palette</span>
-                    {PALETTE_SWATCH_COLORS.map((c, i) => (
-                      <button key={i} type="button" className={`h-6 w-6 rounded border-2 ${comboPalette === i ? 'border-accent' : 'border-border-subtle'}`} style={{ backgroundColor: c }} onClick={() => setComboPalette(i)} aria-label={PALETTE_NAMES[i]} />
+                    {shimmer && (
+                      <>
+                        <button
+                          type="button"
+                          className={`${toggleBtnIcon} ${shimmerPlaying ? toggleBtnActive : ''}`}
+                          aria-label={shimmerPlaying ? 'Pause shimmer animation' : 'Play shimmer animation'}
+                          aria-pressed={shimmerPlaying}
+                          onClick={() => {
+                            if (shimmerPlaying) setShimmerPausedAtTime(shimmerTimeRef.current);
+                            setShimmerPlaying((p) => !p);
+                          }}
+                        >
+                          <Icon name={shimmerPlaying ? 'pause' : 'play_arrow'} className={iconSm} />
+                        </button>
+                        <AppSelect
+                          id="shimmer-blend"
+                          labelText="Shimmer blend mode"
+                          value={shimmerBlendMode}
+                          onValueChange={(v) => setShimmerBlendMode(Number(v))}
+                          options={[
+                            { value: 0, label: 'Add' },
+                            { value: 1, label: 'Multiply' },
+                            { value: 2, label: 'Screen' },
+                            { value: 3, label: 'Overlay' },
+                            { value: 4, label: 'Soft Light' },
+                            { value: 5, label: 'Hard Light' },
+                            { value: 6, label: 'Color Dodge' },
+                            { value: 7, label: 'Color Burn' },
+                            { value: 8, label: 'Linear Burn' },
+                            { value: 9, label: 'Difference' },
+                            { value: 10, label: 'Exclusion' },
+                          ]}
+                          title="Shimmer blend mode"
+                          placeholder="Blend"
+                        />
+                        <Label.Root className="sr-only" htmlFor="shimmer-speed">Shimmer speed (cells/s)</Label.Root>
+                        <SliderWithInput
+                          id="shimmer-speed"
+                          value={shimmerSpeed}
+                          onValueChange={setShimmerSpeed}
+                          min={1}
+                          max={16}
+                          step={1}
+                          snapPointCount={16}
+                          aria-label="Shimmer speed (cells/s)"
+                        />
+                        <span className={`${controlLabel} ${typeCaption} tabular-nums`} title="Cells per second">Cells/s</span>
+                        <Label.Root className="sr-only" htmlFor="shimmer-width">Shimmer width</Label.Root>
+                        <SliderWithInput
+                          id="shimmer-width"
+                          value={shimmerWidth}
+                          onValueChange={setShimmerWidth}
+                          min={0.25}
+                          max={24}
+                          step={0.25}
+                          format={(n) => n.toFixed(2)}
+                          aria-label="Shimmer width"
+                        />
+                        <Label.Root className="sr-only" htmlFor="shimmer-intensity">Shimmer intensity</Label.Root>
+                        <SliderWithInput
+                          id="shimmer-intensity"
+                          value={shimmerIntensity}
+                          onValueChange={setShimmerIntensity}
+                          min={0}
+                          max={1}
+                          step={0.05}
+                          snapPointCount={11}
+                          format={(n) => n.toFixed(2)}
+                          aria-label="Shimmer intensity"
+                        />
+                        <span className={`${controlLabel} ${typeCaption}`}>Intensity</span>
+                        <Label.Root className="sr-only" htmlFor="shimmer-position">Shimmer position (band phase 0–1)</Label.Root>
+                        <SliderWithInput
+                          id="shimmer-position"
+                          value={shimmerPhase}
+                          onValueChange={setShimmerPhase}
+                          min={0}
+                          max={1}
+                          step={0.01}
+                          format={(n) => n.toFixed(2)}
+                          aria-label="Shimmer position (updates as animates)"
+                        />
+                        <span className={`${controlLabel} ${typeCaption}`}>Position</span>
+                        <Label.Root className="sr-only" htmlFor="shimmer-rotation">Shimmer rotation</Label.Root>
+                        <SliderWithInput
+                          id="shimmer-rotation"
+                          value={shimmerRotation}
+                          onValueChange={setShimmerRotation}
+                          min={0}
+                          max={1}
+                          step={0.01}
+                          format={(n) => n.toFixed(2)}
+                          aria-label="Shimmer rotation"
+                        />
+                        <span className={`${controlLabel} ${typeCaption}`}>Rotation</span>
+                        <Label.Root className="sr-only" htmlFor="shimmer-noise">Shimmer noise amount</Label.Root>
+                        <SliderWithInput
+                          id="shimmer-noise"
+                          value={shimmerNoise}
+                          onValueChange={setShimmerNoise}
+                          min={0}
+                          max={1}
+                          step={0.05}
+                          snapPointCount={11}
+                          format={(n) => n.toFixed(2)}
+                          aria-label="Shimmer noise amount"
+                        />
+                        <span className={`${controlLabel} ${typeCaption}`}>Noise</span>
+                        <Label.Root className="sr-only" htmlFor="shimmer-noise-seed">Shimmer noise seed</Label.Root>
+                        <SliderWithInput
+                          id="shimmer-noise-seed"
+                          value={shimmerNoiseSeed}
+                          onValueChange={setShimmerNoiseSeed}
+                          min={0}
+                          max={1}
+                          step={0.01}
+                          format={(n) => n.toFixed(2)}
+                          aria-label="Shimmer noise seed (pattern variation)"
+                        />
+                        <span className={`${controlLabel} ${typeCaption}`}>Noise seed</span>
+                        <Label.Root className="sr-only" htmlFor="shimmer-noise-min">Shimmer noise min</Label.Root>
+                        <SliderWithInput
+                          id="shimmer-noise-min"
+                          value={shimmerNoiseMin}
+                          onValueChange={setShimmerNoiseMin}
+                          min={0}
+                          max={2}
+                          step={0.1}
+                          format={(n) => n.toFixed(1)}
+                          aria-label="Shimmer noise factor min (0–2)"
+                        />
+                        <span className={`${controlLabel} ${typeCaption}`}>Noise min</span>
+                        <Label.Root className="sr-only" htmlFor="shimmer-noise-max">Shimmer noise max</Label.Root>
+                        <SliderWithInput
+                          id="shimmer-noise-max"
+                          value={shimmerNoiseMax}
+                          onValueChange={setShimmerNoiseMax}
+                          min={0}
+                          max={2}
+                          step={0.1}
+                          format={(n) => n.toFixed(1)}
+                          aria-label="Shimmer noise factor max (0–2)"
+                        />
+                        <span className={`${controlLabel} ${typeCaption}`}>Noise max</span>
+                      </>
+                    )}
+                  </div>
+                </div>
+                <div className={sidebarGroup}>
+                  <div className={sidebarGroupTitle}>Colorways</div>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <GroupIcon name="palette" title="All colorways" />
+                    <button
+                      type="button"
+                      className={`${toggleBtn} ${useAllColorways ? toggleBtnActive : ''}`}
+                      aria-pressed={useAllColorways}
+                      aria-label="Use all 4 colorways (randomized per cell)"
+                      onClick={() => setUseAllColorways((u) => !u)}
+                    >
+                      Use all 4 colorways
+                    </button>
+                    {useAllColorways && (
+                      <>
+                        <div className="flex flex-col gap-1.5 w-full">
+                          <Label.Root className={typeLabel} htmlFor="colorway-noise-scale">Noise scale</Label.Root>
+                          <SliderWithInput
+                            id="colorway-noise-scale"
+                            value={colorwayNoiseScale}
+                            onValueChange={setColorwayNoiseScale}
+                            min={0.25}
+                            max={3}
+                            step={0.05}
+                            format={(n) => n.toFixed(2)}
+                            aria-label="Colorway noise scale (spatial variation)"
+                          />
+                        </div>
+                        <Label.Root className="sr-only" htmlFor="colorway-seed">Colorway seed</Label.Root>
+                        <SliderWithInput
+                          id="colorway-seed"
+                          value={colorwaySeed}
+                          onValueChange={setColorwaySeed}
+                          min={0}
+                          max={100}
+                          step={0.1}
+                          format={(n) => (n === 0 || n >= 99.9 ? n.toFixed(0) : n.toFixed(1))}
+                          aria-label="Colorway seed"
+                        />
+                        <span className={`shrink-0 min-w-16 ${typeValue}`} aria-hidden>Seed: {typeof colorwaySeed === 'number' && Number.isInteger(colorwaySeed) ? colorwaySeed : colorwaySeed.toFixed(1)}</span>
+                        <button
+                          type="button"
+                          className={`${toggleBtnIcon} ${colorwaySeedPlaying ? toggleBtnActive : ''}`}
+                          aria-label={colorwaySeedPlaying ? 'Pause colorway seed animation' : 'Play colorway seed animation (0→100 in 20m, loop)'}
+                          aria-pressed={colorwaySeedPlaying}
+                          onClick={() => setColorwaySeedPlaying((p) => !p)}
+                        >
+                          <Icon name={colorwaySeedPlaying ? 'pause' : 'play_arrow'} className={iconSm} />
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </>
+            )}
+            {(view === 'weavingHalftone' || view === 'imageRectsHalftone') && (
+              <>
+                <div className={sidebarGroup}>
+                  <div className={`${sidebarGroupTitle} inline-flex items-center gap-1`}><Icon name="lens_blur" className={iconXs} /> preset</div>
+                  <Select.Root value={String(halftonePresetIndex)} onValueChange={(v) => applyHalftonePreset(Number(v))}>
+                    <Select.Trigger className={selectTrigger} aria-label="Halftone preset">
+                      <Select.Value placeholder="Preset" />
+                      <Icon name="expand_more" className={`${iconLg} opacity-60`} />
+                    </Select.Trigger>
+                    <Select.Portal>
+                      <Select.Content className={selectContent} position="popper" sideOffset={4}>
+                        <Select.Viewport>
+                          {halftoneCmykPresets.map((p, i) => (
+                            <Select.Item key={i} className={selectItem} value={String(i)}>
+                              <Select.ItemText>{p.name}</Select.ItemText>
+                              <Select.ItemIndicator className="absolute right-2 inline-flex" />
+                            </Select.Item>
+                          ))}
+                        </Select.Viewport>
+                      </Select.Content>
+                    </Select.Portal>
+                  </Select.Root>
+                </div>
+                <div className={sidebarGroup}>
+                  <div className={`${sidebarGroupTitle} inline-flex items-center gap-1`}><Icon name="lens_blur" className={iconXs} /> dot & grid</div>
+                  <div className="flex flex-col gap-1">
+                    <Label.Root className={typeLabel} htmlFor="v3-halftone-size">Size</Label.Root>
+                    <SliderWithInput id="v3-halftone-size" aria-label="Grid size" value={halftoneSize} onValueChange={setHalftoneSize} min={0.01} max={1} step={0.01} format={(n) => n.toFixed(2)} />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <Label.Root className={typeLabel} htmlFor="v3-halftone-softness">Softness</Label.Root>
+                    <SliderWithInput id="v3-halftone-softness" aria-label="Dot softness" value={halftoneSoftness} onValueChange={setHalftoneSoftness} min={0} max={1} step={0.05} format={(n) => n.toFixed(2)} />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <Label.Root className={typeLabel} htmlFor="v3-halftone-gridnoise">Grid noise</Label.Root>
+                    <SliderWithInput id="v3-halftone-gridnoise" aria-label="Grid noise" value={halftoneGridNoise} onValueChange={setHalftoneGridNoise} min={0} max={1} step={0.05} format={(n) => n.toFixed(2)} />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <Label.Root className={typeLabel}>Type</Label.Root>
+                    <Select.Root value={halftoneType} onValueChange={setHalftoneType}>
+                      <Select.Trigger className={selectTrigger} aria-label="Dot type">
+                        <Select.Value />
+                        <Icon name="expand_more" className={`${iconLg} opacity-60`} />
+                      </Select.Trigger>
+                      <Select.Portal>
+                        <Select.Content className={selectContent} position="popper" sideOffset={4}>
+                          <Select.Viewport>
+                            {[{ value: 'dots', label: 'Dots' }, { value: 'ink', label: 'Ink' }, { value: 'sharp', label: 'Sharp' }].map((opt) => (
+                              <Select.Item key={opt.value} className={selectItem} value={opt.value}>
+                                <Select.ItemText>{opt.label}</Select.ItemText>
+                                <Select.ItemIndicator className="absolute right-2 inline-flex" />
+                              </Select.Item>
+                            ))}
+                          </Select.Viewport>
+                        </Select.Content>
+                      </Select.Portal>
+                    </Select.Root>
+                  </div>
+                </div>
+                <div className={sidebarGroup}>
+                  <div className={`${sidebarGroupTitle} inline-flex items-center gap-1`}><Icon name="lens_blur" className={iconXs} /> tone</div>
+                  <div className="flex flex-col gap-1">
+                    <Label.Root className={typeLabel} htmlFor="v3-halftone-contrast">Contrast</Label.Root>
+                    <SliderWithInput id="v3-halftone-contrast" aria-label="Contrast" value={halftoneContrast} onValueChange={setHalftoneContrast} min={0} max={2} step={0.05} format={(n) => n.toFixed(2)} />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <Label.Root className={typeLabel} htmlFor="v3-halftone-floodc">Flood C</Label.Root>
+                    <SliderWithInput id="v3-halftone-floodc" aria-label="Cyan flood" value={halftoneFloodC} onValueChange={setHalftoneFloodC} min={0} max={1} step={0.05} format={(n) => n.toFixed(2)} />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <Label.Root className={typeLabel} htmlFor="v3-halftone-gainc">Gain C</Label.Root>
+                    <SliderWithInput id="v3-halftone-gainc" aria-label="Cyan gain" value={halftoneGainC} onValueChange={setHalftoneGainC} min={-1} max={1} step={0.05} format={(n) => n.toFixed(2)} />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <Label.Root className={typeLabel} htmlFor="v3-halftone-gainy">Gain Y</Label.Root>
+                    <SliderWithInput id="v3-halftone-gainy" aria-label="Yellow gain" value={halftoneGainY} onValueChange={setHalftoneGainY} min={-1} max={1} step={0.05} format={(n) => n.toFixed(2)} />
+                  </div>
+                </div>
+                <div className={sidebarGroup}>
+                  <div className={`${sidebarGroupTitle} inline-flex items-center gap-1`}><Icon name="lens_blur" className={iconXs} /> ink colors</div>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {[
+                      { label: 'Back', value: halftoneColorBack, set: setHalftoneColorBack },
+                      { label: 'C', value: halftoneColorC, set: setHalftoneColorC },
+                      { label: 'M', value: halftoneColorM, set: setHalftoneColorM },
+                      { label: 'Y', value: halftoneColorY, set: setHalftoneColorY },
+                      { label: 'K', value: halftoneColorK, set: setHalftoneColorK },
+                    ].map(({ label, value, set }) => (
+                      <div key={label} className="flex items-center gap-1.5">
+                        <span className={`${typeLabel} w-6`}>{label}</span>
+                        <input
+                          type="color"
+                          value={value}
+                          onChange={(e) => set(e.target.value)}
+                          className="h-7 w-10 cursor-pointer rounded border border-border-subtle bg-surface-input"
+                          aria-label={`${label} color`}
+                        />
+                      </div>
                     ))}
                   </div>
-                  <Label.Root className={typeLabel} htmlFor="combo-pattern">Weave</Label.Root>
-                  <Select.Root value={String(comboPatternIndex)} onValueChange={(v) => setComboPatternIndex(Number(v))}>
-                    <Select.Trigger id="combo-pattern" className={selectTrigger} aria-label="Weave pattern">
-                      <Select.Value placeholder="Pattern" />
-                      <Icon name="expand_more" className={`${iconLg} opacity-60`} />
-                    </Select.Trigger>
-                    <Select.Portal>
-                      <Select.Content className={selectContent} position="popper" sideOffset={4}>
-                        <Select.Viewport>
-                          {PATTERNS.map((p, i) => (
-                            <Select.Item key={i} className={selectItem} value={String(i)}>
-                              <Select.ItemText>{PATTERNS[i]?.name ?? `Pattern ${i}`}</Select.ItemText>
-                              <Select.ItemIndicator className="absolute right-2 inline-flex" />
-                            </Select.Item>
-                          ))}
-                        </Select.Viewport>
-                      </Select.Content>
-                    </Select.Portal>
-                  </Select.Root>
-                  <Label.Root className={typeLabel} htmlFor="combo-radius">Radius</Label.Root>
-                  <SliderWithInput id="combo-radius" value={comboRectRadius} onValueChange={setComboRectRadius} min={0} max={0.5} step={0.01} format={(n) => n.toFixed(2)} aria-label="Rect radius" />
-                  <Label.Root className={typeLabel} htmlFor="combo-aspect">Aspect</Label.Root>
-                  <SliderWithInput id="combo-aspect" value={comboRectAspect} onValueChange={setComboRectAspect} min={0.3} max={1.5} step={0.01} format={(n) => n.toFixed(2)} aria-label="Rect aspect" />
-                  <Label.Root className={typeLabel} htmlFor="combo-ratio">Ratio</Label.Root>
-                  <SliderWithInput id="combo-ratio" value={comboRectRatio} onValueChange={setComboRectRatio} min={0.2} max={1} step={0.01} format={(n) => n.toFixed(2)} aria-label="Rect ratio" />
-                  <div className="flex items-center gap-1">
-                    <span className={typeLabel}>Mode</span>
-                    <button type="button" className={`flex-1 rounded border px-2 py-1 text-[10px] ${comboColorizeMode ? 'border-accent bg-accent/10' : 'border-border-subtle'}`} onClick={() => setComboColorizeMode(true)}>Color</button>
-                    <button type="button" className={`flex-1 rounded border px-2 py-1 text-[10px] ${!comboColorizeMode ? 'border-accent bg-accent/10' : 'border-border-subtle'}`} onClick={() => setComboColorizeMode(false)}>Brand</button>
-                  </div>
-                  <Label.Root className={typeLabel} htmlFor="combo-quantize">Quantize</Label.Root>
-                  <SliderWithInput id="combo-quantize" value={comboQuantizeSteps} onValueChange={setComboQuantizeSteps} min={0} max={32} step={1} aria-label="Quantize steps" />
-                  <Label.Root className={typeLabel} htmlFor="combo-shade">Shade from</Label.Root>
-                  <Select.Root value={String(comboShadeFrom)} onValueChange={(v) => setComboShadeFrom(Number(v))}>
-                    <Select.Trigger id="combo-shade" className={selectTrigger} aria-label="Shade from">
-                      <Select.Value />
-                      <Icon name="expand_more" className={`${iconLg} opacity-60`} />
-                    </Select.Trigger>
-                    <Select.Portal>
-                      <Select.Content className={selectContent} position="popper" sideOffset={4}>
-                        <Select.Viewport>
-                          {[{ value: 0, label: 'Color' }, { value: 1, label: 'Warp' }, { value: 2, label: 'Weft' }, { value: 3, label: 'Warp+Weft' }].map((opt) => (
-                            <Select.Item key={opt.value} className={selectItem} value={String(opt.value)}>
-                              <Select.ItemText>{opt.label}</Select.ItemText>
-                              <Select.ItemIndicator className="absolute right-2 inline-flex" />
-                            </Select.Item>
-                          ))}
-                        </Select.Viewport>
-                      </Select.Content>
-                    </Select.Portal>
-                  </Select.Root>
-                  <Label.Root className={typeLabel} htmlFor="combo-bg">BG shade</Label.Root>
-                  <Select.Root value={String(comboBgShade)} onValueChange={(v) => setComboBgShade(Number(v))}>
-                    <Select.Trigger id="combo-bg" className={selectTrigger} aria-label="Background shade">
-                      <Select.Value />
-                      <Icon name="expand_more" className={`${iconLg} opacity-60`} />
-                    </Select.Trigger>
-                    <Select.Portal>
-                      <Select.Content className={selectContent} position="popper" sideOffset={4}>
-                        <Select.Viewport>
-                          {SHADE_NAMES.map((name, i) => (
-                            <Select.Item key={i} className={selectItem} value={String(i)}>
-                              <Select.ItemText>{name}</Select.ItemText>
-                              <Select.ItemIndicator className="absolute right-2 inline-flex" />
-                            </Select.Item>
-                          ))}
-                        </Select.Viewport>
-                      </Select.Content>
-                    </Select.Portal>
-                  </Select.Root>
                 </div>
-              </div>
-            </>
-          )}
-          {view !== 'imageRectsHalftone' && (
-            <>
-          <div className={sidebarGroup}>
-            <div className={sidebarGroupTitle}>Preset & colorway</div>
-            <div className="flex flex-wrap items-center gap-2">
-              <GroupIcon name="tune" title="Preset" />
-              <Label.Root className="sr-only" htmlFor="preset-select">Preset (weave, colorway, shades, gradient)</Label.Root>
-              <Select.Root
-                value={presetIndex != null ? String(presetIndex) : 'custom'}
-                onValueChange={(v) => (v === 'custom' ? setPresetIndex(null) : applyPreset(Number(v)))}
-              >
-                <Select.Trigger id="preset-select" className={selectTrigger} title="Preset (weave + colorway + shades + grad)" aria-label="Preset (weave, colorway, shades, gradient)">
-                  <Select.Value placeholder="Preset…" />
-                  <Icon name="expand_more" className={`${iconLg} opacity-60`} />
-                </Select.Trigger>
-                <Select.Portal>
-                  <Select.Content className={selectContent} position="popper" sideOffset={4}>
-                    <Select.Viewport>
-                      {presetOptions.map((opt) => (
-                        <Select.Item key={opt.value} className={selectItem} value={opt.value}>
-                          <Select.ItemText>{opt.label}</Select.ItemText>
-                          <Select.ItemIndicator className="absolute right-2 inline-flex items-center" />
-                        </Select.Item>
-                      ))}
-                    </Select.Viewport>
-                  </Select.Content>
-                </Select.Portal>
-              </Select.Root>
-              <div className="flex items-center gap-1" role="group" aria-label="Colorway palette">
-                {PALETTE_SWATCH_COLORS.map((color, i) => (
-                  <button
-                    key={i}
-                    type="button"
-                    className="h-7 w-7 shrink-0 rounded-md border-2 transition-colors focus:outline-none focus:ring-2 focus:ring-accent/40"
-                    style={{
-                      backgroundColor: color,
-                      borderColor: palette === i ? 'var(--color-accent)' : 'var(--color-border-subtle)',
-                    }}
-                    title={PALETTE_NAMES[i]}
-                    aria-label={`Colorway: ${PALETTE_NAMES[i]}`}
-                    aria-pressed={palette === i}
-                    onClick={() => { setPalette(i); setPresetIndex(null); }}
+              </>
+            )}
+          </div>
+        </motion.aside>
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+          <main className={`flex min-h-0 flex-1 overflow-auto p-4 ${view === 'weavingHalftone' || view === 'imageRectsHalftone' ? 'flex-col items-stretch' : 'items-center justify-center'}`}>
+            {view === 'weaving' && (
+              <ShaderCanvas patternIndex={pattern} palette={palette} bgShade={bgShade} warpShade={warpShade} weftShade={weftShade} gridSize={gridSize} warpGradient={warpGradient} weftGradient={weftGradient} gradSteps={gradSteps} rectAspect={rectAspect} cornerRadius={cornerRadius} canvasAspect={canvasAspect} shimmer={shimmer} shimmerSpeed={shimmerSpeed} shimmerWidth={shimmerWidth} shimmerIntensity={shimmerIntensity} shimmerPosition={shimmerPosition} shimmerRotation={shimmerRotation} shimmerNoise={shimmerNoise} shimmerNoiseSeed={shimmerNoiseSeed} shimmerNoiseMin={shimmerNoiseMin} shimmerNoiseMax={shimmerNoiseMax} shimmerBlendMode={shimmerBlendMode} useAllColorways={useAllColorways} colorwaySeed={colorwaySeed} colorwayNoiseScale={colorwayNoiseScale} shimmerPlaying={shimmerPlaying} shimmerPausedAtTime={shimmerPausedAtTime} shimmerPhase={shimmerPhase} onShimmerTime={onShimmerTime} patterns={PATTERNS} onFpsChange={setFps} onCanvasRef={(el) => { canvasRef.current = el; }} onCaptureReady={(api) => { weavingCaptureRef.current = api; }} />
+            )}
+            {view === 'imageRectsHalftone' && (
+              <Suspense fallback={<div className="flex flex-1 items-center justify-center text-text-secondary">Loading…</div>}>
+                <div className="flex min-h-0 flex-1 w-full flex-col">
+                  <ImageRectsHalftoneStage
+                    imageSource={comboImageSource}
+                    gridSize={comboGridSize}
+                    palette={comboPalette}
+                    bgShade={comboBgShade}
+                    colorizeMode={comboColorizeMode}
+                    quantizeSteps={comboQuantizeSteps}
+                    rectShade={1}
+                    shadeFrom={comboShadeFrom}
+                    patternIndex={comboPatternIndex}
+                    patterns={PATTERNS}
+                    rectRadius={comboRectRadius}
+                    rectAspect={comboRectAspect}
+                    rectRatio={comboRectRatio}
+                    patternFit={patternFit}
+                    size={halftoneSize}
+                    softness={halftoneSoftness}
+                    gridNoise={halftoneGridNoise}
+                    contrast={halftoneContrast}
+                    type={halftoneType}
+                    colorBack={halftoneColorBack}
+                    colorC={halftoneColorC}
+                    colorM={halftoneColorM}
+                    colorY={halftoneColorY}
+                    colorK={halftoneColorK}
+                    floodC={halftoneFloodC}
+                    gainC={halftoneGainC}
+                    gainY={halftoneGainY}
+                    halftoneContainerRef={halftoneContainerRef}
+                    halftoneCanvasRef={halftoneCanvasRef}
                   />
-                ))}
-              </div>
-            </div>
-          </div>
-          <div className={sidebarGroup}>
-            <div className={sidebarGroupTitle}>Weave</div>
-            <div className="flex flex-wrap items-center gap-2">
-              <span className={`${controlLabel} ${typeLabel}`} title="Weave pattern">Weave</span>
-              <AppSelect id="weave-pattern" labelText="Weave pattern" value={pattern} onValueChange={(v) => { setPattern(v); setPresetIndex(null); }} options={patternOptions} title="Weave pattern" placeholder="Weave" />
-            </div>
-          </div>
-          <div className={sidebarGroup}>
-            <div className={sidebarGroupTitle}>Shades</div>
-            <div className="flex flex-wrap items-center gap-2">
-              <GroupIcon name="palette" title="Shades" locked={shadesLocked} onLockChange={setShadesLocked} />
-              <AppSelect id="bg-shade" labelText="Background shade" value={bgShade} onValueChange={(v) => { setBgShade(v); setPresetIndex(null); }} options={shadeOptions('BG')} title="Background shade" placeholder="BG" />
-              <AppSelect
-                id="warp-shade"
-                labelText="Warp shade"
-                value={warpShade}
-                onValueChange={(v) => {
-                  const shade = Number(v);
-                  setWarpShade(shade);
-                  setPresetIndex(null);
-                  setWarpGradient((g) => ({ ...g, startShade: shade, endShade: shade }));
-                }}
-                options={shadeOptions('Warp')}
-                title="Warp shade"
-                placeholder="Warp"
-              />
-              <AppSelect
-                id="weft-shade"
-                labelText="Weft shade"
-                value={weftShade}
-                onValueChange={(v) => {
-                  const shade = Number(v);
-                  setWeftShade(shade);
-                  setPresetIndex(null);
-                  setWeftGradient((g) => ({ ...g, startShade: shade, endShade: shade }));
-                }}
-                options={shadeOptions('Weft')}
-                title="Weft shade"
-                placeholder="Weft"
-              />
-            </div>
-          </div>
-          <div className={sidebarGroup}>
-            <div className={sidebarGroupTitle}>Warp gradient</div>
-            <div className="flex flex-wrap items-center gap-2">
-              <GroupIcon name="gradient" title="Warp gradient range" />
-              <Label.Root className="sr-only" htmlFor="warp-range">Warp gradient range</Label.Root>
-              <SliderWithInput
-                id="warp-range"
-                value={warpGradient.range}
-                onValueChange={([a, b]) => {
-                  setPresetIndex(null);
-                  const snap = gradSteps >= 2;
-                  setWarpGradient((g) => ({
-                    ...g,
-                    range: snap ? [snapGradRangeValue(a, gradSteps), snapGradRangeValue(b, gradSteps)] : [a, b],
-                  }));
-                }}
-                min={0}
-                max={100}
-                step={gradSteps >= 2 ? 100 / gradSteps : 5}
-                snapPointCount={gradSteps >= 2 ? gradSteps + 1 : 5}
-                aria-label="Warp gradient range"
-              />
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <GroupIcon name="gradient" title="Warp gradient" />
-              <AppSelect id="warp-start-shade" labelText="Warp gradient start shade" value={warpGradient.startShade} onValueChange={(s) => { setPresetIndex(null); setWarpGradient((g) => ({ ...g, startShade: s })); }} options={shadeOptions()} title="Warp start" placeholder="Start" />
-              <AppSelect id="warp-end-shade" labelText="Warp gradient end shade" value={warpGradient.endShade} onValueChange={(s) => { setPresetIndex(null); setWarpGradient((g) => ({ ...g, endShade: s })); }} options={shadeOptions()} title="Warp end" placeholder="End" />
-              <DirectionSwitch value={warpGradient.direction} onValueChange={(d) => { setPresetIndex(null); setWarpGradient((g) => ({ ...g, direction: d })); }} options={directionOptions} title="Warp direction" ariaLabel="Warp gradient direction" />
-            </div>
-          </div>
-          <div className={sidebarGroup}>
-            <div className={sidebarGroupTitle}>Weft gradient</div>
-            <div className="flex flex-wrap items-center gap-2">
-              <GroupIcon name="gradient" title="Weft gradient range" />
-              <Label.Root className="sr-only" htmlFor="weft-range">Weft gradient range</Label.Root>
-              <SliderWithInput
-                id="weft-range"
-                value={weftGradient.range}
-                onValueChange={([a, b]) => {
-                  setPresetIndex(null);
-                  const snap = gradSteps >= 2;
-                  setWeftGradient((g) => ({
-                    ...g,
-                    range: snap ? [snapGradRangeValue(a, gradSteps), snapGradRangeValue(b, gradSteps)] : [a, b],
-                  }));
-                }}
-                min={0}
-                max={100}
-                step={gradSteps >= 2 ? 100 / gradSteps : 5}
-                snapPointCount={gradSteps >= 2 ? gradSteps + 1 : 5}
-                aria-label="Weft gradient range"
-              />
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <GroupIcon name="gradient" title="Weft gradient" />
-              <AppSelect id="weft-start-shade" labelText="Weft gradient start shade" value={weftGradient.startShade} onValueChange={(s) => { setPresetIndex(null); setWeftGradient((g) => ({ ...g, startShade: s })); }} options={shadeOptions()} title="Weft start" placeholder="Start" />
-              <AppSelect id="weft-end-shade" labelText="Weft gradient end shade" value={weftGradient.endShade} onValueChange={(s) => { setPresetIndex(null); setWeftGradient((g) => ({ ...g, endShade: s })); }} options={shadeOptions()} title="Weft end" placeholder="End" />
-              <DirectionSwitch value={weftGradient.direction} onValueChange={(d) => { setPresetIndex(null); setWeftGradient((g) => ({ ...g, direction: d })); }} options={directionOptionsWeft} title="Weft direction" ariaLabel="Weft gradient direction" />
-            </div>
-          </div>
-          <div className={sidebarGroup}>
-            <div className={sidebarGroupTitle}>Grid & layout</div>
-            <div className="flex flex-wrap items-center gap-2">
-              <GroupIcon name="grid_on" title="Resolution" />
-              <Label.Root className="sr-only" htmlFor="grid-slider">Tile size</Label.Root>
-              <SliderWithInput
-                id="grid-slider"
-                value={gridSize}
-                onValueChange={setGridSize}
-                min={8}
-                max={64}
-                step={1}
-                snapValues={GRID_SNAPS}
-                snapPointCount={GRID_SNAPS.length}
-                aria-label="Tile size (grid cells)"
-              />
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <GroupIcon name="timeline" title="Quantization" />
-              <Label.Root className="sr-only" htmlFor="grad-steps-slider">Gradation steps</Label.Root>
-              <SliderWithInput
-                id="grad-steps-slider"
-                value={gradSteps}
-                onValueChange={setGradSteps}
-                min={0}
-                max={16}
-                step={1}
-                snapPointCount={17}
-                format={(n) => (n === 0 ? 'Smooth' : String(n))}
-                parse={(s) => { if (s === 'Smooth' || s === '') return 0; const n = Number(s); return Number.isFinite(n) ? n : null; }}
-                aria-label="Gradation steps (0 = smooth)"
-              />
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <GroupIcon name="aspect_ratio" title="Rect ratio (36×40 = 0.9)" locked={!randomizeRectAspect} onLockChange={() => setRandomizeRectAspect((v) => !v)} />
-              <Label.Root className="sr-only" htmlFor="rect-aspect-slider">Rect aspect ratio (36×40 spec = 0.9)</Label.Root>
-              <SliderWithInput
-                id="rect-aspect-slider"
-                value={rectAspect ?? RECT_ASPECT_DEFAULT}
-                onValueChange={setRectAspect}
-                min={0.5}
-                max={1}
-                step={0.05}
-                snapPointCount={11}
-                format={(n) => n.toFixed(2)}
-                aria-label="Rect aspect (36×40 = 0.9)"
-              />
-              <button
-                type="button"
-                className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md ${btnGhost} p-0`}
-                onClick={() => setRectAspect(RECT_ASPECT_DEFAULT)}
-                title="Reset rect aspect to 0.9 (36×40)"
-                aria-label="Reset rect aspect to default"
-              >
-                <Icon name="restart_alt" className={iconSm} />
-              </button>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <GroupIcon name="crop" title="Canvas aspect" />
-              <Label.Root className="sr-only" htmlFor="canvas-aspect-slider">Canvas aspect ratio</Label.Root>
-              <SliderWithInput
-                id="canvas-aspect-slider"
-                value={canvasAspect}
-                onValueChange={setCanvasAspect}
-                min={0.5}
-                max={2}
-                step={0.05}
-                snapPointCount={16}
-                format={(n) => n.toFixed(2)}
-                aria-label="Canvas aspect ratio"
-              />
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <GroupIcon name="rounded_corner" title="Radius" locked={!randomizeCornerRadius} onLockChange={() => setRandomizeCornerRadius((v) => !v)} />
-              <Label.Root className="sr-only" htmlFor="radius-slider">Corner radius</Label.Root>
-              <SliderWithInput
-                id="radius-slider"
-                value={cornerRadius}
-                onValueChange={setCornerRadius}
-                min={0}
-                max={0.5}
-                step={0.01}
-                snapPointCount={11}
-                format={(n) => n.toFixed(2)}
-                aria-label="Corner radius"
-              />
-              <button
-                type="button"
-                className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md ${btnGhost} p-0`}
-                onClick={() => setCornerRadius(0.18)}
-                title="Reset corner radius to 0.18"
-                aria-label="Reset corner radius to default"
-              >
-                <Icon name="restart_alt" className={iconSm} />
-              </button>
-            </div>
-          </div>
-          <div className={sidebarGroup}>
-            <div className={sidebarGroupTitle}>Shimmer</div>
-            <div className="flex flex-wrap items-center gap-2">
-              <GroupIcon name="auto_awesome" title="Shimmer" />
-              <button
-                type="button"
-                className={`flex h-7 min-w-16 items-center justify-center rounded-md border px-2.5 ${typeControl} transition-colors ${shimmer ? 'border-accent bg-accent/15 text-accent' : 'border-border-subtle bg-surface-input text-text-secondary hover:bg-surface-hover hover:text-text'}`}
-                aria-pressed={shimmer}
-                aria-label="Toggle shimmer effect"
-                onClick={() => setShimmer((s) => !s)}
-              >
-                Shimmer
-              </button>
-              {shimmer && (
-              <>
-                <button
-                  type="button"
-                  className={`flex h-7 w-7 items-center justify-center rounded-md border ${typeControl} transition-colors ${shimmerPlaying ? 'border-accent bg-accent/15 text-accent' : 'border-border-subtle bg-surface-input text-text-secondary hover:bg-surface-hover hover:text-text'}`}
-                  aria-label={shimmerPlaying ? 'Pause shimmer animation' : 'Play shimmer animation'}
-                  aria-pressed={shimmerPlaying}
-                  onClick={() => setShimmerPlaying((p) => !p)}
-                >
-                  <Icon name={shimmerPlaying ? 'pause' : 'play_arrow'} className={iconSm} />
-                </button>
-                <AppSelect
-                  id="shimmer-blend"
-                  labelText="Shimmer blend mode"
-                  value={shimmerBlendMode}
-                  onValueChange={setShimmerBlendMode}
-                  options={[
-                    { value: 0, label: 'Add' },
-                    { value: 1, label: 'Multiply' },
-                    { value: 2, label: 'Screen' },
-                    { value: 3, label: 'Overlay' },
-                    { value: 4, label: 'Soft Light' },
-                    { value: 5, label: 'Hard Light' },
-                    { value: 6, label: 'Color Dodge' },
-                    { value: 7, label: 'Color Burn' },
-                    { value: 8, label: 'Linear Burn' },
-                    { value: 9, label: 'Difference' },
-                    { value: 10, label: 'Exclusion' },
-                  ]}
-                  title="Shimmer blend mode"
-                  placeholder="Blend"
-                />
-                <Label.Root className="sr-only" htmlFor="shimmer-speed">Shimmer speed (cells/s)</Label.Root>
-                <SliderWithInput
-                  id="shimmer-speed"
-                  value={shimmerSpeed}
-                  onValueChange={setShimmerSpeed}
-                  min={1}
-                  max={16}
-                  step={1}
-                  snapPointCount={16}
-                  aria-label="Shimmer speed (cells/s)"
-                />
-                <span className={`${controlLabel} ${typeCaption} tabular-nums`} title="Cells per second">Cells/s</span>
-                <Label.Root className="sr-only" htmlFor="shimmer-width">Shimmer width</Label.Root>
-                <SliderWithInput
-                  id="shimmer-width"
-                  value={shimmerWidth}
-                  onValueChange={setShimmerWidth}
-                  min={0.25}
-                  max={24}
-                  step={0.25}
-                  format={(n) => n.toFixed(2)}
-                  aria-label="Shimmer width"
-                />
-                <Label.Root className="sr-only" htmlFor="shimmer-intensity">Shimmer intensity</Label.Root>
-                <SliderWithInput
-                  id="shimmer-intensity"
-                  value={shimmerIntensity}
-                  onValueChange={setShimmerIntensity}
-                  min={0}
-                  max={1}
-                  step={0.05}
-                  snapPointCount={11}
-                  format={(n) => n.toFixed(2)}
-                  aria-label="Shimmer intensity"
-                />
-                <span className={`${controlLabel} ${typeCaption}`}>Intensity</span>
-                <Label.Root className="sr-only" htmlFor="shimmer-position">Shimmer position</Label.Root>
-                <SliderWithInput
-                  id="shimmer-position"
-                  value={shimmerPosition}
-                  onValueChange={setShimmerPosition}
-                  min={0}
-                  max={1}
-                  step={0.01}
-                  format={(n) => n.toFixed(2)}
-                  aria-label="Shimmer position"
-                />
-                <span className={`${controlLabel} ${typeCaption}`}>Position</span>
-                <Label.Root className="sr-only" htmlFor="shimmer-rotation">Shimmer rotation</Label.Root>
-                <SliderWithInput
-                  id="shimmer-rotation"
-                  value={shimmerRotation}
-                  onValueChange={setShimmerRotation}
-                  min={0}
-                  max={1}
-                  step={0.01}
-                  format={(n) => n.toFixed(2)}
-                  aria-label="Shimmer rotation"
-                />
-                <span className={`${controlLabel} ${typeCaption}`}>Rotation</span>
-                <Label.Root className="sr-only" htmlFor="shimmer-noise">Shimmer noise amount</Label.Root>
-                <SliderWithInput
-                  id="shimmer-noise"
-                  value={shimmerNoise}
-                  onValueChange={setShimmerNoise}
-                  min={0}
-                  max={1}
-                  step={0.05}
-                  snapPointCount={11}
-                  format={(n) => n.toFixed(2)}
-                  aria-label="Shimmer noise amount"
-                />
-                <span className={`${controlLabel} ${typeCaption}`}>Noise</span>
-                <Label.Root className="sr-only" htmlFor="shimmer-noise-seed">Shimmer noise seed</Label.Root>
-                <SliderWithInput
-                  id="shimmer-noise-seed"
-                  value={shimmerNoiseSeed}
-                  onValueChange={setShimmerNoiseSeed}
-                  min={0}
-                  max={1}
-                  step={0.01}
-                  format={(n) => n.toFixed(2)}
-                  aria-label="Shimmer noise seed (pattern variation)"
-                />
-                <span className={`${controlLabel} ${typeCaption}`}>Noise seed</span>
-                <Label.Root className="sr-only" htmlFor="shimmer-noise-min">Shimmer noise min</Label.Root>
-                <SliderWithInput
-                  id="shimmer-noise-min"
-                  value={shimmerNoiseMin}
-                  onValueChange={setShimmerNoiseMin}
-                  min={0}
-                  max={2}
-                  step={0.1}
-                  format={(n) => n.toFixed(1)}
-                  aria-label="Shimmer noise factor min (0–2)"
-                />
-                <span className={`${controlLabel} ${typeCaption}`}>Noise min</span>
-                <Label.Root className="sr-only" htmlFor="shimmer-noise-max">Shimmer noise max</Label.Root>
-                <SliderWithInput
-                  id="shimmer-noise-max"
-                  value={shimmerNoiseMax}
-                  onValueChange={setShimmerNoiseMax}
-                  min={0}
-                  max={2}
-                  step={0.1}
-                  format={(n) => n.toFixed(1)}
-                  aria-label="Shimmer noise factor max (0–2)"
-                />
-                <span className={`${controlLabel} ${typeCaption}`}>Noise max</span>
-              </>
+                </div>
+              </Suspense>
             )}
-            </div>
-          </div>
-          <div className={sidebarGroup}>
-            <div className={sidebarGroupTitle}>Colorways</div>
-            <div className="flex flex-wrap items-center gap-2">
-              <GroupIcon name="palette" title="All colorways" />
-              <button
-                type="button"
-                className={`flex h-7 min-w-16 items-center justify-center rounded-md border px-2.5 ${typeControl} transition-colors ${useAllColorways ? 'border-accent bg-accent/15 text-accent' : 'border-border-subtle bg-surface-input text-text-secondary hover:bg-surface-hover hover:text-text'}`}
-                aria-pressed={useAllColorways}
-                aria-label="Use all 4 colorways (randomized per cell)"
-                onClick={() => setUseAllColorways((u) => !u)}
-              >
-                Use all 4 colorways
-              </button>
-              {useAllColorways && (
-              <>
-                {[0, 1, 2, 3].map((n) => (
-                  <button
-                    key={n}
-                    type="button"
-                    className={`flex h-7 w-7 items-center justify-center rounded-md border px-0 ${typeControl} transition-colors ${colorwaySeed === n ? 'border-accent bg-accent/15 text-accent' : 'border-border-subtle bg-surface-input text-text-secondary hover:bg-surface-hover hover:text-text'}`}
-                    aria-label={`Colorway seed ${n}`}
-                    aria-pressed={colorwaySeed === n}
-                    onClick={() => setColorwaySeed(n)}
-                  >
-                    {n}
-                  </button>
-                ))}
-                <Label.Root className="sr-only" htmlFor="colorway-seed">Colorway seed</Label.Root>
-                <SliderWithInput
-                  id="colorway-seed"
-                  value={colorwaySeed}
-                  onValueChange={(v) => setColorwaySeed(Math.floor(v))}
-                  min={0}
-                  max={100}
-                  step={1}
-                  snapPointCount={11}
-                  aria-label="Colorway seed"
-                />
-                <span className={`shrink-0 min-w-16 ${typeValue}`} aria-hidden>Seed: {typeof colorwaySeed === 'number' && Number.isInteger(colorwaySeed) ? colorwaySeed : colorwaySeed.toFixed(1)}</span>
-                <button
-                  type="button"
-                  className={`flex h-7 w-7 items-center justify-center rounded-md border ${typeControl} transition-colors ${colorwaySeedPlaying ? 'border-accent bg-accent/15 text-accent' : 'border-border-subtle bg-surface-input text-text-secondary hover:bg-surface-hover hover:text-text'}`}
-                  aria-label={colorwaySeedPlaying ? 'Pause colorway seed animation' : 'Play colorway seed animation (0→100 in 20m, loop)'}
-                  aria-pressed={colorwaySeedPlaying}
-                  onClick={() => setColorwaySeedPlaying((p) => !p)}
-                >
-                  <Icon name={colorwaySeedPlaying ? 'pause' : 'play_arrow'} className={iconSm} />
-                </button>
-              </>
+            {view === 'weavingHalftone' && (
+              <Suspense fallback={<div className="flex flex-1 items-center justify-center text-text-secondary">Loading…</div>}>
+                <div className="flex min-h-0 flex-1 w-full flex-col">
+                  <WeavingHalftoneStage
+                    patterns={PATTERNS}
+                    patternIndex={pattern}
+                    palette={palette}
+                    bgShade={bgShade}
+                    warpShade={warpShade}
+                    weftShade={weftShade}
+                    gridSize={gridSize}
+                    warpGradient={warpGradient}
+                    weftGradient={weftGradient}
+                    gradSteps={gradSteps}
+                    rectAspect={rectAspect}
+                    cornerRadius={cornerRadius}
+                    canvasAspect={canvasAspect}
+                    patternFit={patternFit}
+                    shimmer={shimmer}
+                    shimmerSpeed={shimmerSpeed}
+                    shimmerPlaying={shimmerPlaying}
+                    shimmerPausedAtTime={shimmerPausedAtTime}
+                    shimmerPhase={shimmerPhase}
+                    onShimmerTime={onShimmerTime}
+                    shimmerWidth={shimmerWidth}
+                    shimmerIntensity={shimmerIntensity}
+                    shimmerPosition={shimmerPosition}
+                    shimmerRotation={shimmerRotation}
+                    shimmerNoise={shimmerNoise}
+                    shimmerNoiseSeed={shimmerNoiseSeed}
+                    shimmerNoiseMin={shimmerNoiseMin}
+                    shimmerNoiseMax={shimmerNoiseMax}
+                    shimmerBlendMode={shimmerBlendMode}
+                    useAllColorways={useAllColorways}
+                    colorwaySeed={colorwaySeed}
+                    size={halftoneSize}
+                    softness={halftoneSoftness}
+                    gridNoise={halftoneGridNoise}
+                    contrast={halftoneContrast}
+                    type={halftoneType}
+                    colorBack={halftoneColorBack}
+                    colorC={halftoneColorC}
+                    colorM={halftoneColorM}
+                    colorY={halftoneColorY}
+                    colorK={halftoneColorK}
+                    floodC={halftoneFloodC}
+                    gainC={halftoneGainC}
+                    gainY={halftoneGainY}
+                    halftoneContainerRef={halftoneContainerRef}
+                    halftoneCanvasRef={halftoneCanvasRef}
+                    customImageUrl={halftoneCustomImageUrl || undefined}
+                  />
+                </div>
+              </Suspense>
             )}
-            </div>
-          </div>
-          </>
-          )}
-          {(view === 'weavingHalftone' || view === 'imageRectsHalftone') && (
-            <>
-              <div className={sidebarGroup}>
-                <div className={sidebarGroupTitle}>Halftone preset</div>
-                <Select.Root value={String(halftonePresetIndex)} onValueChange={(v) => applyHalftonePreset(Number(v))}>
-                  <Select.Trigger className={selectTrigger} aria-label="Halftone preset">
-                    <Select.Value placeholder="Preset" />
-                    <Icon name="expand_more" className={`${iconLg} opacity-60`} />
-                  </Select.Trigger>
-                  <Select.Portal>
-                    <Select.Content className={selectContent} position="popper" sideOffset={4}>
-                      <Select.Viewport>
-                        {halftoneCmykPresets.map((p, i) => (
-                          <Select.Item key={i} className={selectItem} value={String(i)}>
-                            <Select.ItemText>{p.name}</Select.ItemText>
-                            <Select.ItemIndicator className="absolute right-2 inline-flex" />
-                          </Select.Item>
-                        ))}
-                      </Select.Viewport>
-                    </Select.Content>
-                  </Select.Portal>
-                </Select.Root>
-              </div>
-              <div className={sidebarGroup}>
-                <div className={sidebarGroupTitle}>Halftone dot & grid</div>
-                <div className="flex flex-col gap-1">
-                  <Label.Root className={typeLabel} htmlFor="v3-halftone-size">Size</Label.Root>
-                  <SliderWithInput id="v3-halftone-size" aria-label="Grid size" value={halftoneSize} onValueChange={setHalftoneSize} min={0.01} max={1} step={0.01} format={(n) => n.toFixed(2)} />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <Label.Root className={typeLabel} htmlFor="v3-halftone-softness">Softness</Label.Root>
-                  <SliderWithInput id="v3-halftone-softness" aria-label="Dot softness" value={halftoneSoftness} onValueChange={setHalftoneSoftness} min={0} max={1} step={0.05} format={(n) => n.toFixed(2)} />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <Label.Root className={typeLabel} htmlFor="v3-halftone-gridnoise">Grid noise</Label.Root>
-                  <SliderWithInput id="v3-halftone-gridnoise" aria-label="Grid noise" value={halftoneGridNoise} onValueChange={setHalftoneGridNoise} min={0} max={1} step={0.05} format={(n) => n.toFixed(2)} />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <Label.Root className={typeLabel}>Type</Label.Root>
-                  <Select.Root value={halftoneType} onValueChange={setHalftoneType}>
-                    <Select.Trigger className={selectTrigger} aria-label="Dot type">
-                      <Select.Value />
-                      <Icon name="expand_more" className={`${iconLg} opacity-60`} />
-                    </Select.Trigger>
-                    <Select.Portal>
-                      <Select.Content className={selectContent} position="popper" sideOffset={4}>
-                        <Select.Viewport>
-                          {[{ value: 'dots', label: 'Dots' }, { value: 'ink', label: 'Ink' }, { value: 'sharp', label: 'Sharp' }].map((opt) => (
-                            <Select.Item key={opt.value} className={selectItem} value={opt.value}>
-                              <Select.ItemText>{opt.label}</Select.ItemText>
-                              <Select.ItemIndicator className="absolute right-2 inline-flex" />
-                            </Select.Item>
-                          ))}
-                        </Select.Viewport>
-                      </Select.Content>
-                    </Select.Portal>
-                  </Select.Root>
-                </div>
-              </div>
-              <div className={sidebarGroup}>
-                <div className={sidebarGroupTitle}>Halftone tone</div>
-                <div className="flex flex-col gap-1">
-                  <Label.Root className={typeLabel} htmlFor="v3-halftone-contrast">Contrast</Label.Root>
-                  <SliderWithInput id="v3-halftone-contrast" aria-label="Contrast" value={halftoneContrast} onValueChange={setHalftoneContrast} min={0} max={2} step={0.05} format={(n) => n.toFixed(2)} />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <Label.Root className={typeLabel} htmlFor="v3-halftone-floodc">Flood C</Label.Root>
-                  <SliderWithInput id="v3-halftone-floodc" aria-label="Cyan flood" value={halftoneFloodC} onValueChange={setHalftoneFloodC} min={0} max={1} step={0.05} format={(n) => n.toFixed(2)} />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <Label.Root className={typeLabel} htmlFor="v3-halftone-gainc">Gain C</Label.Root>
-                  <SliderWithInput id="v3-halftone-gainc" aria-label="Cyan gain" value={halftoneGainC} onValueChange={setHalftoneGainC} min={-1} max={1} step={0.05} format={(n) => n.toFixed(2)} />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <Label.Root className={typeLabel} htmlFor="v3-halftone-gainy">Gain Y</Label.Root>
-                  <SliderWithInput id="v3-halftone-gainy" aria-label="Yellow gain" value={halftoneGainY} onValueChange={setHalftoneGainY} min={-1} max={1} step={0.05} format={(n) => n.toFixed(2)} />
-                </div>
-              </div>
-              <div className={sidebarGroup}>
-                <div className={sidebarGroupTitle}>Halftone ink colors</div>
-                <div className="grid grid-cols-2 gap-1.5">
-                  {[
-                    { label: 'Back', value: halftoneColorBack, set: setHalftoneColorBack },
-                    { label: 'C', value: halftoneColorC, set: setHalftoneColorC },
-                    { label: 'M', value: halftoneColorM, set: setHalftoneColorM },
-                    { label: 'Y', value: halftoneColorY, set: setHalftoneColorY },
-                    { label: 'K', value: halftoneColorK, set: setHalftoneColorK },
-                  ].map(({ label, value, set }) => (
-                    <div key={label} className="flex items-center gap-1.5">
-                      <span className={`${typeLabel} w-6`}>{label}</span>
-                      <input
-                        type="color"
-                        value={value}
-                        onChange={(e) => set(e.target.value)}
-                        className="h-7 w-10 cursor-pointer rounded border border-border-subtle bg-surface-input"
-                        aria-label={`${label} color`}
-                      />
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </>
-          )}
-        </div>
-      </motion.aside>
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-        <main className={`flex min-h-0 flex-1 overflow-auto p-4 ${view === 'weavingHalftone' || view === 'imageRectsHalftone' ? 'flex-col items-stretch' : 'items-center justify-center'}`}>
-          {view === 'weaving' && (
-            <ShaderCanvas patternIndex={pattern} palette={palette} bgShade={bgShade} warpShade={warpShade} weftShade={weftShade} gridSize={gridSize} warpGradient={warpGradient} weftGradient={weftGradient} gradSteps={gradSteps} rectAspect={rectAspect} cornerRadius={cornerRadius} canvasAspect={canvasAspect} shimmer={shimmer} shimmerSpeed={shimmer && shimmerPlaying ? shimmerSpeed : 0} shimmerWidth={shimmerWidth} shimmerIntensity={shimmerIntensity} shimmerPosition={shimmerPosition} shimmerRotation={shimmerRotation} shimmerNoise={shimmerNoise} shimmerNoiseSeed={shimmerNoiseSeed} shimmerNoiseMin={shimmerNoiseMin} shimmerNoiseMax={shimmerNoiseMax} shimmerBlendMode={shimmerBlendMode} useAllColorways={useAllColorways} colorwaySeed={colorwaySeed} patterns={PATTERNS} onFpsChange={setFps} onCanvasRef={(el) => { canvasRef.current = el; }} />
-          )}
-          {view === 'imageRectsHalftone' && (
-            <Suspense fallback={<div className="flex flex-1 items-center justify-center text-text-secondary">Loading…</div>}>
-              <div className="flex min-h-0 flex-1 w-full flex-col">
-                <ImageRectsHalftoneStage
-                  imageSource={comboImageSource}
-                  gridSize={comboGridSize}
-                  palette={comboPalette}
-                  bgShade={comboBgShade}
-                  colorizeMode={comboColorizeMode}
-                  quantizeSteps={comboQuantizeSteps}
-                  rectShade={1}
-                  shadeFrom={comboShadeFrom}
-                  patternIndex={comboPatternIndex}
-                  patterns={PATTERNS}
-                  rectRadius={comboRectRadius}
-                  rectAspect={comboRectAspect}
-                  rectRatio={comboRectRatio}
-                  size={halftoneSize}
-                  softness={halftoneSoftness}
-                  gridNoise={halftoneGridNoise}
-                  contrast={halftoneContrast}
-                  type={halftoneType}
-                  colorBack={halftoneColorBack}
-                  colorC={halftoneColorC}
-                  colorM={halftoneColorM}
-                  colorY={halftoneColorY}
-                  colorK={halftoneColorK}
-                  floodC={halftoneFloodC}
-                  gainC={halftoneGainC}
-                  gainY={halftoneGainY}
-                  halftoneContainerRef={halftoneContainerRef}
-                  halftoneCanvasRef={halftoneCanvasRef}
-                />
-              </div>
-            </Suspense>
-          )}
-          {view === 'weavingHalftone' && (
-            <Suspense fallback={<div className="flex flex-1 items-center justify-center text-text-secondary">Loading…</div>}>
-              <div className="flex min-h-0 flex-1 w-full flex-col">
-                <WeavingHalftoneStage
-                  patterns={PATTERNS}
-                  patternIndex={pattern}
-                  palette={palette}
-                  bgShade={bgShade}
-                  warpShade={warpShade}
-                  weftShade={weftShade}
-                  gridSize={gridSize}
-                  warpGradient={warpGradient}
-                  weftGradient={weftGradient}
-                  gradSteps={gradSteps}
-                  rectAspect={rectAspect}
-                  cornerRadius={cornerRadius}
-                  canvasAspect={canvasAspect}
-                  shimmer={shimmer}
-                  shimmerSpeed={shimmer && shimmerPlaying ? shimmerSpeed : 0}
-                  shimmerWidth={shimmerWidth}
-                  shimmerIntensity={shimmerIntensity}
-                  shimmerPosition={shimmerPosition}
-                  shimmerRotation={shimmerRotation}
-                  shimmerNoise={shimmerNoise}
-                  shimmerNoiseSeed={shimmerNoiseSeed}
-                  shimmerNoiseMin={shimmerNoiseMin}
-                  shimmerNoiseMax={shimmerNoiseMax}
-                  shimmerBlendMode={shimmerBlendMode}
-                  useAllColorways={useAllColorways}
-                  colorwaySeed={colorwaySeed}
-                  size={halftoneSize}
-                  softness={halftoneSoftness}
-                  gridNoise={halftoneGridNoise}
-                  contrast={halftoneContrast}
-                  type={halftoneType}
-                  colorBack={halftoneColorBack}
-                  colorC={halftoneColorC}
-                  colorM={halftoneColorM}
-                  colorY={halftoneColorY}
-                  colorK={halftoneColorK}
-                  floodC={halftoneFloodC}
-                  gainC={halftoneGainC}
-                  gainY={halftoneGainY}
-                  halftoneContainerRef={halftoneContainerRef}
-                  halftoneCanvasRef={halftoneCanvasRef}
-                  customImageUrl={halftoneCustomImageUrl || undefined}
-                />
-              </div>
-            </Suspense>
-          )}
-        </main>
+          </main>
 
-        <footer className="relative h-[100px] shrink-0 overflow-hidden border-t border-border-subtle bg-surface-elevated">
-          <div className="flex h-full min-h-9 flex-wrap items-center gap-2 overflow-y-auto px-3 py-2">
-            <span className={pill}>{PATTERNS[pattern]?.name ?? '—'}</span>
-            <span className={pill}>{PALETTE_NAMES[palette]}</span>
-            <span className={pill}>BG: {bgShade === 4 ? <><Icon name={SHADE_TRANSPARENT_ICON} className={iconXs} /></> : SHADE_NAMES[bgShade]}</span>
-            <span className={pill}>Warp: {SHADE_NAMES[warpShade]}</span>
-            <span className={pill}>Weft: {SHADE_NAMES[weftShade]}</span>
-            <span className={pill}>Warp: {SHADE_NAMES[warpGradient.startShade]}→{SHADE_NAMES[warpGradient.endShade]}</span>
-            <span className={pill}>Weft: {SHADE_NAMES[weftGradient.startShade]}→{SHADE_NAMES[weftGradient.endShade]}</span>
-            <span className={pill}>Grid: {gridSize}</span>
-            <span className={pill}>Steps: {gradSteps === 0 ? 'Smooth' : gradSteps}</span>
-            <span className={pill}>Canvas: {canvasAspect.toFixed(2)}</span>
-            <div className="ml-auto flex items-center gap-2">
-              <span className={pill}>{fps || '--'} fps</span>
-              <span className={pill}>WebGL 1</span>
+          <footer className="relative h-[100px] shrink-0 overflow-hidden border-t border-border-subtle bg-surface-elevated">
+            <div className="flex h-full min-h-9 flex-wrap items-center gap-1.5 overflow-y-auto px-3 py-2">
+              <span className={pill}>{PATTERNS[pattern]?.name ?? '—'}</span>
+              <span className={pill}>{PALETTE_NAMES[palette]}</span>
+              <span className={pill}>BG: {bgShade === 4 ? <><Icon name={SHADE_TRANSPARENT_ICON} className={iconXs} /></> : SHADE_NAMES[bgShade]}</span>
+              <span className={pill}>Warp: {SHADE_NAMES[warpShade]}</span>
+              <span className={pill}>Weft: {SHADE_NAMES[weftShade]}</span>
+              <span className={pill}>Warp: {SHADE_NAMES[warpGradient.startShade]}→{SHADE_NAMES[warpGradient.endShade]}</span>
+              <span className={pill}>Weft: {SHADE_NAMES[weftGradient.startShade]}→{SHADE_NAMES[weftGradient.endShade]}</span>
+              <span className={pill}>Grid: {gridSize}</span>
+              <span className={pill}>Steps: {gradSteps === 0 ? 'Smooth' : gradSteps}</span>
+              <span className={pill}>Canvas: {canvasAspect.toFixed(2)}</span>
+              <div className="ml-auto flex items-center gap-2">
+                <span className={pill}>{fps || '--'} fps</span>
+                <span className={pill}>WebGL 1</span>
+              </div>
             </div>
-          </div>
-          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-6 bg-linear-to-t from-surface-elevated to-transparent" aria-hidden />
-        </footer>
-      </div>
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 h-6 bg-linear-to-t from-surface-elevated to-transparent" aria-hidden />
+          </footer>
+        </div>
       </div>
     </div>
   );

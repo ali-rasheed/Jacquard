@@ -42,7 +42,7 @@ vec4 getPaletteColor(float palette, float shade) {
   if (s == 4) return vec4(0.0, 0.0, 0.0, 0.0);  // Transparent
   if (p == 0) { // Citrine
     if (s == 0) return vec4(0.247, 0.114, 0.035, 1.0);   // 950
-    if (s == 1) return vec4(0.569, 0.294, 0.110, 1.0);   // 500 #914B1C
+    if (s == 1) return vec4(0.596, 0.302, 0.106, 1.0);   // 500 #984D1B
     if (s == 2) return vec4(0.973, 0.969, 0.886, 1.0);   // 100
     return vec4(0.855, 0.725, 0.525, 1.0);               // 400
   }

@@ -3,5 +3,9 @@
     "*.glsl": "glsl",
     "*.vert": "glsl",
     "*.frag": "glsl"
-  }
+  },
+  "tailwindCSS.experimental.classRegex": [
+    ["export const \\w+ = `([^`]*)`", 1],
+    ["export const \\w+ = '([^']*)'", 1]
+  ]
 }

@@ -1,10 +1,12 @@
 /**
  * useImageRectsSandbox — V2 only. WebGL canvas that samples an image per grid cell
  * and draws rounded rects. Uses same weave pattern texture as v1 for rect orientation (warp/weft).
+ * Exposes captureAtResolution(w, h) so copy/export can render at target resolution for sharpness.
  */
 const DPR = 2;
 import { useRef, useEffect, useCallback, useState } from 'react';
 import { buildPatternTexture, PATTERNS } from '../patterns';
+import { EXPORT_MAX_DIMENSION } from '../constants';
 
 const QUAD_POSITIONS = new Float32Array([-1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1]);
 
@@ -63,11 +65,12 @@ function uploadImageToTexture(gl, texture, image) {
  * so the UI can match aspect ratio and resolution (e.g. canvas/capture dimensions).
  * Image is cached by source so changing grid/palette etc. does not reload it.
  */
-export function useImageRectsSandbox(vertexSource, fragmentSource, imageSource, gridSize, palette, bgShade, colorizeMode, quantizeSteps, rectShade, shadeFrom, patternIndex, patterns, rectRadius, rectAspect, rectRatio, onFpsChange, onImageSize) {
+export function useImageRectsSandbox(vertexSource, fragmentSource, imageSource, gridSize, palette, bgShade, colorizeMode, quantizeSteps, rectShade, shadeFrom, patternIndex, patterns, rectRadius, rectAspect, rectRatio, onFpsChange, onImageSize, onCaptureReady) {
   const canvasRef = useRef(null);
   const containerRef = useRef(null);
   const onFpsChangeRef = useRef(onFpsChange);
   const onImageSizeRef = useRef(onImageSize);
+  const onCaptureReadyRef = useRef(onCaptureReady);
   /** Keep loaded image by source so changing grid/palette etc. doesn't reload the image. */
   const imageCacheRef = useRef({ source: null, img: null });
   const [error, setError] = useState('');
@@ -76,6 +79,7 @@ export function useImageRectsSandbox(vertexSource, fragmentSource, imageSource, 
 
   onFpsChangeRef.current = onFpsChange;
   onImageSizeRef.current = onImageSize;
+  onCaptureReadyRef.current = onCaptureReady;
 
   useEffect(() => {
     onFpsChangeRef.current?.(fps);
@@ -240,14 +244,43 @@ export function useImageRectsSandbox(vertexSource, fragmentSource, imageSource, 
       gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
       gl.vertexAttribPointer(posLoc, 2, gl.FLOAT, false, 0, 0);
 
+      /** Renders one frame at (w, h), returns PNG blob. Pauses/resumes animation. Capped to EXPORT_MAX_DIMENSION. */
+      const captureAtResolution = async (w, h) => {
+        let tw = Math.max(1, Math.round(w));
+        let th = Math.max(1, Math.round(h));
+        if (tw > EXPORT_MAX_DIMENSION || th > EXPORT_MAX_DIMENSION) {
+          const r = Math.min(EXPORT_MAX_DIMENSION / tw, EXPORT_MAX_DIMENSION / th);
+          tw = Math.round(tw * r);
+          th = Math.round(th * r);
+        }
+        if (animationId) cancelAnimationFrame(animationId);
+        animationId = null;
+        const prevW = canvas.width;
+        const prevH = canvas.height;
+        canvas.width = tw;
+        canvas.height = th;
+        gl.viewport(0, 0, tw, th);
+        render();
+        const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+        canvas.width = prevW;
+        canvas.height = prevH;
+        gl.viewport(0, 0, prevW, prevH);
+        resize();
+        animate();
+        if (!blob) throw new Error('Capture failed (try lower scale)');
+        return blob;
+      };
+
       resize();
       window.addEventListener('resize', resize);
       animate();
+      onCaptureReadyRef.current?.({ captureAtResolution });
     } catch (err) {
       setError(err.message);
     }
 
     return () => {
+      onCaptureReadyRef.current?.(null);
       window.removeEventListener('resize', resize);
       if (animationId) cancelAnimationFrame(animationId);
       if (imageTexture) gl.deleteTexture(imageTexture);

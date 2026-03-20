@@ -33,9 +33,11 @@ uniform float u_weftStartPos;
 uniform float u_weftEndPos;
 uniform float u_gradSteps;        // 0 or 1 = smooth; >= 2 = discrete bands
 
-// Shimmer: 0 = off, 1 = on. Optional: speed, width, intensity, position, rotation, noise amount/seed/min/max.
+// Shimmer: 0 = off, 1 = on. u_shimmerTime = time for band step (pausable); u_shimmerPhase = band position 0–1 (drives UI slider).
 uniform float u_shimmer;
 uniform float u_shimmerSpeed;
+uniform float u_shimmerTime;      // Time used for shimmer (frozen when paused)
+uniform float u_shimmerPhase;     // Band position 0–1 (updates from JS when playing)
 uniform float u_shimmerWidth;
 uniform float u_shimmerIntensity;
 uniform float u_shimmerPosition;
@@ -47,8 +49,10 @@ uniform float u_shimmerNoiseMax;
 uniform float u_shimmerBlendMode;  // 0=Add, 1=Mul, 2=Screen, 3=Overlay, 4=SoftLight, 5=HardLight, 6=ColorDodge, 7=ColorBurn, 8=LinearBurn, 9=Difference, 10=Exclusion
 
 // All 4 colorways: 0 = single u_palette, 1 = per-cell palette from u_colorwaySeed hash (mod 4).
+// u_colorwayNoiseScale: scale applied to cellID before hash (1 = default; >1 = finer variation, <1 = coarser).
 uniform float u_useAllColorways;
 uniform float u_colorwaySeed;
+uniform float u_colorwayNoiseScale;
 
 // Reveal animation: time when current wave started (resets on pattern change)
 uniform float u_revealStartTime;
@@ -122,15 +126,16 @@ float getPatternFromTexture(float row, float col) {
 }
 
 // --- ENS COLOR PICK (colorway + shade) ---
-// Palette 0–3 = Citrine, Garnet, Lapis, Peridot. Shade 0–4 = 950, 500, 100, 400, Transparent.
+// Palette 0–3 = Citrine, Garnet, Lapis, Peridot. Shade 0–5 = 950, 500, 100, 400, Transparent, eee.
 // Returns sRGB vec4 for the given palette and shade; alpha=0 for Transparent.
 vec4 getPaletteColor(float palette, float shade) {
     int p = int(mod(floor(palette + 0.01), 4.0));
-    int s = int(mod(floor(shade + 0.01), 5.0));
+    int s = int(mod(floor(shade + 0.01), 6.0));
     if (s == 4) return vec4(0.0, 0.0, 0.0, 0.0);  // Transparent
+    if (s == 5) return vec4(0.933, 0.933, 0.933, 1.0);  // eee (#eeeeee)
     if (p == 0) { // Citrine
         if (s == 0) return vec4(0.247, 0.114, 0.035, 1.0);   // 950
-        if (s == 1) return vec4(0.569, 0.294, 0.110, 1.0);   // 500 
+        if (s == 1) return vec4(0.596, 0.302, 0.106, 1.0);   // 500
         if (s == 2) return vec4(0.973, 0.969, 0.886, 1.0);   // 100
         return vec4(0.855, 0.725, 0.525, 1.0);               // 400
     }
@@ -220,7 +225,8 @@ void main() {
     vec4 warpColor;
     vec4 weftColor;
     if (u_useAllColorways > 0.5) {
-      float cellPalette = mod(floor(hash(cellID + vec2(u_colorwaySeed, 0.0)) * 4.0), 4.0);
+      float scale = max(0.001, u_colorwayNoiseScale);
+      float cellPalette = mod(floor(hash(cellID * scale + vec2(u_colorwaySeed, 0.0)) * 4.0), 4.0);
       warpColor = getPaletteColor(cellPalette, u_warpShade);
       weftColor = getPaletteColor(cellPalette, u_weftShade);
     } else {
@@ -245,7 +251,7 @@ void main() {
     // Shimmer: quantized to each shot/pick (discrete steps); per-shot noise on intensity.
     // Band center advances by whole steps (floor(u_time * speed)); period in same units.
     if (u_shimmer > 0.5) {
-      float speed = max(0.0, u_shimmerSpeed);
+      float speed = max(0.001, u_shimmerSpeed);
       float width = max(0.01, u_shimmerWidth);
       float angle = u_shimmerRotation * 6.28318530718; // 0–1 → 0–2π
       float cosA = cos(angle);
@@ -253,9 +259,9 @@ void main() {
       float period = gridSize * (aspect * abs(cosA) + abs(sinA));
       period = max(period, 1.0);
       float positionOffset = u_shimmerPosition * period;
-      // When speed is 0 (paused), band stays fixed; otherwise advance by time.
-      float timeStep = speed <= 0.0 ? 0.0 : floor(u_time * max(0.001, speed));
-      float bandCenter = mod(timeStep + floor(positionOffset), period);
+      // Band position from JS (u_shimmerPhase) so UI slider can show and pause at current position.
+      float timeStep = floor(u_shimmerTime * speed);
+      float bandCenter = u_shimmerPhase * period;
       float along = cellID.x * cosA + cellID.y * sinA;
       float phase = mod(along - bandCenter + 0.5 * period, period) - 0.5 * period;
       float d = abs(phase);

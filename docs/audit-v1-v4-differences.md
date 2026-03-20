@@ -6,7 +6,7 @@
 |--------|-------------------------|------------------------|----------------------------------------|
 | **v1** | `weaving`                | Weaving                | `ShaderCanvas` (weaving draft)         |
 | **v2** | `imageRects`             | Image Rects            | `AppV2` → `ImageRectsCanvas`           |
-| **v3** | `weavingHalftone`        | Weaving + Halftone     | `WeavingHalftoneStage`                 |
+| **v3** | `weavingHalftone`        | Weaving  Halftone     | `WeavingHalftoneStage`                 |
 | **v4** | `imageRectsHalftone`     | Image Rects + Halftone | `ImageRectsHalftoneStage`              |
 
 ---
@@ -25,7 +25,7 @@
 - **v1, v3, v4:** Handled in `App.jsx`. `handleCopy` / `startRecording` choose canvas by view:
   - v1: `canvasRef.current` (weaving WebGL canvas)
   - v3, v4: `halftoneCanvasRef.current` (or canvas inside `halftoneContainerRef`) — the halftone output canvas.
-- **v2:** Handled inside `AppV2.jsx` with its own `canvasRef`, same behavior (PNG at `PNG_COPY_SCALE`, SVG with embedded raster, WebM via `captureStream`).
+- **v2:** Handled inside `AppV2.jsx` with its own `canvasRef`, same behavior (PNG/WebP at selected copy scale (1×, 2×, 4×, 8×), SVG with embedded raster, WebM via `captureStream`).
 
 **Difference:** Implementation is split (App vs AppV2) but behavior is aligned (copy/record target is the visible result canvas).
 
@@ -100,7 +100,7 @@
 |----------------|------------|----------------|----------------------|--------------------------|
 | Shell          | App nav+aside+main+footer | App nav + AppV2 full UI | Same as v1 | Same as v1 |
 | Copy/Record    | App (weaving canvas) | AppV2 (image rects canvas) | App (halftone canvas) | App (halftone canvas) |
-| URL state      | Full weaving + shimmer | Full image-rects (no image blob) | Weaving only (no halftone) | Weaving only (no combo, no halftone) |
+| URL state      | Full Weaving  shimmer | Full image-rects (no image blob) | Weaving only (no halftone) | Weaving only (no combo, no halftone) |
 | Shortcuts      | Copy, Preset 1–8, Reload | Copy, Reload | Same as v1 | Same as v1 |
 | Footer         | Weaving state | None | Weaving state | Weaving state (wrong for mode) |
 | Presets        | Yes (weaving) | No | Yes (weaving source) | Halftone only; weaving preset irrelevant |
