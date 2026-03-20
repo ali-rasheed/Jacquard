@@ -26,6 +26,11 @@ import {
   WEAVING_DPR,
 } from './constants';
 import {
+  WEAVING_URL_DEFAULTS,
+  HALFTONE_DEFAULTS,
+  COMBO_DEFAULTS,
+} from './urlDefaults';
+import {
   PALETTE_NAMES,
   PALETTE_SWATCH_COLORS,
   SHADE_NAMES,
@@ -66,6 +71,19 @@ import { Icon, GroupIcon, AppSelect, DirectionSwitch, SegmentedControl, Segmente
 const AppV2 = lazy(() => import('./AppV2.jsx'));
 const WeavingHalftoneStage = lazy(() => import('./components/WeavingHalftoneStage.jsx').then((m) => ({ default: m.WeavingHalftoneStage })));
 const ImageRectsHalftoneStage = lazy(() => import('./components/ImageRectsHalftoneStage.jsx').then((m) => ({ default: m.ImageRectsHalftoneStage })));
+const HALFTONE_TYPE_MAP = ['dots', 'ink', 'sharp'];
+
+function packHexColors(values) {
+  return values.map((v) => String(v).replace('#', '')).join(',');
+}
+
+function unpackHexColors(raw) {
+  const parts = String(raw).split(',');
+  if (parts.length !== 5) return null;
+  const valid = parts.every((p) => /^[0-9a-fA-F]{6}$/.test(p));
+  if (!valid) return null;
+  return parts.map((p) => `#${p.toLowerCase()}`);
+}
 
 /** Parse search params into state-like object. Only includes keys that were present. */
 function parseUrlState(search) {
@@ -118,6 +136,33 @@ function parseUrlState(search) {
   num('shimmerNMin', 'shimmerNoiseMin', 0, 2);
   num('shimmerNMax', 'shimmerNoiseMax', 0, 2);
   num('shimmerBlend', 'shimmerBlendMode', 0, 10);
+  num('hp', 'halftonePresetIndex', 0, halftoneCmykPresets.length - 1);
+  num('hs', 'halftoneSize', 0.01, 1);
+  num('hsoft', 'halftoneSoftness', 0, 1);
+  num('hgn', 'halftoneGridNoise', 0, 1);
+  num('hc', 'halftoneContrast', 0, 2);
+  num('hfc', 'halftoneFloodC', 0, 1);
+  num('hgc', 'halftoneGainC', -1, 1);
+  num('hgy', 'halftoneGainY', -1, 1);
+  num('cg', 'comboGridSize', 8, 96);
+  num('cpal', 'comboPalette', 0, 3);
+  num('cbg', 'comboBgShade', 0, 5);
+  num('ccm', 'comboColorizeMode', 0, 1);
+  num('cq', 'comboQuantizeSteps', 0, 32);
+  num('csf', 'comboShadeFrom', 0, 3);
+  num('cp', 'comboPatternIndex', 0, PATTERNS.length - 1);
+  num('crr', 'comboRectRadius', 0, 0.5);
+  num('cra', 'comboRectAspect', 0.3, 1.5);
+  num('cratio', 'comboRectRatio', 0.2, 1);
+  const ht = params.get('ht');
+  if (ht != null && HALFTONE_TYPE_MAP[Number(ht)]) out.halftoneType = HALFTONE_TYPE_MAP[Number(ht)];
+  const hcols = params.get('hcols');
+  if (hcols) {
+    const colors = unpackHexColors(hcols);
+    if (colors) {
+      [out.halftoneColorBack, out.halftoneColorC, out.halftoneColorM, out.halftoneColorY, out.halftoneColorK] = colors;
+    }
+  }
   const cf = params.get('cf');
   if (cf === 'webp' || cf === 'png') out.copyFormat = cf;
   const cs = params.get('cs');
@@ -143,16 +188,7 @@ function getInitialView() {
 }
 /** Build compact search string from state; omit defaults to keep URL short. */
 function buildUrlState(state) {
-  const def = {
-    view: 'weaving',
-    menuHidden: true,
-    pattern: 0, palette: 0, bgShade: 2, warpShade: 1, weftShade: 3, gridSize: 32,
-    presetIndex: null, gradSteps: 0, rectAspect: RECT_ASPECT_DEFAULT, cornerRadius: 0.18, canvasAspect: 1,
-    copyFormat: 'png', copyScale: 2, useAllColorways: false, colorwaySeed: 0, colorwayNoiseScale: 1, patternFit: 'fit',
-    shimmer: false, shimmerSpeed: 2, shimmerWidth: 2, shimmerIntensity: 0.25, shimmerPosition: 0, shimmerRotation: 0.125, shimmerNoise: 0.3, shimmerNoiseSeed: 0, shimmerNoiseMin: 0.5, shimmerNoiseMax: 1.5, shimmerBlendMode: 0,
-    warpGradient: { startShade: 0, endShade: 3, direction: 0, range: [0, 100] },
-    weftGradient: { startShade: 0, endShade: 3, direction: 0, range: [0, 100] },
-  };
+  const def = WEAVING_URL_DEFAULTS;
   const p = new URLSearchParams();
   const viewNum = state.view != null ? VIEW_TO_V[state.view] : undefined;
   if (viewNum != null && viewNum !== 1) p.set('v', String(viewNum));
@@ -192,6 +228,34 @@ function buildUrlState(state) {
   if (state.shimmerNoiseMax !== def.shimmerNoiseMax) p.set('shimmerNMax', String(Number(state.shimmerNoiseMax.toFixed(2))));
   if (state.shimmerBlendMode !== def.shimmerBlendMode) p.set('shimmerBlend', String(state.shimmerBlendMode));
   if (state.patternFit !== def.patternFit) p.set('display', state.patternFit);
+  if (state.halftonePresetIndex !== HALFTONE_DEFAULTS.presetIndex) p.set('hp', String(state.halftonePresetIndex));
+  if (state.halftoneSize !== HALFTONE_DEFAULTS.size) p.set('hs', String(Number(state.halftoneSize.toFixed(2))));
+  if (state.halftoneSoftness !== HALFTONE_DEFAULTS.softness) p.set('hsoft', String(Number(state.halftoneSoftness.toFixed(2))));
+  if (state.halftoneGridNoise !== HALFTONE_DEFAULTS.gridNoise) p.set('hgn', String(Number(state.halftoneGridNoise.toFixed(2))));
+  if (state.halftoneContrast !== HALFTONE_DEFAULTS.contrast) p.set('hc', String(Number(state.halftoneContrast.toFixed(2))));
+  if (state.halftoneType !== HALFTONE_DEFAULTS.type) p.set('ht', String(Math.max(0, HALFTONE_TYPE_MAP.indexOf(state.halftoneType))));
+  if (state.halftoneFloodC !== HALFTONE_DEFAULTS.floodC) p.set('hfc', String(Number(state.halftoneFloodC.toFixed(2))));
+  if (state.halftoneGainC !== HALFTONE_DEFAULTS.gainC) p.set('hgc', String(Number(state.halftoneGainC.toFixed(2))));
+  if (state.halftoneGainY !== HALFTONE_DEFAULTS.gainY) p.set('hgy', String(Number(state.halftoneGainY.toFixed(2))));
+  if (
+    state.halftoneColorBack !== HALFTONE_DEFAULTS.colorBack
+    || state.halftoneColorC !== HALFTONE_DEFAULTS.colorC
+    || state.halftoneColorM !== HALFTONE_DEFAULTS.colorM
+    || state.halftoneColorY !== HALFTONE_DEFAULTS.colorY
+    || state.halftoneColorK !== HALFTONE_DEFAULTS.colorK
+  ) {
+    p.set('hcols', packHexColors([state.halftoneColorBack, state.halftoneColorC, state.halftoneColorM, state.halftoneColorY, state.halftoneColorK]));
+  }
+  if (state.comboGridSize !== COMBO_DEFAULTS.gridSize) p.set('cg', String(state.comboGridSize));
+  if (state.comboPalette !== COMBO_DEFAULTS.palette) p.set('cpal', String(state.comboPalette));
+  if (state.comboBgShade !== COMBO_DEFAULTS.bgShade) p.set('cbg', String(state.comboBgShade));
+  if (state.comboColorizeMode !== COMBO_DEFAULTS.colorizeMode) p.set('ccm', state.comboColorizeMode ? '1' : '0');
+  if (state.comboQuantizeSteps !== COMBO_DEFAULTS.quantizeSteps) p.set('cq', String(state.comboQuantizeSteps));
+  if (state.comboShadeFrom !== COMBO_DEFAULTS.shadeFrom) p.set('csf', String(state.comboShadeFrom));
+  if (state.comboPatternIndex !== COMBO_DEFAULTS.patternIndex) p.set('cp', String(state.comboPatternIndex));
+  if (state.comboRectRadius !== COMBO_DEFAULTS.rectRadius) p.set('crr', String(Number(state.comboRectRadius.toFixed(2))));
+  if (state.comboRectAspect !== COMBO_DEFAULTS.rectAspect) p.set('cra', String(Number(state.comboRectAspect.toFixed(2))));
+  if (state.comboRectRatio !== COMBO_DEFAULTS.rectRatio) p.set('cratio', String(Number(state.comboRectRatio.toFixed(2))));
   if (state.menuHidden === false) p.set('menu', '1');
   const s = p.toString();
   return s.length <= URL_STATE_MAX_LEN ? s : '';
@@ -202,53 +266,53 @@ export default function App() {
   /** When true, sidebar is hidden until hover (v1–v4); when false, sidebar is always visible. Toggle in nav; persisted in URL ?menu=1. */
   const [menuHidden, setMenuHidden] = useState(true);
   const [presetIndex, setPresetIndex] = useState(null); // null = custom
-  const [pattern, setPattern] = useState(0);
-  const [palette, setPalette] = useState(0);
+  const [pattern, setPattern] = useState(WEAVING_URL_DEFAULTS.pattern);
+  const [palette, setPalette] = useState(WEAVING_URL_DEFAULTS.palette);
   const [shadesLocked, setShadesLocked] = useState(false);
-  const [bgShade, setBgShade] = useState(2);
-  const [warpShade, setWarpShade] = useState(1);
-  const [weftShade, setWeftShade] = useState(3);
-  const [gridSize, setGridSize] = useState(32);
-  const [warpGradient, setWarpGradient] = useState({ startShade: 0, endShade: 3, direction: 0, range: [0, 100] });
-  const [weftGradient, setWeftGradient] = useState({ startShade: 0, endShade: 3, direction: 0, range: [0, 100] });
-  const [gradSteps, setGradSteps] = useState(0); // 0 = smooth; 2–16 = discrete bands
-  const [rectAspect, setRectAspect] = useState(RECT_ASPECT_DEFAULT);
-  const [cornerRadius, setCornerRadius] = useState(0.18);
-  const [canvasAspect, setCanvasAspect] = useState(1);
-  const [patternFit, setPatternFit] = useState('fit'); // 'fill' = cover view, 'fit' = contain
+  const [bgShade, setBgShade] = useState(WEAVING_URL_DEFAULTS.bgShade);
+  const [warpShade, setWarpShade] = useState(WEAVING_URL_DEFAULTS.warpShade);
+  const [weftShade, setWeftShade] = useState(WEAVING_URL_DEFAULTS.weftShade);
+  const [gridSize, setGridSize] = useState(WEAVING_URL_DEFAULTS.gridSize);
+  const [warpGradient, setWarpGradient] = useState(WEAVING_URL_DEFAULTS.warpGradient);
+  const [weftGradient, setWeftGradient] = useState(WEAVING_URL_DEFAULTS.weftGradient);
+  const [gradSteps, setGradSteps] = useState(WEAVING_URL_DEFAULTS.gradSteps); // 0 = smooth; 2–16 = discrete bands
+  const [rectAspect, setRectAspect] = useState(WEAVING_URL_DEFAULTS.rectAspect);
+  const [cornerRadius, setCornerRadius] = useState(WEAVING_URL_DEFAULTS.cornerRadius);
+  const [canvasAspect, setCanvasAspect] = useState(WEAVING_URL_DEFAULTS.canvasAspect);
+  const [patternFit, setPatternFit] = useState(WEAVING_URL_DEFAULTS.patternFit); // 'fill' = cover view, 'fit' = contain
   const [fps, setFps] = useState(0);
   /** Shimmer: looping highlight band; speed, width, intensity, position. */
-  const [shimmer, setShimmer] = useState(false);
+  const [shimmer, setShimmer] = useState(WEAVING_URL_DEFAULTS.shimmer);
   /** When false, shimmer band is frozen at current position (u_shimmerTime paused). */
   const [shimmerPlaying, setShimmerPlaying] = useState(true);
   const [shimmerPausedAtTime, setShimmerPausedAtTime] = useState(0);
   const shimmerTimeRef = useRef(0);
-  const [shimmerSpeed, setShimmerSpeed] = useState(2);
-  const [shimmerWidth, setShimmerWidth] = useState(2);
-  const [shimmerIntensity, setShimmerIntensity] = useState(0.25);
-  const [shimmerPosition, setShimmerPosition] = useState(0);
+  const [shimmerSpeed, setShimmerSpeed] = useState(WEAVING_URL_DEFAULTS.shimmerSpeed);
+  const [shimmerWidth, setShimmerWidth] = useState(WEAVING_URL_DEFAULTS.shimmerWidth);
+  const [shimmerIntensity, setShimmerIntensity] = useState(WEAVING_URL_DEFAULTS.shimmerIntensity);
+  const [shimmerPosition, setShimmerPosition] = useState(WEAVING_URL_DEFAULTS.shimmerPosition);
   /** Band position 0–1; driven by time when playing, frozen when paused; Position slider shows this. */
   const [shimmerPhase, setShimmerPhase] = useState(0);
-  const [shimmerRotation, setShimmerRotation] = useState(0.125); // 0–1 = 0–360°; 0.125 ≈ 45° (diagonal)
-  const [shimmerNoise, setShimmerNoise] = useState(0.3); // 0 = none, 1 = ±50% per-shot intensity variation
-  const [shimmerNoiseSeed, setShimmerNoiseSeed] = useState(0); // 0–1 pattern variation
-  const [shimmerNoiseMin, setShimmerNoiseMin] = useState(0.5); // clamp min for noise factor (0–2)
-  const [shimmerNoiseMax, setShimmerNoiseMax] = useState(1.5); // clamp max for noise factor (0–2)
-  const [shimmerBlendMode, setShimmerBlendMode] = useState(0); // 0–10: Add, Multiply, Screen, Overlay, Soft Light, Hard Light, Color Dodge, Color Burn, Linear Burn, Difference, Exclusion
+  const [shimmerRotation, setShimmerRotation] = useState(WEAVING_URL_DEFAULTS.shimmerRotation); // 0–1 = 0–360°; 0.125 ≈ 45° (diagonal)
+  const [shimmerNoise, setShimmerNoise] = useState(WEAVING_URL_DEFAULTS.shimmerNoise); // 0 = none, 1 = ±50% per-shot intensity variation
+  const [shimmerNoiseSeed, setShimmerNoiseSeed] = useState(WEAVING_URL_DEFAULTS.shimmerNoiseSeed); // 0–1 pattern variation
+  const [shimmerNoiseMin, setShimmerNoiseMin] = useState(WEAVING_URL_DEFAULTS.shimmerNoiseMin); // clamp min for noise factor (0–2)
+  const [shimmerNoiseMax, setShimmerNoiseMax] = useState(WEAVING_URL_DEFAULTS.shimmerNoiseMax); // clamp max for noise factor (0–2)
+  const [shimmerBlendMode, setShimmerBlendMode] = useState(WEAVING_URL_DEFAULTS.shimmerBlendMode); // 0–10: Add, Multiply, Screen, Overlay, Soft Light, Hard Light, Color Dodge, Color Burn, Linear Burn, Difference, Exclusion
   /** Use all 4 colorways: per-cell palette from colorwaySeed hash (mod 4). */
-  const [useAllColorways, setUseAllColorways] = useState(false);
-  const [colorwaySeed, setColorwaySeed] = useState(0);
+  const [useAllColorways, setUseAllColorways] = useState(WEAVING_URL_DEFAULTS.useAllColorways);
+  const [colorwaySeed, setColorwaySeed] = useState(WEAVING_URL_DEFAULTS.colorwaySeed);
   /** Colorway noise scale: spatial scale of per-cell palette variation (>1 = finer, <1 = coarser). */
-  const [colorwayNoiseScale, setColorwayNoiseScale] = useState(1);
+  const [colorwayNoiseScale, setColorwayNoiseScale] = useState(WEAVING_URL_DEFAULTS.colorwayNoiseScale);
   /** When true, colorway seed animates 0→100 over 20m and loops. */
   const [colorwaySeedPlaying, setColorwaySeedPlaying] = useState(false);
   const colorwayAnimStartRef = useRef(0);
   const colorwayAnimFrameRef = useRef(null);
   /** Copy format: 'png' or 'webp'; copyScale: 1, 2, 4, or 8× display size. */
-  const [copyFormat, setCopyFormat] = useState('png');
-  const [copyScale, setCopyScale] = useState(2);
+  const [copyFormat, setCopyFormat] = useState(WEAVING_URL_DEFAULTS.copyFormat);
+  const [copyScale, setCopyScale] = useState(WEAVING_URL_DEFAULTS.copyScale);
   /** Export scale for PNG download (one of EXPORT_SCALES). */
-  const [exportScale, setExportScale] = useState(6);
+  const [exportScale, setExportScale] = useState(WEAVING_URL_DEFAULTS.exportScale);
   /** Include in Randomize: rect aspect and corner radius (off = keep current when randomizing). */
   const [randomizeRectAspect, setRandomizeRectAspect] = useState(true);
   const [randomizeCornerRadius, setRandomizeCornerRadius] = useState(true);
@@ -263,53 +327,53 @@ export default function App() {
   const exportFeedbackTimeoutRef = useRef(null);
 
   /** Halftone params for v3 (Weaving  Halftone) view. */
-  const [halftoneSize, setHalftoneSize] = useState(0.2);
-  const [halftoneSoftness, setHalftoneSoftness] = useState(1);
-  const [halftoneGridNoise, setHalftoneGridNoise] = useState(0.2);
-  const [halftoneContrast, setHalftoneContrast] = useState(1);
-  const [halftoneType, setHalftoneType] = useState('ink');
-  const [halftoneColorBack, setHalftoneColorBack] = useState('#fbfaf4');
-  const [halftoneColorC, setHalftoneColorC] = useState('#00b3ff');
-  const [halftoneColorM, setHalftoneColorM] = useState('#fc4f9d');
-  const [halftoneColorY, setHalftoneColorY] = useState('#ffd900');
-  const [halftoneColorK, setHalftoneColorK] = useState('#231f20');
-  const [halftoneFloodC, setHalftoneFloodC] = useState(0.15);
-  const [halftoneGainC, setHalftoneGainC] = useState(0.3);
-  const [halftoneGainY, setHalftoneGainY] = useState(0.2);
-  const [halftonePresetIndex, setHalftonePresetIndex] = useState(0);
+  const [halftoneSize, setHalftoneSize] = useState(HALFTONE_DEFAULTS.size);
+  const [halftoneSoftness, setHalftoneSoftness] = useState(HALFTONE_DEFAULTS.softness);
+  const [halftoneGridNoise, setHalftoneGridNoise] = useState(HALFTONE_DEFAULTS.gridNoise);
+  const [halftoneContrast, setHalftoneContrast] = useState(HALFTONE_DEFAULTS.contrast);
+  const [halftoneType, setHalftoneType] = useState(HALFTONE_DEFAULTS.type);
+  const [halftoneColorBack, setHalftoneColorBack] = useState(HALFTONE_DEFAULTS.colorBack);
+  const [halftoneColorC, setHalftoneColorC] = useState(HALFTONE_DEFAULTS.colorC);
+  const [halftoneColorM, setHalftoneColorM] = useState(HALFTONE_DEFAULTS.colorM);
+  const [halftoneColorY, setHalftoneColorY] = useState(HALFTONE_DEFAULTS.colorY);
+  const [halftoneColorK, setHalftoneColorK] = useState(HALFTONE_DEFAULTS.colorK);
+  const [halftoneFloodC, setHalftoneFloodC] = useState(HALFTONE_DEFAULTS.floodC);
+  const [halftoneGainC, setHalftoneGainC] = useState(HALFTONE_DEFAULTS.gainC);
+  const [halftoneGainY, setHalftoneGainY] = useState(HALFTONE_DEFAULTS.gainY);
+  const [halftonePresetIndex, setHalftonePresetIndex] = useState(HALFTONE_DEFAULTS.presetIndex);
   /** Weaving  Halftone: optional image from desktop (object URL). When set, halftone uses this instead of weaving. */
   const [halftoneCustomImageUrl, setHalftoneCustomImageUrl] = useState('');
 
   /** Image Rects + Halftone combo view: image from file only (no web URL). */
   const [comboImageSource, setComboImageSource] = useState('');
-  const [comboGridSize, setComboGridSize] = useState(32);
-  const [comboPalette, setComboPalette] = useState(0);
-  const [comboBgShade, setComboBgShade] = useState(2);
-  const [comboColorizeMode, setComboColorizeMode] = useState(true);
-  const [comboQuantizeSteps, setComboQuantizeSteps] = useState(0);
-  const [comboShadeFrom, setComboShadeFrom] = useState(0);
-  const [comboPatternIndex, setComboPatternIndex] = useState(0);
-  const [comboRectRadius, setComboRectRadius] = useState(0.18);
-  const [comboRectAspect, setComboRectAspect] = useState(0.85);
-  const [comboRectRatio, setComboRectRatio] = useState(1.0);
+  const [comboGridSize, setComboGridSize] = useState(COMBO_DEFAULTS.gridSize);
+  const [comboPalette, setComboPalette] = useState(COMBO_DEFAULTS.palette);
+  const [comboBgShade, setComboBgShade] = useState(COMBO_DEFAULTS.bgShade);
+  const [comboColorizeMode, setComboColorizeMode] = useState(COMBO_DEFAULTS.colorizeMode);
+  const [comboQuantizeSteps, setComboQuantizeSteps] = useState(COMBO_DEFAULTS.quantizeSteps);
+  const [comboShadeFrom, setComboShadeFrom] = useState(COMBO_DEFAULTS.shadeFrom);
+  const [comboPatternIndex, setComboPatternIndex] = useState(COMBO_DEFAULTS.patternIndex);
+  const [comboRectRadius, setComboRectRadius] = useState(COMBO_DEFAULTS.rectRadius);
+  const [comboRectAspect, setComboRectAspect] = useState(COMBO_DEFAULTS.rectAspect);
+  const [comboRectRatio, setComboRectRatio] = useState(COMBO_DEFAULTS.rectRatio);
 
   const applyHalftonePreset = useCallback((index) => {
     const preset = halftoneCmykPresets[index];
     if (!preset?.params) return;
     const p = preset.params;
-    setHalftoneSize(p.size ?? 0.2);
-    setHalftoneSoftness(p.softness ?? 1);
-    setHalftoneGridNoise(p.gridNoise ?? 0.2);
-    setHalftoneContrast(p.contrast ?? 1);
-    setHalftoneType(p.type ?? 'ink');
-    setHalftoneColorBack(p.colorBack ?? '#fbfaf4');
-    setHalftoneColorC(p.colorC ?? '#00b3ff');
-    setHalftoneColorM(p.colorM ?? '#fc4f9d');
-    setHalftoneColorY(p.colorY ?? '#ffd900');
-    setHalftoneColorK(p.colorK ?? '#231f20');
-    setHalftoneFloodC(p.floodC ?? 0.15);
-    setHalftoneGainC(p.gainC ?? 0.3);
-    setHalftoneGainY(p.gainY ?? 0.2);
+    setHalftoneSize(p.size ?? HALFTONE_DEFAULTS.size);
+    setHalftoneSoftness(p.softness ?? HALFTONE_DEFAULTS.softness);
+    setHalftoneGridNoise(p.gridNoise ?? HALFTONE_DEFAULTS.gridNoise);
+    setHalftoneContrast(p.contrast ?? HALFTONE_DEFAULTS.contrast);
+    setHalftoneType(p.type ?? HALFTONE_DEFAULTS.type);
+    setHalftoneColorBack(p.colorBack ?? HALFTONE_DEFAULTS.colorBack);
+    setHalftoneColorC(p.colorC ?? HALFTONE_DEFAULTS.colorC);
+    setHalftoneColorM(p.colorM ?? HALFTONE_DEFAULTS.colorM);
+    setHalftoneColorY(p.colorY ?? HALFTONE_DEFAULTS.colorY);
+    setHalftoneColorK(p.colorK ?? HALFTONE_DEFAULTS.colorK);
+    setHalftoneFloodC(p.floodC ?? HALFTONE_DEFAULTS.floodC);
+    setHalftoneGainC(p.gainC ?? HALFTONE_DEFAULTS.gainC);
+    setHalftoneGainY(p.gainY ?? HALFTONE_DEFAULTS.gainY);
     setHalftonePresetIndex(index);
   }, []);
 
@@ -386,6 +450,30 @@ export default function App() {
     if (q.shimmerNoiseMin != null) setShimmerNoiseMin(Math.min(2, Math.max(0, Number(q.shimmerNoiseMin))));
     if (q.shimmerNoiseMax != null) setShimmerNoiseMax(Math.min(2, Math.max(0, Number(q.shimmerNoiseMax))));
     if (q.shimmerBlendMode != null) setShimmerBlendMode(Math.min(10, Math.max(0, Math.floor(Number(q.shimmerBlendMode)))));
+    if (q.halftonePresetIndex != null) setHalftonePresetIndex(q.halftonePresetIndex);
+    if (q.halftoneSize != null) setHalftoneSize(q.halftoneSize);
+    if (q.halftoneSoftness != null) setHalftoneSoftness(q.halftoneSoftness);
+    if (q.halftoneGridNoise != null) setHalftoneGridNoise(q.halftoneGridNoise);
+    if (q.halftoneContrast != null) setHalftoneContrast(q.halftoneContrast);
+    if (q.halftoneType != null) setHalftoneType(q.halftoneType);
+    if (q.halftoneFloodC != null) setHalftoneFloodC(q.halftoneFloodC);
+    if (q.halftoneGainC != null) setHalftoneGainC(q.halftoneGainC);
+    if (q.halftoneGainY != null) setHalftoneGainY(q.halftoneGainY);
+    if (q.halftoneColorBack != null) setHalftoneColorBack(q.halftoneColorBack);
+    if (q.halftoneColorC != null) setHalftoneColorC(q.halftoneColorC);
+    if (q.halftoneColorM != null) setHalftoneColorM(q.halftoneColorM);
+    if (q.halftoneColorY != null) setHalftoneColorY(q.halftoneColorY);
+    if (q.halftoneColorK != null) setHalftoneColorK(q.halftoneColorK);
+    if (q.comboGridSize != null) setComboGridSize(GRID_SNAPS.includes(q.comboGridSize) ? q.comboGridSize : GRID_SNAPS[getGridSizeIndex(q.comboGridSize)]);
+    if (q.comboPalette != null) setComboPalette(q.comboPalette);
+    if (q.comboBgShade != null) setComboBgShade(q.comboBgShade);
+    if (q.comboColorizeMode != null) setComboColorizeMode(!!q.comboColorizeMode);
+    if (q.comboQuantizeSteps != null) setComboQuantizeSteps(q.comboQuantizeSteps);
+    if (q.comboShadeFrom != null) setComboShadeFrom(q.comboShadeFrom);
+    if (q.comboPatternIndex != null) setComboPatternIndex(q.comboPatternIndex);
+    if (q.comboRectRadius != null) setComboRectRadius(q.comboRectRadius);
+    if (q.comboRectAspect != null) setComboRectAspect(q.comboRectAspect);
+    if (q.comboRectRatio != null) setComboRectRatio(q.comboRectRatio);
     if (q.view != null) setView(q.view);
     if (q.menuHidden === false) setMenuHidden(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- run once on mount; applyPreset is stable
@@ -394,11 +482,15 @@ export default function App() {
   /** Sync state to URL (debounced). Only writes params that differ from defaults; keeps URL under ~2k chars. */
   const urlSyncTimeoutRef = useRef(null);
   useEffect(() => {
+    if (view === 'imageRects') return undefined;
     urlSyncTimeoutRef.current = setTimeout(() => {
       const search = buildUrlState({
         view, menuHidden, presetIndex, pattern, palette, bgShade, warpShade, weftShade, gridSize,
         warpGradient, weftGradient, gradSteps, rectAspect, cornerRadius, canvasAspect, patternFit, copyFormat, copyScale,
         useAllColorways, colorwaySeed, colorwayNoiseScale, shimmer, shimmerSpeed, shimmerWidth, shimmerIntensity, shimmerPosition, shimmerRotation, shimmerNoise, shimmerNoiseSeed, shimmerNoiseMin, shimmerNoiseMax, shimmerBlendMode,
+        halftonePresetIndex, halftoneSize, halftoneSoftness, halftoneGridNoise, halftoneContrast, halftoneType,
+        halftoneColorBack, halftoneColorC, halftoneColorM, halftoneColorY, halftoneColorK, halftoneFloodC, halftoneGainC, halftoneGainY,
+        comboGridSize, comboPalette, comboBgShade, comboColorizeMode, comboQuantizeSteps, comboShadeFrom, comboPatternIndex, comboRectRadius, comboRectAspect, comboRectRatio,
       });
       const url = search ? `${window.location.pathname}?${search}` : window.location.pathname;
       if (window.location.pathname + (window.location.search || '') !== url) {
@@ -406,7 +498,7 @@ export default function App() {
       }
     }, 400);
     return () => { clearTimeout(urlSyncTimeoutRef.current); };
-  }, [view, menuHidden, presetIndex, pattern, palette, bgShade, warpShade, weftShade, gridSize, warpGradient, weftGradient, gradSteps, rectAspect, cornerRadius, canvasAspect, patternFit, copyFormat, copyScale, useAllColorways, colorwaySeed, colorwayNoiseScale, shimmer, shimmerSpeed, shimmerWidth, shimmerIntensity, shimmerPosition, shimmerRotation, shimmerNoise, shimmerNoiseSeed, shimmerNoiseMin, shimmerNoiseMax, shimmerBlendMode]);
+  }, [view, menuHidden, presetIndex, pattern, palette, bgShade, warpShade, weftShade, gridSize, warpGradient, weftGradient, gradSteps, rectAspect, cornerRadius, canvasAspect, patternFit, copyFormat, copyScale, useAllColorways, colorwaySeed, colorwayNoiseScale, shimmer, shimmerSpeed, shimmerWidth, shimmerIntensity, shimmerPosition, shimmerRotation, shimmerNoise, shimmerNoiseSeed, shimmerNoiseMin, shimmerNoiseMax, shimmerBlendMode, halftonePresetIndex, halftoneSize, halftoneSoftness, halftoneGridNoise, halftoneContrast, halftoneType, halftoneColorBack, halftoneColorC, halftoneColorM, halftoneColorY, halftoneColorK, halftoneFloodC, halftoneGainC, halftoneGainY, comboGridSize, comboPalette, comboBgShade, comboColorizeMode, comboQuantizeSteps, comboShadeFrom, comboPatternIndex, comboRectRadius, comboRectAspect, comboRectRatio]);
 
   /** Animate colorway seed 0→100 over 20m and loop while colorwaySeedPlaying is true. */
   const COLORWAY_ANIM_DURATION_MS = 1200000; // 20 min (20× slower than 60s)
@@ -644,54 +736,57 @@ export default function App() {
   /** Reset all params to defaults (same as URL defaults). Keeps current view; F5 / Mod+Shift+R still reloads page. */
   const handleReset = useCallback(() => {
     setPresetIndex(null);
-    setPattern(0);
-    setPalette(0);
+    setPattern(WEAVING_URL_DEFAULTS.pattern);
+    setPalette(WEAVING_URL_DEFAULTS.palette);
     setShadesLocked(false);
-    setBgShade(2);
-    setWarpShade(1);
-    setWeftShade(3);
-    setGridSize(32);
-    setWarpGradient({ startShade: 0, endShade: 3, direction: 0, range: [0, 100] });
-    setWeftGradient({ startShade: 0, endShade: 3, direction: 0, range: [0, 100] });
-    setGradSteps(0);
-    setRectAspect(RECT_ASPECT_DEFAULT);
-    setCornerRadius(0.18);
-    setCanvasAspect(1);
-    setShimmer(false);
+    setBgShade(WEAVING_URL_DEFAULTS.bgShade);
+    setWarpShade(WEAVING_URL_DEFAULTS.warpShade);
+    setWeftShade(WEAVING_URL_DEFAULTS.weftShade);
+    setGridSize(WEAVING_URL_DEFAULTS.gridSize);
+    setWarpGradient(WEAVING_URL_DEFAULTS.warpGradient);
+    setWeftGradient(WEAVING_URL_DEFAULTS.weftGradient);
+    setGradSteps(WEAVING_URL_DEFAULTS.gradSteps);
+    setRectAspect(WEAVING_URL_DEFAULTS.rectAspect);
+    setCornerRadius(WEAVING_URL_DEFAULTS.cornerRadius);
+    setCanvasAspect(WEAVING_URL_DEFAULTS.canvasAspect);
+    setPatternFit(WEAVING_URL_DEFAULTS.patternFit);
+    setShimmer(WEAVING_URL_DEFAULTS.shimmer);
     setShimmerPlaying(true);
     setShimmerPausedAtTime(0);
-    setShimmerSpeed(2);
-    setShimmerWidth(2);
-    setShimmerIntensity(0.25);
-    setShimmerPosition(0);
+    setShimmerSpeed(WEAVING_URL_DEFAULTS.shimmerSpeed);
+    setShimmerWidth(WEAVING_URL_DEFAULTS.shimmerWidth);
+    setShimmerIntensity(WEAVING_URL_DEFAULTS.shimmerIntensity);
+    setShimmerPosition(WEAVING_URL_DEFAULTS.shimmerPosition);
     setShimmerPhase(0);
-    setShimmerRotation(0.125);
-    setShimmerNoise(0.3);
-    setShimmerNoiseSeed(0);
-    setShimmerNoiseMin(0.5);
-    setShimmerNoiseMax(1.5);
-    setShimmerBlendMode(0);
-    setUseAllColorways(false);
-    setColorwaySeed(0);
-    setColorwayNoiseScale(1);
+    setShimmerRotation(WEAVING_URL_DEFAULTS.shimmerRotation);
+    setShimmerNoise(WEAVING_URL_DEFAULTS.shimmerNoise);
+    setShimmerNoiseSeed(WEAVING_URL_DEFAULTS.shimmerNoiseSeed);
+    setShimmerNoiseMin(WEAVING_URL_DEFAULTS.shimmerNoiseMin);
+    setShimmerNoiseMax(WEAVING_URL_DEFAULTS.shimmerNoiseMax);
+    setShimmerBlendMode(WEAVING_URL_DEFAULTS.shimmerBlendMode);
+    setUseAllColorways(WEAVING_URL_DEFAULTS.useAllColorways);
+    setColorwaySeed(WEAVING_URL_DEFAULTS.colorwaySeed);
+    setColorwayNoiseScale(WEAVING_URL_DEFAULTS.colorwayNoiseScale);
     setColorwaySeedPlaying(false);
-    setCopyFormat('png');
+    setCopyFormat(WEAVING_URL_DEFAULTS.copyFormat);
+    setCopyScale(WEAVING_URL_DEFAULTS.copyScale);
+    setExportScale(WEAVING_URL_DEFAULTS.exportScale);
     setRandomizeRectAspect(true);
     setRandomizeCornerRadius(true);
-    setHalftoneSize(0.2);
-    setHalftoneSoftness(1);
-    setHalftoneGridNoise(0.2);
-    setHalftoneContrast(1);
-    setHalftoneType('ink');
-    setHalftoneColorBack('#fbfaf4');
-    setHalftoneColorC('#00b3ff');
-    setHalftoneColorM('#fc4f9d');
-    setHalftoneColorY('#ffd900');
-    setHalftoneColorK('#231f20');
-    setHalftoneFloodC(0.15);
-    setHalftoneGainC(0.3);
-    setHalftoneGainY(0.2);
-    setHalftonePresetIndex(0);
+    setHalftoneSize(HALFTONE_DEFAULTS.size);
+    setHalftoneSoftness(HALFTONE_DEFAULTS.softness);
+    setHalftoneGridNoise(HALFTONE_DEFAULTS.gridNoise);
+    setHalftoneContrast(HALFTONE_DEFAULTS.contrast);
+    setHalftoneType(HALFTONE_DEFAULTS.type);
+    setHalftoneColorBack(HALFTONE_DEFAULTS.colorBack);
+    setHalftoneColorC(HALFTONE_DEFAULTS.colorC);
+    setHalftoneColorM(HALFTONE_DEFAULTS.colorM);
+    setHalftoneColorY(HALFTONE_DEFAULTS.colorY);
+    setHalftoneColorK(HALFTONE_DEFAULTS.colorK);
+    setHalftoneFloodC(HALFTONE_DEFAULTS.floodC);
+    setHalftoneGainC(HALFTONE_DEFAULTS.gainC);
+    setHalftoneGainY(HALFTONE_DEFAULTS.gainY);
+    setHalftonePresetIndex(HALFTONE_DEFAULTS.presetIndex);
     setHalftoneCustomImageUrl((prev) => {
       if (prev) URL.revokeObjectURL(prev);
       return '';
@@ -700,16 +795,16 @@ export default function App() {
       if (prev && prev.startsWith('blob:')) URL.revokeObjectURL(prev);
       return '';
     });
-    setComboGridSize(32);
-    setComboPalette(0);
-    setComboBgShade(2);
-    setComboColorizeMode(true);
-    setComboQuantizeSteps(0);
-    setComboShadeFrom(0);
-    setComboPatternIndex(0);
-    setComboRectRadius(0.18);
-    setComboRectAspect(0.85);
-    setComboRectRatio(1.0);
+    setComboGridSize(COMBO_DEFAULTS.gridSize);
+    setComboPalette(COMBO_DEFAULTS.palette);
+    setComboBgShade(COMBO_DEFAULTS.bgShade);
+    setComboColorizeMode(COMBO_DEFAULTS.colorizeMode);
+    setComboQuantizeSteps(COMBO_DEFAULTS.quantizeSteps);
+    setComboShadeFrom(COMBO_DEFAULTS.shadeFrom);
+    setComboPatternIndex(COMBO_DEFAULTS.patternIndex);
+    setComboRectRadius(COMBO_DEFAULTS.rectRadius);
+    setComboRectAspect(COMBO_DEFAULTS.rectAspect);
+    setComboRectRatio(COMBO_DEFAULTS.rectRatio);
   }, []);
 
   /** Randomize all generator params (pattern, palette, shades, grid, gradients, shimmer, etc.). */
@@ -912,6 +1007,19 @@ export default function App() {
                   >
                     <Icon name="content_copy" className={iconSm} />
                   </IconButton>
+                  {(copyScale !== WEAVING_URL_DEFAULTS.copyScale || copyFormat !== WEAVING_URL_DEFAULTS.copyFormat) && (
+                    <IconButton
+                      size="sm"
+                      title="Reset copy scale and format"
+                      aria-label="Reset copy scale and format"
+                      onClick={() => {
+                        setCopyScale(WEAVING_URL_DEFAULTS.copyScale);
+                        setCopyFormat(WEAVING_URL_DEFAULTS.copyFormat);
+                      }}
+                    >
+                      <Icon name="restart_alt" className={iconSm} />
+                    </IconButton>
+                  )}
                   {copyFeedback && (
                     <span className={`shrink-0 text-xs ${copyFeedback === 'Copied!' ? 'text-accent' : 'text-error'}`} role="status">
                       {copyFeedback}
@@ -940,6 +1048,16 @@ export default function App() {
                   >
                     <Icon name="file_download" className={iconSm} />
                   </IconButton>
+                  {exportScale !== WEAVING_URL_DEFAULTS.exportScale && (
+                    <IconButton
+                      size="sm"
+                      title="Reset export scale"
+                      aria-label="Reset export scale"
+                      onClick={() => setExportScale(WEAVING_URL_DEFAULTS.exportScale)}
+                    >
+                      <Icon name="restart_alt" className={iconSm} />
+                    </IconButton>
+                  )}
                   {exportFeedback && (
                     <span className={`shrink-0 text-xs ${exportFeedback === 'Exported!' ? 'text-accent' : 'text-error'}`} role="status">
                       {exportFeedback}
@@ -1026,83 +1144,70 @@ export default function App() {
                   )}
                   <div className="flex flex-col gap-1.5">
                     <Label.Root className={typeLabel} htmlFor="combo-grid">Grid</Label.Root>
-                    <SliderWithInput id="combo-grid" value={comboGridSize} onValueChange={setComboGridSize} min={8} max={64} step={1} snapValues={GRID_SNAPS} snapPointCount={GRID_SNAPS.length} aria-label="Grid size" />
+                    <SliderWithInput id="combo-grid" value={comboGridSize} onValueChange={setComboGridSize} defaultValue={COMBO_DEFAULTS.gridSize} onReset={() => setComboGridSize(COMBO_DEFAULTS.gridSize)} min={8} max={64} step={1} snapValues={GRID_SNAPS} snapPointCount={GRID_SNAPS.length} aria-label="Grid size" />
                     <div className="flex items-center gap-2">
                       <span className={typeLabel}>Palette</span>
                       {PALETTE_SWATCH_COLORS.map((c, i) => (
                         <button key={i} type="button" className={`${paletteSwatchSm} ${comboPalette === i ? 'border-accent' : 'border-border-subtle'}`} style={{ backgroundColor: c }} onClick={() => setComboPalette(i)} aria-label={PALETTE_NAMES[i]} />
                       ))}
+                      {comboPalette !== COMBO_DEFAULTS.palette && (
+                        <IconButton size="sm" onClick={() => setComboPalette(COMBO_DEFAULTS.palette)} title="Reset palette" aria-label="Reset combo palette to default">
+                          <Icon name="restart_alt" className={iconSm} />
+                        </IconButton>
+                      )}
                     </div>
                     <Label.Root className={typeLabel} htmlFor="combo-pattern">Weave</Label.Root>
-                    <Select.Root value={String(comboPatternIndex)} onValueChange={(v) => setComboPatternIndex(Number(v))}>
-                      <Select.Trigger id="combo-pattern" className={selectTrigger} aria-label="Weave pattern">
-                        <Select.Value placeholder="Pattern" />
-                        <Icon name="expand_more" className={`${iconLg} opacity-60`} />
-                      </Select.Trigger>
-                      <Select.Portal>
-                        <Select.Content className={selectContent} position="popper" sideOffset={4}>
-                          <Select.Viewport>
-                            {PATTERNS.map((p, i) => (
-                              <Select.Item key={i} className={selectItem} value={String(i)}>
-                                <Select.ItemText>{PATTERNS[i]?.name ?? `Pattern ${i}`}</Select.ItemText>
-                                <Select.ItemIndicator className="absolute right-2 inline-flex" />
-                              </Select.Item>
-                            ))}
-                          </Select.Viewport>
-                        </Select.Content>
-                      </Select.Portal>
-                    </Select.Root>
+                    <AppSelect
+                      id="combo-pattern"
+                      labelText="Weave pattern"
+                      value={comboPatternIndex}
+                      onValueChange={(v) => setComboPatternIndex(Number(v))}
+                      defaultValue={COMBO_DEFAULTS.patternIndex}
+                      onReset={() => setComboPatternIndex(COMBO_DEFAULTS.patternIndex)}
+                      options={PATTERNS.map((p, i) => ({ value: i, label: p?.name ?? `Pattern ${i}` }))}
+                      title="Weave pattern"
+                      placeholder="Pattern"
+                    />
                     <Label.Root className={typeLabel} htmlFor="combo-radius">Radius</Label.Root>
-                    <SliderWithInput id="combo-radius" value={comboRectRadius} onValueChange={setComboRectRadius} min={0} max={0.5} step={0.01} format={(n) => n.toFixed(2)} aria-label="Rect radius" />
+                    <SliderWithInput id="combo-radius" value={comboRectRadius} onValueChange={setComboRectRadius} defaultValue={COMBO_DEFAULTS.rectRadius} onReset={() => setComboRectRadius(COMBO_DEFAULTS.rectRadius)} min={0} max={0.5} step={0.01} format={(n) => n.toFixed(2)} aria-label="Rect radius" />
                     <Label.Root className={typeLabel} htmlFor="combo-aspect">Aspect</Label.Root>
-                    <SliderWithInput id="combo-aspect" value={comboRectAspect} onValueChange={setComboRectAspect} min={0.3} max={1.5} step={0.01} format={(n) => n.toFixed(2)} aria-label="Rect aspect" />
+                    <SliderWithInput id="combo-aspect" value={comboRectAspect} onValueChange={setComboRectAspect} defaultValue={COMBO_DEFAULTS.rectAspect} onReset={() => setComboRectAspect(COMBO_DEFAULTS.rectAspect)} min={0.3} max={1.5} step={0.01} format={(n) => n.toFixed(2)} aria-label="Rect aspect" />
                     <Label.Root className={typeLabel} htmlFor="combo-ratio">Ratio</Label.Root>
-                    <SliderWithInput id="combo-ratio" value={comboRectRatio} onValueChange={setComboRectRatio} min={0.2} max={1} step={0.01} format={(n) => n.toFixed(2)} aria-label="Rect ratio" />
+                    <SliderWithInput id="combo-ratio" value={comboRectRatio} onValueChange={setComboRectRatio} defaultValue={COMBO_DEFAULTS.rectRatio} onReset={() => setComboRectRatio(COMBO_DEFAULTS.rectRatio)} min={0.2} max={1} step={0.01} format={(n) => n.toFixed(2)} aria-label="Rect ratio" />
                     <div className="flex items-center gap-1">
                       <span className={typeLabel}>Mode</span>
                       <button type="button" className={`flex-1 rounded border px-2 py-1 text-[10px] ${comboColorizeMode ? toggleBtnActive : 'border-border-subtle'}`} onClick={() => setComboColorizeMode(true)}>Color</button>
                       <button type="button" className={`flex-1 rounded border px-2 py-1 text-[10px] ${!comboColorizeMode ? toggleBtnActive : 'border-border-subtle'}`} onClick={() => setComboColorizeMode(false)}>Brand</button>
+                      {comboColorizeMode !== COMBO_DEFAULTS.colorizeMode && (
+                        <IconButton size="sm" onClick={() => setComboColorizeMode(COMBO_DEFAULTS.colorizeMode)} title="Reset color mode" aria-label="Reset combo color mode to default">
+                          <Icon name="restart_alt" className={iconSm} />
+                        </IconButton>
+                      )}
                     </div>
                     <Label.Root className={typeLabel} htmlFor="combo-quantize">Quantize</Label.Root>
-                    <SliderWithInput id="combo-quantize" value={comboQuantizeSteps} onValueChange={setComboQuantizeSteps} min={0} max={32} step={1} aria-label="Quantize steps" />
+                    <SliderWithInput id="combo-quantize" value={comboQuantizeSteps} onValueChange={setComboQuantizeSteps} defaultValue={COMBO_DEFAULTS.quantizeSteps} onReset={() => setComboQuantizeSteps(COMBO_DEFAULTS.quantizeSteps)} min={0} max={32} step={1} aria-label="Quantize steps" />
                     <Label.Root className={typeLabel} htmlFor="combo-shade">Shade from</Label.Root>
-                    <Select.Root value={String(comboShadeFrom)} onValueChange={(v) => setComboShadeFrom(Number(v))}>
-                      <Select.Trigger id="combo-shade" className={selectTrigger} aria-label="Shade from">
-                        <Select.Value />
-                        <Icon name="expand_more" className={`${iconLg} opacity-60`} />
-                      </Select.Trigger>
-                      <Select.Portal>
-                        <Select.Content className={selectContent} position="popper" sideOffset={4}>
-                          <Select.Viewport>
-                            {[{ value: 0, label: 'Color' }, { value: 1, label: 'Warp' }, { value: 2, label: 'Weft' }, { value: 3, label: 'Warp+Weft' }].map((opt) => (
-                              <Select.Item key={opt.value} className={selectItem} value={String(opt.value)}>
-                                <Select.ItemText>{opt.label}</Select.ItemText>
-                                <Select.ItemIndicator className="absolute right-2 inline-flex" />
-                              </Select.Item>
-                            ))}
-                          </Select.Viewport>
-                        </Select.Content>
-                      </Select.Portal>
-                    </Select.Root>
+                    <AppSelect
+                      id="combo-shade"
+                      labelText="Shade from"
+                      value={comboShadeFrom}
+                      onValueChange={(v) => setComboShadeFrom(Number(v))}
+                      defaultValue={COMBO_DEFAULTS.shadeFrom}
+                      onReset={() => setComboShadeFrom(COMBO_DEFAULTS.shadeFrom)}
+                      options={[{ value: 0, label: 'Color' }, { value: 1, label: 'Warp' }, { value: 2, label: 'Weft' }, { value: 3, label: 'Warp+Weft' }]}
+                      title="Shade from"
+                    />
                     <Label.Root className={typeLabel} htmlFor="combo-bg">BG shade</Label.Root>
-                    <Select.Root value={String(comboBgShade)} onValueChange={(v) => setComboBgShade(Number(v))}>
-                      <Select.Trigger id="combo-bg" className={selectTrigger} aria-label="Background shade">
-                        <Select.Value />
-                        <Icon name="expand_more" className={`${iconLg} opacity-60`} />
-                      </Select.Trigger>
-                      <Select.Portal>
-                        <Select.Content className={selectContent} position="popper" sideOffset={4}>
-                          <Select.Viewport>
-                            {SHADE_NAMES.map((name, i) => (
-                              <Select.Item key={i} className={selectItem} value={String(i)}>
-                                <Select.ItemText>{name}</Select.ItemText>
-                                <Select.ItemIndicator className="absolute right-2 inline-flex" />
-                              </Select.Item>
-                            ))}
-                          </Select.Viewport>
-                        </Select.Content>
-                      </Select.Portal>
-                    </Select.Root>
+                    <AppSelect
+                      id="combo-bg"
+                      labelText="Background shade"
+                      value={comboBgShade}
+                      onValueChange={(v) => setComboBgShade(Number(v))}
+                      defaultValue={COMBO_DEFAULTS.bgShade}
+                      onReset={() => setComboBgShade(COMBO_DEFAULTS.bgShade)}
+                      options={SHADE_NAMES.map((name, i) => ({ value: i, label: name }))}
+                      title="Background shade"
+                    />
                   </div>
                 </div>
               </>
@@ -1151,6 +1256,11 @@ export default function App() {
                           onClick={() => { setPalette(i); setPresetIndex(null); }}
                         />
                       ))}
+                      {palette !== WEAVING_URL_DEFAULTS.palette && (
+                        <IconButton size="sm" onClick={() => { setPalette(WEAVING_URL_DEFAULTS.palette); setPresetIndex(null); }} title="Reset palette" aria-label="Reset palette to default">
+                          <Icon name="restart_alt" className={iconSm} />
+                        </IconButton>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -1158,14 +1268,14 @@ export default function App() {
                   <div className={sidebarGroupTitle}>Weave</div>
                   <div className="flex flex-wrap items-center gap-1.5">
                     <span className={`${controlLabel} ${typeLabel}`} title="Weave pattern">Weave</span>
-                    <AppSelect id="weave-pattern" labelText="Weave pattern" value={pattern} onValueChange={(v) => { setPattern(Number(v)); setPresetIndex(null); }} options={patternOptions} title="Weave pattern" placeholder="Weave" />
+                    <AppSelect id="weave-pattern" labelText="Weave pattern" value={pattern} onValueChange={(v) => { setPattern(Number(v)); setPresetIndex(null); }} defaultValue={WEAVING_URL_DEFAULTS.pattern} onReset={() => { setPattern(WEAVING_URL_DEFAULTS.pattern); setPresetIndex(null); }} options={patternOptions} title="Weave pattern" placeholder="Weave" />
                   </div>
                 </div>
                 <div className={sidebarGroup}>
                   <div className={sidebarGroupTitle}>Shades</div>
                   <div className="flex flex-wrap items-center gap-1.5">
                     <GroupIcon name="palette" title="Shades" locked={shadesLocked} onLockChange={setShadesLocked} />
-                    <AppSelect id="bg-shade" labelText="Background shade" value={bgShade} onValueChange={(v) => { setBgShade(Number(v)); setPresetIndex(null); }} options={shadeOptions('BG')} title="Background shade" placeholder="BG" />
+                    <AppSelect id="bg-shade" labelText="Background shade" value={bgShade} onValueChange={(v) => { setBgShade(Number(v)); setPresetIndex(null); }} defaultValue={WEAVING_URL_DEFAULTS.bgShade} onReset={() => { setBgShade(WEAVING_URL_DEFAULTS.bgShade); setPresetIndex(null); }} options={shadeOptions('BG')} title="Background shade" placeholder="BG" />
                     <AppSelect
                       id="warp-shade"
                       labelText="Warp shade"
@@ -1179,6 +1289,11 @@ export default function App() {
                       options={shadeOptions('Warp')}
                       title="Warp shade"
                       placeholder="Warp"
+                      defaultValue={WEAVING_URL_DEFAULTS.warpShade}
+                      onReset={() => {
+                        setWarpShade(WEAVING_URL_DEFAULTS.warpShade);
+                        setPresetIndex(null);
+                      }}
                     />
                     <AppSelect
                       id="weft-shade"
@@ -1193,6 +1308,11 @@ export default function App() {
                       options={shadeOptions('Weft')}
                       title="Weft shade"
                       placeholder="Weft"
+                      defaultValue={WEAVING_URL_DEFAULTS.weftShade}
+                      onReset={() => {
+                        setWeftShade(WEAVING_URL_DEFAULTS.weftShade);
+                        setPresetIndex(null);
+                      }}
                     />
                   </div>
                 </div>
@@ -1217,13 +1337,18 @@ export default function App() {
                       step={gradSteps >= 2 ? 100 / gradSteps : 5}
                       snapPointCount={gradSteps >= 2 ? gradSteps + 1 : 5}
                       aria-label="Warp gradient range"
+                      defaultValue={WEAVING_URL_DEFAULTS.warpGradient.range}
+                      onReset={() => {
+                        setPresetIndex(null);
+                        setWarpGradient((g) => ({ ...g, range: [...WEAVING_URL_DEFAULTS.warpGradient.range] }));
+                      }}
                     />
                   </div>
                   <div className="flex flex-wrap items-center gap-1.5">
                     <GroupIcon name="gradient" title="Warp gradient" />
-                    <AppSelect id="warp-start-shade" labelText="Warp gradient start shade" value={warpGradient.startShade} onValueChange={(s) => { setPresetIndex(null); setWarpGradient((g) => ({ ...g, startShade: Number(s) })); }} options={shadeOptions()} title="Warp start" placeholder="Start" />
-                    <AppSelect id="warp-end-shade" labelText="Warp gradient end shade" value={warpGradient.endShade} onValueChange={(s) => { setPresetIndex(null); setWarpGradient((g) => ({ ...g, endShade: Number(s) })); }} options={shadeOptions()} title="Warp end" placeholder="End" />
-                    <DirectionSwitch value={warpGradient.direction} onValueChange={(d) => { setPresetIndex(null); setWarpGradient((g) => ({ ...g, direction: d })); }} options={directionOptions} title="Warp direction" ariaLabel="Warp gradient direction" />
+                    <AppSelect id="warp-start-shade" labelText="Warp gradient start shade" value={warpGradient.startShade} onValueChange={(s) => { setPresetIndex(null); setWarpGradient((g) => ({ ...g, startShade: Number(s) })); }} defaultValue={WEAVING_URL_DEFAULTS.warpGradient.startShade} onReset={() => { setPresetIndex(null); setWarpGradient((g) => ({ ...g, startShade: WEAVING_URL_DEFAULTS.warpGradient.startShade })); }} options={shadeOptions()} title="Warp start" placeholder="Start" />
+                    <AppSelect id="warp-end-shade" labelText="Warp gradient end shade" value={warpGradient.endShade} onValueChange={(s) => { setPresetIndex(null); setWarpGradient((g) => ({ ...g, endShade: Number(s) })); }} defaultValue={WEAVING_URL_DEFAULTS.warpGradient.endShade} onReset={() => { setPresetIndex(null); setWarpGradient((g) => ({ ...g, endShade: WEAVING_URL_DEFAULTS.warpGradient.endShade })); }} options={shadeOptions()} title="Warp end" placeholder="End" />
+                    <DirectionSwitch value={warpGradient.direction} onValueChange={(d) => { setPresetIndex(null); setWarpGradient((g) => ({ ...g, direction: d })); }} defaultValue={WEAVING_URL_DEFAULTS.warpGradient.direction} onReset={() => { setPresetIndex(null); setWarpGradient((g) => ({ ...g, direction: WEAVING_URL_DEFAULTS.warpGradient.direction })); }} options={directionOptions} title="Warp direction" ariaLabel="Warp gradient direction" />
                   </div>
                 </div>
                 <div className={sidebarGroup}>
@@ -1247,13 +1372,18 @@ export default function App() {
                       step={gradSteps >= 2 ? 100 / gradSteps : 5}
                       snapPointCount={gradSteps >= 2 ? gradSteps + 1 : 5}
                       aria-label="Weft gradient range"
+                      defaultValue={WEAVING_URL_DEFAULTS.weftGradient.range}
+                      onReset={() => {
+                        setPresetIndex(null);
+                        setWeftGradient((g) => ({ ...g, range: [...WEAVING_URL_DEFAULTS.weftGradient.range] }));
+                      }}
                     />
                   </div>
                   <div className="flex flex-wrap items-center gap-1.5">
                     <GroupIcon name="gradient" title="Weft gradient" />
-                    <AppSelect id="weft-start-shade" labelText="Weft gradient start shade" value={weftGradient.startShade} onValueChange={(s) => { setPresetIndex(null); setWeftGradient((g) => ({ ...g, startShade: Number(s) })); }} options={shadeOptions()} title="Weft start" placeholder="Start" />
-                    <AppSelect id="weft-end-shade" labelText="Weft gradient end shade" value={weftGradient.endShade} onValueChange={(s) => { setPresetIndex(null); setWeftGradient((g) => ({ ...g, endShade: Number(s) })); }} options={shadeOptions()} title="Weft end" placeholder="End" />
-                    <DirectionSwitch value={weftGradient.direction} onValueChange={(d) => { setPresetIndex(null); setWeftGradient((g) => ({ ...g, direction: d })); }} options={directionOptionsWeft} title="Weft direction" ariaLabel="Weft gradient direction" />
+                    <AppSelect id="weft-start-shade" labelText="Weft gradient start shade" value={weftGradient.startShade} onValueChange={(s) => { setPresetIndex(null); setWeftGradient((g) => ({ ...g, startShade: Number(s) })); }} defaultValue={WEAVING_URL_DEFAULTS.weftGradient.startShade} onReset={() => { setPresetIndex(null); setWeftGradient((g) => ({ ...g, startShade: WEAVING_URL_DEFAULTS.weftGradient.startShade })); }} options={shadeOptions()} title="Weft start" placeholder="Start" />
+                    <AppSelect id="weft-end-shade" labelText="Weft gradient end shade" value={weftGradient.endShade} onValueChange={(s) => { setPresetIndex(null); setWeftGradient((g) => ({ ...g, endShade: Number(s) })); }} defaultValue={WEAVING_URL_DEFAULTS.weftGradient.endShade} onReset={() => { setPresetIndex(null); setWeftGradient((g) => ({ ...g, endShade: WEAVING_URL_DEFAULTS.weftGradient.endShade })); }} options={shadeOptions()} title="Weft end" placeholder="End" />
+                    <DirectionSwitch value={weftGradient.direction} onValueChange={(d) => { setPresetIndex(null); setWeftGradient((g) => ({ ...g, direction: d })); }} defaultValue={WEAVING_URL_DEFAULTS.weftGradient.direction} onReset={() => { setPresetIndex(null); setWeftGradient((g) => ({ ...g, direction: WEAVING_URL_DEFAULTS.weftGradient.direction })); }} options={directionOptionsWeft} title="Weft direction" ariaLabel="Weft gradient direction" />
                   </div>
                 </div>
                 <div className={sidebarGroup}>
@@ -1271,6 +1401,8 @@ export default function App() {
                       snapValues={GRID_SNAPS}
                       snapPointCount={GRID_SNAPS.length}
                       aria-label="Tile size (grid cells)"
+                      defaultValue={WEAVING_URL_DEFAULTS.gridSize}
+                      onReset={() => setGridSize(WEAVING_URL_DEFAULTS.gridSize)}
                     />
                   </div>
                   <div className="flex flex-wrap items-center gap-1.5">
@@ -1287,6 +1419,8 @@ export default function App() {
                       format={(n) => (n === 0 ? 'Smooth' : String(n))}
                       parse={(s) => { if (s === 'Smooth' || s === '') return 0; const n = Number(s); return Number.isFinite(n) ? n : null; }}
                       aria-label="Gradation steps (0 = smooth)"
+                      defaultValue={WEAVING_URL_DEFAULTS.gradSteps}
+                      onReset={() => setGradSteps(WEAVING_URL_DEFAULTS.gradSteps)}
                     />
                   </div>
                   <div className="flex flex-wrap items-center gap-1.5">
@@ -1302,10 +1436,9 @@ export default function App() {
                       snapPointCount={11}
                       format={(n) => n.toFixed(2)}
                       aria-label="Rect aspect (36×40 = 0.9)"
+                      defaultValue={WEAVING_URL_DEFAULTS.rectAspect}
+                      onReset={() => setRectAspect(WEAVING_URL_DEFAULTS.rectAspect)}
                     />
-                    <IconButton size="md" onClick={() => setRectAspect(RECT_ASPECT_DEFAULT)} title="Reset rect aspect to 0.9 (36×40)" aria-label="Reset rect aspect to default">
-                      <Icon name="restart_alt" className={iconSm} />
-                    </IconButton>
                   </div>
                   <div className="flex flex-wrap items-center gap-1.5">
                     <GroupIcon name="crop" title="Canvas aspect" />
@@ -1320,22 +1453,24 @@ export default function App() {
                       snapPointCount={16}
                       format={(n) => n.toFixed(2)}
                       aria-label="Canvas aspect ratio"
+                      defaultValue={WEAVING_URL_DEFAULTS.canvasAspect}
+                      onReset={() => setCanvasAspect(WEAVING_URL_DEFAULTS.canvasAspect)}
                     />
                   </div>
                   <div className="flex flex-wrap items-center gap-1.5">
                     <GroupIcon name="fit_screen" title="Display" />
                     <Label.Root className="sr-only" htmlFor="pattern-fit-select">Pattern display</Label.Root>
-                    <Select.Root value={patternFit} onValueChange={setPatternFit}>
-                      <Select.Trigger id="pattern-fit-select" className={selectTrigger} aria-label="Fill or fit pattern on screen">
-                        <Select.Value placeholder="Fit" />
-                      </Select.Trigger>
-                      <Select.Portal>
-                        <Select.Content className={selectContent}>
-                          <Select.Item className={selectItem} value="fit">Fit</Select.Item>
-                          <Select.Item className={selectItem} value="fill">Fill</Select.Item>
-                        </Select.Content>
-                      </Select.Portal>
-                    </Select.Root>
+                    <AppSelect
+                      id="pattern-fit-select"
+                      labelText="Pattern display"
+                      value={patternFit}
+                      onValueChange={setPatternFit}
+                      defaultValue={WEAVING_URL_DEFAULTS.patternFit}
+                      onReset={() => setPatternFit(WEAVING_URL_DEFAULTS.patternFit)}
+                      options={[{ value: 'fit', label: 'Fit' }, { value: 'fill', label: 'Fill' }]}
+                      title="Fill or fit pattern on screen"
+                      placeholder="Fit"
+                    />
                   </div>
                   <div className="flex flex-wrap items-center gap-1.5">
                     <GroupIcon name="rounded_corner" title="Radius" locked={!randomizeCornerRadius} onLockChange={() => setRandomizeCornerRadius((v) => !v)} />
@@ -1350,10 +1485,9 @@ export default function App() {
                       snapPointCount={11}
                       format={(n) => n.toFixed(2)}
                       aria-label="Corner radius"
+                      defaultValue={WEAVING_URL_DEFAULTS.cornerRadius}
+                      onReset={() => setCornerRadius(WEAVING_URL_DEFAULTS.cornerRadius)}
                     />
-                    <IconButton size="md" onClick={() => setCornerRadius(0.18)} title="Reset corner radius to 0.18" aria-label="Reset corner radius to default">
-                      <Icon name="restart_alt" className={iconSm} />
-                    </IconButton>
                   </div>
                 </div>
                 <div className={sidebarGroup}>
@@ -1369,6 +1503,11 @@ export default function App() {
                     >
                       Shimmer
                     </button>
+                    {shimmer !== WEAVING_URL_DEFAULTS.shimmer && (
+                      <IconButton size="sm" onClick={() => setShimmer(WEAVING_URL_DEFAULTS.shimmer)} title="Reset shimmer toggle" aria-label="Reset shimmer toggle to default">
+                        <Icon name="restart_alt" className={iconSm} />
+                      </IconButton>
+                    )}
                     {shimmer && (
                       <>
                         <button
@@ -1388,6 +1527,8 @@ export default function App() {
                           labelText="Shimmer blend mode"
                           value={shimmerBlendMode}
                           onValueChange={(v) => setShimmerBlendMode(Number(v))}
+                          defaultValue={WEAVING_URL_DEFAULTS.shimmerBlendMode}
+                          onReset={() => setShimmerBlendMode(WEAVING_URL_DEFAULTS.shimmerBlendMode)}
                           options={[
                             { value: 0, label: 'Add' },
                             { value: 1, label: 'Multiply' },
@@ -1414,6 +1555,8 @@ export default function App() {
                           step={1}
                           snapPointCount={16}
                           aria-label="Shimmer speed (cells/s)"
+                          defaultValue={WEAVING_URL_DEFAULTS.shimmerSpeed}
+                          onReset={() => setShimmerSpeed(WEAVING_URL_DEFAULTS.shimmerSpeed)}
                         />
                         <span className={`${controlLabel} ${typeCaption} tabular-nums`} title="Cells per second">Cells/s</span>
                         <Label.Root className="sr-only" htmlFor="shimmer-width">Shimmer width</Label.Root>
@@ -1426,6 +1569,8 @@ export default function App() {
                           step={0.25}
                           format={(n) => n.toFixed(2)}
                           aria-label="Shimmer width"
+                          defaultValue={WEAVING_URL_DEFAULTS.shimmerWidth}
+                          onReset={() => setShimmerWidth(WEAVING_URL_DEFAULTS.shimmerWidth)}
                         />
                         <Label.Root className="sr-only" htmlFor="shimmer-intensity">Shimmer intensity</Label.Root>
                         <SliderWithInput
@@ -1438,6 +1583,8 @@ export default function App() {
                           snapPointCount={11}
                           format={(n) => n.toFixed(2)}
                           aria-label="Shimmer intensity"
+                          defaultValue={WEAVING_URL_DEFAULTS.shimmerIntensity}
+                          onReset={() => setShimmerIntensity(WEAVING_URL_DEFAULTS.shimmerIntensity)}
                         />
                         <span className={`${controlLabel} ${typeCaption}`}>Intensity</span>
                         <Label.Root className="sr-only" htmlFor="shimmer-position">Shimmer position (band phase 0–1)</Label.Root>
@@ -1450,6 +1597,8 @@ export default function App() {
                           step={0.01}
                           format={(n) => n.toFixed(2)}
                           aria-label="Shimmer position (updates as animates)"
+                          defaultValue={WEAVING_URL_DEFAULTS.shimmerPosition}
+                          onReset={() => setShimmerPosition(WEAVING_URL_DEFAULTS.shimmerPosition)}
                         />
                         <span className={`${controlLabel} ${typeCaption}`}>Position</span>
                         <Label.Root className="sr-only" htmlFor="shimmer-rotation">Shimmer rotation</Label.Root>
@@ -1462,6 +1611,8 @@ export default function App() {
                           step={0.01}
                           format={(n) => n.toFixed(2)}
                           aria-label="Shimmer rotation"
+                          defaultValue={WEAVING_URL_DEFAULTS.shimmerRotation}
+                          onReset={() => setShimmerRotation(WEAVING_URL_DEFAULTS.shimmerRotation)}
                         />
                         <span className={`${controlLabel} ${typeCaption}`}>Rotation</span>
                         <Label.Root className="sr-only" htmlFor="shimmer-noise">Shimmer noise amount</Label.Root>
@@ -1475,6 +1626,8 @@ export default function App() {
                           snapPointCount={11}
                           format={(n) => n.toFixed(2)}
                           aria-label="Shimmer noise amount"
+                          defaultValue={WEAVING_URL_DEFAULTS.shimmerNoise}
+                          onReset={() => setShimmerNoise(WEAVING_URL_DEFAULTS.shimmerNoise)}
                         />
                         <span className={`${controlLabel} ${typeCaption}`}>Noise</span>
                         <Label.Root className="sr-only" htmlFor="shimmer-noise-seed">Shimmer noise seed</Label.Root>
@@ -1487,6 +1640,8 @@ export default function App() {
                           step={0.01}
                           format={(n) => n.toFixed(2)}
                           aria-label="Shimmer noise seed (pattern variation)"
+                          defaultValue={WEAVING_URL_DEFAULTS.shimmerNoiseSeed}
+                          onReset={() => setShimmerNoiseSeed(WEAVING_URL_DEFAULTS.shimmerNoiseSeed)}
                         />
                         <span className={`${controlLabel} ${typeCaption}`}>Noise seed</span>
                         <Label.Root className="sr-only" htmlFor="shimmer-noise-min">Shimmer noise min</Label.Root>
@@ -1499,6 +1654,8 @@ export default function App() {
                           step={0.1}
                           format={(n) => n.toFixed(1)}
                           aria-label="Shimmer noise factor min (0–2)"
+                          defaultValue={WEAVING_URL_DEFAULTS.shimmerNoiseMin}
+                          onReset={() => setShimmerNoiseMin(WEAVING_URL_DEFAULTS.shimmerNoiseMin)}
                         />
                         <span className={`${controlLabel} ${typeCaption}`}>Noise min</span>
                         <Label.Root className="sr-only" htmlFor="shimmer-noise-max">Shimmer noise max</Label.Root>
@@ -1511,6 +1668,8 @@ export default function App() {
                           step={0.1}
                           format={(n) => n.toFixed(1)}
                           aria-label="Shimmer noise factor max (0–2)"
+                          defaultValue={WEAVING_URL_DEFAULTS.shimmerNoiseMax}
+                          onReset={() => setShimmerNoiseMax(WEAVING_URL_DEFAULTS.shimmerNoiseMax)}
                         />
                         <span className={`${controlLabel} ${typeCaption}`}>Noise max</span>
                       </>
@@ -1530,6 +1689,11 @@ export default function App() {
                     >
                       Use all 4 colorways
                     </button>
+                    {useAllColorways !== WEAVING_URL_DEFAULTS.useAllColorways && (
+                      <IconButton size="sm" onClick={() => setUseAllColorways(WEAVING_URL_DEFAULTS.useAllColorways)} title="Reset all-colorways toggle" aria-label="Reset all colorways toggle to default">
+                        <Icon name="restart_alt" className={iconSm} />
+                      </IconButton>
+                    )}
                     {useAllColorways && (
                       <>
                         <div className="flex flex-col gap-1.5 w-full">
@@ -1543,6 +1707,8 @@ export default function App() {
                             step={0.05}
                             format={(n) => n.toFixed(2)}
                             aria-label="Colorway noise scale (spatial variation)"
+                            defaultValue={WEAVING_URL_DEFAULTS.colorwayNoiseScale}
+                            onReset={() => setColorwayNoiseScale(WEAVING_URL_DEFAULTS.colorwayNoiseScale)}
                           />
                         </div>
                         <Label.Root className="sr-only" htmlFor="colorway-seed">Colorway seed</Label.Root>
@@ -1555,6 +1721,8 @@ export default function App() {
                           step={0.1}
                           format={(n) => (n === 0 || n >= 99.9 ? n.toFixed(0) : n.toFixed(1))}
                           aria-label="Colorway seed"
+                          defaultValue={WEAVING_URL_DEFAULTS.colorwaySeed}
+                          onReset={() => setColorwaySeed(WEAVING_URL_DEFAULTS.colorwaySeed)}
                         />
                         <span className={`shrink-0 min-w-16 ${typeValue}`} aria-hidden>Seed: {typeof colorwaySeed === 'number' && Number.isInteger(colorwaySeed) ? colorwaySeed : colorwaySeed.toFixed(1)}</span>
                         <button
@@ -1576,78 +1744,60 @@ export default function App() {
               <>
                 <div className={sidebarGroup}>
                   <div className={`${sidebarGroupTitle} inline-flex items-center gap-1`}><Icon name="lens_blur" className={iconXs} /> preset</div>
-                  <Select.Root value={String(halftonePresetIndex)} onValueChange={(v) => applyHalftonePreset(Number(v))}>
-                    <Select.Trigger className={selectTrigger} aria-label="Halftone preset">
-                      <Select.Value placeholder="Preset" />
-                      <Icon name="expand_more" className={`${iconLg} opacity-60`} />
-                    </Select.Trigger>
-                    <Select.Portal>
-                      <Select.Content className={selectContent} position="popper" sideOffset={4}>
-                        <Select.Viewport>
-                          {halftoneCmykPresets.map((p, i) => (
-                            <Select.Item key={i} className={selectItem} value={String(i)}>
-                              <Select.ItemText>{p.name}</Select.ItemText>
-                              <Select.ItemIndicator className="absolute right-2 inline-flex" />
-                            </Select.Item>
-                          ))}
-                        </Select.Viewport>
-                      </Select.Content>
-                    </Select.Portal>
-                  </Select.Root>
+                  <AppSelect
+                    value={halftonePresetIndex}
+                    onValueChange={(v) => applyHalftonePreset(Number(v))}
+                    defaultValue={HALFTONE_DEFAULTS.presetIndex}
+                    onReset={() => applyHalftonePreset(HALFTONE_DEFAULTS.presetIndex)}
+                    options={halftoneCmykPresets.map((p, i) => ({ value: i, label: p.name }))}
+                    title="Halftone preset"
+                    placeholder="Preset"
+                  />
                 </div>
                 <div className={sidebarGroup}>
                   <div className={`${sidebarGroupTitle} inline-flex items-center gap-1`}><Icon name="lens_blur" className={iconXs} /> dot & grid</div>
                   <div className="flex flex-col gap-1">
                     <Label.Root className={typeLabel} htmlFor="v3-halftone-size">Size</Label.Root>
-                    <SliderWithInput id="v3-halftone-size" aria-label="Grid size" value={halftoneSize} onValueChange={setHalftoneSize} min={0.01} max={1} step={0.01} format={(n) => n.toFixed(2)} />
+                    <SliderWithInput id="v3-halftone-size" aria-label="Grid size" value={halftoneSize} onValueChange={setHalftoneSize} defaultValue={HALFTONE_DEFAULTS.size} onReset={() => setHalftoneSize(HALFTONE_DEFAULTS.size)} min={0.01} max={1} step={0.01} format={(n) => n.toFixed(2)} />
                   </div>
                   <div className="flex flex-col gap-1">
                     <Label.Root className={typeLabel} htmlFor="v3-halftone-softness">Softness</Label.Root>
-                    <SliderWithInput id="v3-halftone-softness" aria-label="Dot softness" value={halftoneSoftness} onValueChange={setHalftoneSoftness} min={0} max={1} step={0.05} format={(n) => n.toFixed(2)} />
+                    <SliderWithInput id="v3-halftone-softness" aria-label="Dot softness" value={halftoneSoftness} onValueChange={setHalftoneSoftness} defaultValue={HALFTONE_DEFAULTS.softness} onReset={() => setHalftoneSoftness(HALFTONE_DEFAULTS.softness)} min={0} max={1} step={0.05} format={(n) => n.toFixed(2)} />
                   </div>
                   <div className="flex flex-col gap-1">
                     <Label.Root className={typeLabel} htmlFor="v3-halftone-gridnoise">Grid noise</Label.Root>
-                    <SliderWithInput id="v3-halftone-gridnoise" aria-label="Grid noise" value={halftoneGridNoise} onValueChange={setHalftoneGridNoise} min={0} max={1} step={0.05} format={(n) => n.toFixed(2)} />
+                    <SliderWithInput id="v3-halftone-gridnoise" aria-label="Grid noise" value={halftoneGridNoise} onValueChange={setHalftoneGridNoise} defaultValue={HALFTONE_DEFAULTS.gridNoise} onReset={() => setHalftoneGridNoise(HALFTONE_DEFAULTS.gridNoise)} min={0} max={1} step={0.05} format={(n) => n.toFixed(2)} />
                   </div>
                   <div className="flex flex-col gap-1">
                     <Label.Root className={typeLabel}>Type</Label.Root>
-                    <Select.Root value={halftoneType} onValueChange={setHalftoneType}>
-                      <Select.Trigger className={selectTrigger} aria-label="Dot type">
-                        <Select.Value />
-                        <Icon name="expand_more" className={`${iconLg} opacity-60`} />
-                      </Select.Trigger>
-                      <Select.Portal>
-                        <Select.Content className={selectContent} position="popper" sideOffset={4}>
-                          <Select.Viewport>
-                            {[{ value: 'dots', label: 'Dots' }, { value: 'ink', label: 'Ink' }, { value: 'sharp', label: 'Sharp' }].map((opt) => (
-                              <Select.Item key={opt.value} className={selectItem} value={opt.value}>
-                                <Select.ItemText>{opt.label}</Select.ItemText>
-                                <Select.ItemIndicator className="absolute right-2 inline-flex" />
-                              </Select.Item>
-                            ))}
-                          </Select.Viewport>
-                        </Select.Content>
-                      </Select.Portal>
-                    </Select.Root>
+                    <AppSelect
+                      value={halftoneType}
+                      onValueChange={setHalftoneType}
+                      defaultValue={HALFTONE_DEFAULTS.type}
+                      onReset={() => setHalftoneType(HALFTONE_DEFAULTS.type)}
+                      options={[{ value: 'dots', label: 'Dots' }, { value: 'ink', label: 'Ink' }, { value: 'sharp', label: 'Sharp' }]}
+                      title="Dot type"
+                      placeholder="Type"
+                    />
                   </div>
                 </div>
                 <div className={sidebarGroup}>
                   <div className={`${sidebarGroupTitle} inline-flex items-center gap-1`}><Icon name="lens_blur" className={iconXs} /> tone</div>
                   <div className="flex flex-col gap-1">
                     <Label.Root className={typeLabel} htmlFor="v3-halftone-contrast">Contrast</Label.Root>
-                    <SliderWithInput id="v3-halftone-contrast" aria-label="Contrast" value={halftoneContrast} onValueChange={setHalftoneContrast} min={0} max={2} step={0.05} format={(n) => n.toFixed(2)} />
+                    <SliderWithInput id="v3-halftone-contrast" aria-label="Contrast" value={halftoneContrast} onValueChange={setHalftoneContrast} defaultValue={HALFTONE_DEFAULTS.contrast} onReset={() => setHalftoneContrast(HALFTONE_DEFAULTS.contrast)} min={0} max={2} step={0.05} format={(n) => n.toFixed(2)} />
                   </div>
                   <div className="flex flex-col gap-1">
                     <Label.Root className={typeLabel} htmlFor="v3-halftone-floodc">Flood C</Label.Root>
-                    <SliderWithInput id="v3-halftone-floodc" aria-label="Cyan flood" value={halftoneFloodC} onValueChange={setHalftoneFloodC} min={0} max={1} step={0.05} format={(n) => n.toFixed(2)} />
+                    <SliderWithInput id="v3-halftone-floodc" aria-label="Cyan flood" value={halftoneFloodC} onValueChange={setHalftoneFloodC} defaultValue={HALFTONE_DEFAULTS.floodC} onReset={() => setHalftoneFloodC(HALFTONE_DEFAULTS.floodC)} min={0} max={1} step={0.05} format={(n) => n.toFixed(2)} />
                   </div>
                   <div className="flex flex-col gap-1">
                     <Label.Root className={typeLabel} htmlFor="v3-halftone-gainc">Gain C</Label.Root>
-                    <SliderWithInput id="v3-halftone-gainc" aria-label="Cyan gain" value={halftoneGainC} onValueChange={setHalftoneGainC} min={-1} max={1} step={0.05} format={(n) => n.toFixed(2)} />
+                    <SliderWithInput id="v3-halftone-gainc" aria-label="Cyan gain" value={halftoneGainC} onValueChange={setHalftoneGainC} defaultValue={HALFTONE_DEFAULTS.gainC} onReset={() => setHalftoneGainC(HALFTONE_DEFAULTS.gainC)} min={-1} max={1} step={0.05} format={(n) => n.toFixed(2)} />
                   </div>
                   <div className="flex flex-col gap-1">
                     <Label.Root className={typeLabel} htmlFor="v3-halftone-gainy">Gain Y</Label.Root>
-                    <SliderWithInput id="v3-halftone-gainy" aria-label="Yellow gain" value={halftoneGainY} onValueChange={setHalftoneGainY} min={-1} max={1} step={0.05} format={(n) => n.toFixed(2)} />
+                    <SliderWithInput id="v3-halftone-gainy" aria-label="Yellow gain" value={halftoneGainY} onValueChange={setHalftoneGainY} defaultValue={HALFTONE_DEFAULTS.gainY} onReset={() => setHalftoneGainY(HALFTONE_DEFAULTS.gainY)} min={-1} max={1} step={0.05} format={(n) => n.toFixed(2)} />
                   </div>
                 </div>
                 <div className={sidebarGroup}>

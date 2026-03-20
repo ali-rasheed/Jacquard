@@ -6,6 +6,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import * as Slider from '@radix-ui/react-slider';
 import { inputNumber } from '../uiConstants';
+import { IconButton, Icon } from './ui';
 
 function clamp(value, min, max) {
   if (value == null || Number.isNaN(value)) return min;
@@ -37,6 +38,9 @@ function SingleSliderWithInput({
   className = '',
   trackClassName = 'relative h-1.5 grow rounded-full bg-surface-input',
   thumbClassName = 'block h-4 w-4 rounded-full border border-border bg-surface shadow focus:outline-none focus:ring-2 focus:ring-accent/40',
+  /** Default value used to show inline reset affordance when changed. */
+  defaultValue = undefined,
+  onReset = undefined,
 }) {
   const [inputStr, setInputStr] = useState(() => format(value));
   const [isFocused, setIsFocused] = useState(false);
@@ -79,6 +83,7 @@ function SingleSliderWithInput({
           tickCount === 1 ? 50 : (i / (tickCount - 1)) * 100
         )
       : [];
+  const isDirty = defaultValue != null && Math.abs(Number(displayValue) - Number(defaultValue)) > 1e-6;
 
   return (
     <div className={`flex items-center gap-2 ${className}`}>
@@ -128,6 +133,11 @@ function SingleSliderWithInput({
         onKeyDown={handleKeyDown}
         aria-label={ariaLabel ? `${ariaLabel} value` : undefined}
       />
+      {isDirty && onReset && (
+        <IconButton size="sm" onClick={onReset} title="Reset to default" aria-label="Reset to default">
+          <Icon name="restart_alt" className="h-4 w-4" />
+        </IconButton>
+      )}
     </div>
   );
 }
@@ -146,6 +156,9 @@ function RangeSliderWithInput({
   className = '',
   trackClassName = 'relative h-1.5 grow rounded-full bg-surface-input',
   thumbClassName = 'block h-4 w-4 rounded-full border border-border bg-surface shadow focus:ring-2 focus:ring-accent/40',
+  /** Default range used to show inline reset affordance when changed. */
+  defaultValue = undefined,
+  onReset = undefined,
 }) {
   const [a, b] = value;
   const [inputA, setInputA] = useState(() => format(a));
@@ -204,6 +217,9 @@ function RangeSliderWithInput({
           snapPointCount === 1 ? 50 : (i / (snapPointCount - 1)) * 100
         )
       : [];
+  const isDirty = Array.isArray(defaultValue)
+    && defaultValue.length === 2
+    && (Math.abs(Number(a) - Number(defaultValue[0])) > 1e-6 || Math.abs(Number(b) - Number(defaultValue[1])) > 1e-6);
 
   return (
     <div className={`flex items-center gap-2 ${className}`}>
@@ -268,6 +284,11 @@ function RangeSliderWithInput({
           aria-label={ariaLabel ? `${ariaLabel} max` : undefined}
         />
       </div>
+      {isDirty && onReset && (
+        <IconButton size="sm" onClick={onReset} title="Reset range to default" aria-label="Reset range to default">
+          <Icon name="restart_alt" className="h-4 w-4" />
+        </IconButton>
+      )}
     </div>
   );
 }

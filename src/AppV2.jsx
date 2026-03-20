@@ -11,6 +11,7 @@ import { SliderWithInput } from './components/SliderWithInput';
 import { useCanvasRecorder, supportsMP4 } from './hooks/useCanvasRecorder';
 import { PATTERNS } from './patterns';
 import { COPY_SCALES, EXPORT_MAX_DIMENSION, GRID_SNAPS, getGridSizeIndex, URL_STATE_MAX_LEN, WEAVE_ICONS } from './constants';
+import { IMAGE_RECTS_URL_DEFAULTS } from './urlDefaults';
 import {
   PALETTE_NAMES,
   PALETTE_SWATCH_COLORS,
@@ -56,6 +57,8 @@ function parseUrlStateV2(search) {
     if (!Number.isFinite(n)) return;
     out[stateKey] = min != null && max != null ? Math.max(min, Math.min(max, n)) : n;
   };
+  const v = params.get('v');
+  if (v != null && v !== '2') return out;
   num('grid', 'gridSize', 8, 96);
   num('pal', 'palette', 0, 3);
   num('bg', 'bgShade', 0, 5);
@@ -75,11 +78,9 @@ function parseUrlStateV2(search) {
 
 /** Build URL search string from Image Rects state; omit defaults to keep URL short. */
 function buildUrlStateV2(state) {
-  const def = {
-    gridSize: 32, palette: 0, bgShade: 2, colorizeMode: 1, quantizeSteps: 0, shadeFrom: 0,
-    patternIndex: 0, rectRadius: 0.18, rectAspect: 0.85, rectRatio: 1, copyFormat: 'png', copyScale: 2,
-  };
+  const def = IMAGE_RECTS_URL_DEFAULTS;
   const p = new URLSearchParams();
+  p.set('v', '2');
   if (state.gridSize !== def.gridSize) p.set('grid', String(state.gridSize));
   if (state.palette !== def.palette) p.set('pal', String(state.palette));
   if (state.bgShade !== def.bgShade) p.set('bg', String(state.bgShade));
@@ -92,6 +93,7 @@ function buildUrlStateV2(state) {
   if (state.rectRatio !== def.rectRatio) p.set('rratio', String(Number(state.rectRatio.toFixed(2))));
   if (state.copyFormat !== def.copyFormat) p.set('cf', state.copyFormat);
   if (state.copyScale !== def.copyScale) p.set('cs', String(state.copyScale));
+  if (state.menuHidden === false) p.set('menu', '1');
   const s = p.toString();
   return s.length <= URL_STATE_MAX_LEN ? s : '';
 }
@@ -99,20 +101,20 @@ function buildUrlStateV2(state) {
 /** menuHidden: when true, sidebar is hidden until hover (fixed overlay); when false, always visible. Passed from App.jsx for v2 (Image Rects) to match v1/v3/v4 toggle. */
 export default function AppV2({ menuHidden = true }) {
   const [imageSource, setImageSource] = useState('');
-  const [gridSize, setGridSize] = useState(32);
-  const [palette, setPalette] = useState(0);
-  const [bgShade, setBgShade] = useState(2);
-  const [colorizeMode, setColorizeMode] = useState(true); // true = colorization, false = brand
-  const [quantizeSteps, setQuantizeSteps] = useState(0);  // 0 = off, 2–32 = steps
+  const [gridSize, setGridSize] = useState(IMAGE_RECTS_URL_DEFAULTS.gridSize);
+  const [palette, setPalette] = useState(IMAGE_RECTS_URL_DEFAULTS.palette);
+  const [bgShade, setBgShade] = useState(IMAGE_RECTS_URL_DEFAULTS.bgShade);
+  const [colorizeMode, setColorizeMode] = useState(IMAGE_RECTS_URL_DEFAULTS.colorizeMode); // true = colorization, false = brand
+  const [quantizeSteps, setQuantizeSteps] = useState(IMAGE_RECTS_URL_DEFAULTS.quantizeSteps); // 0 = off, 2–32 = steps
   const rectShade = 1; // fixed; shadeFrom controls brand mode shading
-  const [shadeFrom, setShadeFrom] = useState(0);          // 0=color, 1=warp, 2=weft, 3=warp+weft (brand)
-  const [patternIndex, setPatternIndex] = useState(0);    // weave pattern (same list as v1)
-  const [rectRadius, setRectRadius] = useState(0.18);     // corner radius in cell space (0 = sharp)
-  const [rectAspect, setRectAspect] = useState(0.85);     // rect width/height (e.g. 34/40)
-  const [rectRatio, setRectRatio] = useState(1.0);        // rect scale within cell (1 = full)
+  const [shadeFrom, setShadeFrom] = useState(IMAGE_RECTS_URL_DEFAULTS.shadeFrom); // 0=color, 1=warp, 2=weft, 3=warp+weft (brand)
+  const [patternIndex, setPatternIndex] = useState(IMAGE_RECTS_URL_DEFAULTS.patternIndex); // weave pattern (same list as v1)
+  const [rectRadius, setRectRadius] = useState(IMAGE_RECTS_URL_DEFAULTS.rectRadius); // corner radius in cell space (0 = sharp)
+  const [rectAspect, setRectAspect] = useState(IMAGE_RECTS_URL_DEFAULTS.rectAspect); // rect width/height (e.g. 34/40)
+  const [rectRatio, setRectRatio] = useState(IMAGE_RECTS_URL_DEFAULTS.rectRatio); // rect scale within cell (1 = full)
   const [fps, setFps] = useState(0);
-  const [copyFormat, setCopyFormat] = useState('png');   // 'png' | 'webp'
-  const [copyScale, setCopyScale] = useState(2);        // 1 | 2 | 4 | 8
+  const [copyFormat, setCopyFormat] = useState(IMAGE_RECTS_URL_DEFAULTS.copyFormat); // 'png' | 'webp'
+  const [copyScale, setCopyScale] = useState(IMAGE_RECTS_URL_DEFAULTS.copyScale); // 1 | 2 | 4 | 8
   const canvasRef = useRef(null);
   const imageRectsCaptureRef = useRef(null);            // { captureAtResolution(w, h) } when canvas ready
   const appliedUrlRef = useRef(false);
@@ -222,6 +224,26 @@ export default function AppV2({ menuHidden = true }) {
     setRectRatio(Number(rand(0.3, 1).toFixed(2)));
   }, []);
 
+  /** Reset all Image Rects controls to defaults. */
+  const handleReset = useCallback(() => {
+    setGridSize(IMAGE_RECTS_URL_DEFAULTS.gridSize);
+    setPalette(IMAGE_RECTS_URL_DEFAULTS.palette);
+    setBgShade(IMAGE_RECTS_URL_DEFAULTS.bgShade);
+    setColorizeMode(IMAGE_RECTS_URL_DEFAULTS.colorizeMode);
+    setQuantizeSteps(IMAGE_RECTS_URL_DEFAULTS.quantizeSteps);
+    setShadeFrom(IMAGE_RECTS_URL_DEFAULTS.shadeFrom);
+    setPatternIndex(IMAGE_RECTS_URL_DEFAULTS.patternIndex);
+    setRectRadius(IMAGE_RECTS_URL_DEFAULTS.rectRadius);
+    setRectAspect(IMAGE_RECTS_URL_DEFAULTS.rectAspect);
+    setRectRatio(IMAGE_RECTS_URL_DEFAULTS.rectRatio);
+    setCopyFormat(IMAGE_RECTS_URL_DEFAULTS.copyFormat);
+    setCopyScale(IMAGE_RECTS_URL_DEFAULTS.copyScale);
+    setImageSource((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return '';
+    });
+  }, []);
+
   /** On mount: parse URL and apply to state (once). */
   useEffect(() => {
     if (appliedUrlRef.current) return;
@@ -248,7 +270,7 @@ export default function AppV2({ menuHidden = true }) {
     urlSyncTimeoutRef.current = setTimeout(() => {
       const search = buildUrlStateV2({
         gridSize, palette, bgShade, colorizeMode, quantizeSteps, shadeFrom, patternIndex,
-        rectRadius, rectAspect, rectRatio, copyFormat, copyScale,
+        rectRadius, rectAspect, rectRatio, copyFormat, copyScale, menuHidden,
       });
       const url = search ? `${window.location.pathname}?${search}` : window.location.pathname;
       if (window.location.pathname + (window.location.search || '') !== url) {
@@ -256,7 +278,7 @@ export default function AppV2({ menuHidden = true }) {
       }
     }, 400);
     return () => { clearTimeout(urlSyncTimeoutRef.current); };
-  }, [gridSize, palette, bgShade, colorizeMode, quantizeSteps, shadeFrom, patternIndex, rectRadius, rectAspect, rectRatio, copyFormat, copyScale]);
+  }, [gridSize, palette, bgShade, colorizeMode, quantizeSteps, shadeFrom, patternIndex, rectRadius, rectAspect, rectRatio, copyFormat, copyScale, menuHidden]);
 
   /** Keyboard shortcuts: Mod+C copy, Mod+Shift+R / F5 reload (no presets in v2). */
   useEffect(() => {
@@ -328,6 +350,10 @@ export default function AppV2({ menuHidden = true }) {
                 <Icon name="shuffle" className={iconMd} />
                 <span>Randomize</span>
               </button>
+              <button type="button" className={btnGhost} onClick={handleReset} aria-label="Reset parameters to defaults" title="Reset Image Rects parameters to defaults">
+                <Icon name="restart_alt" className={iconMd} />
+                <span>Reset</span>
+              </button>
               <SegmentedControl>
                 <div className="flex h-full">
                   {COPY_SCALES.map((s) => (
@@ -359,6 +385,19 @@ export default function AppV2({ menuHidden = true }) {
                 <IconButton size="sm" title={`Copy canvas at ${copyScale}× as ${copyFormat.toUpperCase()}`} aria-label={`Copy ${copyFormat.toUpperCase()}`} onClick={handleCopy}>
                   <Icon name="content_copy" className={iconSm} />
                 </IconButton>
+                {(copyScale !== IMAGE_RECTS_URL_DEFAULTS.copyScale || copyFormat !== IMAGE_RECTS_URL_DEFAULTS.copyFormat) && (
+                  <IconButton
+                    size="sm"
+                    title="Reset copy scale and format"
+                    aria-label="Reset copy scale and format"
+                    onClick={() => {
+                      setCopyScale(IMAGE_RECTS_URL_DEFAULTS.copyScale);
+                      setCopyFormat(IMAGE_RECTS_URL_DEFAULTS.copyFormat);
+                    }}
+                  >
+                    <Icon name="restart_alt" className={iconSm} />
+                  </IconButton>
+                )}
               </SegmentedControl>
               <SegmentedControl>
                 <div className="flex h-full">
@@ -402,12 +441,14 @@ export default function AppV2({ menuHidden = true }) {
                 labelText="Rect color source (mode)"
                 value={colorizeMode ? 'colorize' : 'brand'}
                 onValueChange={(v) => setColorizeMode(v === 'colorize')}
+                defaultValue={IMAGE_RECTS_URL_DEFAULTS.colorizeMode ? 'colorize' : 'brand'}
+                onReset={() => setColorizeMode(IMAGE_RECTS_URL_DEFAULTS.colorizeMode)}
                 options={MODE_OPTIONS}
                 title="Rect color source"
                 placeholder="Mode"
               />
               <span className={`${controlLabel} ${typeLabel}`} title="Weave pattern">Weave</span>
-              <AppSelect id="weave-pattern-v2" labelText="Weave pattern" value={patternIndex} onValueChange={(v) => setPatternIndex(Number(v))} options={patternOptions} title="Weave pattern" placeholder="Weave" />
+              <AppSelect id="weave-pattern-v2" labelText="Weave pattern" value={patternIndex} onValueChange={(v) => setPatternIndex(Number(v))} defaultValue={IMAGE_RECTS_URL_DEFAULTS.patternIndex} onReset={() => setPatternIndex(IMAGE_RECTS_URL_DEFAULTS.patternIndex)} options={patternOptions} title="Weave pattern" placeholder="Weave" />
               <div className="flex items-center gap-1" role="group" aria-label="Colorway palette">
                 {PALETTE_SWATCH_COLORS.map((color, i) => (
                   <button
@@ -424,14 +465,21 @@ export default function AppV2({ menuHidden = true }) {
                     onClick={() => setPalette(i)}
                   />
                 ))}
+                {palette !== IMAGE_RECTS_URL_DEFAULTS.palette && (
+                  <IconButton size="sm" onClick={() => setPalette(IMAGE_RECTS_URL_DEFAULTS.palette)} title="Reset palette" aria-label="Reset palette to default">
+                    <Icon name="restart_alt" className={iconSm} />
+                  </IconButton>
+                )}
               </div>
-              <AppSelect id="bg-shade-v2" labelText="Background shade" value={bgShade} onValueChange={(v) => setBgShade(Number(v))} options={shadeOptions('BG')} title="Background shade" placeholder="BG" />
+              <AppSelect id="bg-shade-v2" labelText="Background shade" value={bgShade} onValueChange={(v) => setBgShade(Number(v))} defaultValue={IMAGE_RECTS_URL_DEFAULTS.bgShade} onReset={() => setBgShade(IMAGE_RECTS_URL_DEFAULTS.bgShade)} options={shadeOptions('BG')} title="Background shade" placeholder="BG" />
               {!colorizeMode && (
                 <AppSelect
                   id="shade-from-v2"
                   labelText="Shade from (brand: color vs warp/weft)"
                   value={shadeFrom}
                   onValueChange={(v) => setShadeFrom(Number(v))}
+                  defaultValue={IMAGE_RECTS_URL_DEFAULTS.shadeFrom}
+                  onReset={() => setShadeFrom(IMAGE_RECTS_URL_DEFAULTS.shadeFrom)}
                   options={SHADE_FROM_OPTIONS}
                   title="Shade from (brand: color vs warp/weft)"
                   placeholder="Shade from"
@@ -448,6 +496,8 @@ export default function AppV2({ menuHidden = true }) {
                 id="quantize-slider-v2"
                 value={quantizeSteps}
                 onValueChange={setQuantizeSteps}
+                defaultValue={IMAGE_RECTS_URL_DEFAULTS.quantizeSteps}
+                onReset={() => setQuantizeSteps(IMAGE_RECTS_URL_DEFAULTS.quantizeSteps)}
                 min={0}
                 max={32}
                 step={1}
@@ -467,6 +517,8 @@ export default function AppV2({ menuHidden = true }) {
                   id="rect-radius-v2"
                   value={rectRadius}
                   onValueChange={setRectRadius}
+                  defaultValue={IMAGE_RECTS_URL_DEFAULTS.rectRadius}
+                  onReset={() => setRectRadius(IMAGE_RECTS_URL_DEFAULTS.rectRadius)}
                   min={0}
                   max={0.5}
                   step={0.01}
@@ -481,6 +533,8 @@ export default function AppV2({ menuHidden = true }) {
                   id="rect-aspect-v2"
                   value={rectAspect}
                   onValueChange={setRectAspect}
+                  defaultValue={IMAGE_RECTS_URL_DEFAULTS.rectAspect}
+                  onReset={() => setRectAspect(IMAGE_RECTS_URL_DEFAULTS.rectAspect)}
                   min={0.3}
                   max={1.5}
                   step={0.05}
@@ -495,6 +549,8 @@ export default function AppV2({ menuHidden = true }) {
                   id="rect-ratio-v2"
                   value={rectRatio}
                   onValueChange={setRectRatio}
+                  defaultValue={IMAGE_RECTS_URL_DEFAULTS.rectRatio}
+                  onReset={() => setRectRatio(IMAGE_RECTS_URL_DEFAULTS.rectRatio)}
                   min={0.2}
                   max={1}
                   step={0.05}
@@ -513,6 +569,8 @@ export default function AppV2({ menuHidden = true }) {
                 id="grid-slider-v2"
                 value={gridSize}
                 onValueChange={setGridSize}
+                defaultValue={IMAGE_RECTS_URL_DEFAULTS.gridSize}
+                onReset={() => setGridSize(IMAGE_RECTS_URL_DEFAULTS.gridSize)}
                 min={8}
                 max={64}
                 step={1}
