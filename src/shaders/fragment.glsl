@@ -18,7 +18,7 @@ uniform float u_palette;
 uniform float u_bgShade;
 uniform float u_warpShade;
 uniform float u_weftShade;
-uniform float u_gridSize;         // Cells along vertical axis (8–64); higher = finer grid
+uniform float u_gridSize;         // Cells along vertical axis (8–256); higher = finer grid
 
 // Warp/weft 2-stop gradients: start/end RGBA, direction (0 or 1), range (startPos..endPos in 0..1)
 uniform vec4 u_warpStart;
@@ -185,9 +185,9 @@ void main() {
     float aspect = u_resolution.x / u_resolution.y;
     uv.x *= aspect;
 
-    // Scale: u_gridSize = number of cells along the vertical axis (8–64).
+    // Scale: u_gridSize = number of cells along the vertical axis (8–256).
     // Higher = smaller tiles (finer weave), lower = larger tiles.
-    float gridSize = clamp(u_gridSize, 2.0, 64.0);
+    float gridSize = clamp(u_gridSize, 2.0, 256.0);
     vec2 gridUV = uv * gridSize;
 
     // fract = local position within this cell (0..1)

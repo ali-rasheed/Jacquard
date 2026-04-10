@@ -94,8 +94,8 @@ export const PRESETS = [
 /** Default rect aspect 36×40 (warp orientation). Shared by App, ShaderCanvas, useShaderSandbox. */
 export const RECT_ASPECT_DEFAULT = 36 / 40;
 
-/** Designer-friendly grid sizes; slider snaps to these. */
-export const GRID_SNAPS = [8, 12, 16, 24, 32, 48, 64];
+/** Designer-friendly grid sizes; slider snaps to these (max 256 cells on the short axis). */
+export const GRID_SNAPS = [8, 12, 16, 24, 32, 48, 64, 96, 128, 192, 256];
 
 /** Index into GRID_SNAPS closest to given size (for slider when size comes from URL). */
 export function getGridSizeIndex(size) {

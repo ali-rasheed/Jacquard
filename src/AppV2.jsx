@@ -33,6 +33,7 @@ import {
   paletteSwatchUnselected,
 } from './uiConstants';
 import { Icon, GroupIcon, AppSelect, SegmentedControl, SegmentedControlButton, IconButton } from './components/ui';
+import { RecordingDownloadBanner } from './components/RecordingDownloadBanner.jsx';
 
 const MODE_OPTIONS = [
   { value: 'colorize', label: 'Colorization' },
@@ -59,7 +60,7 @@ function parseUrlStateV2(search) {
   };
   const v = params.get('v');
   if (v != null && v !== '2') return out;
-  num('grid', 'gridSize', 8, 96);
+  num('grid', 'gridSize', 8, 256);
   num('pal', 'palette', 0, 3);
   num('bg', 'bgShade', 0, 5);
   num('cm', 'colorizeMode', 0, 1);
@@ -197,7 +198,18 @@ export default function AppV2({ menuHidden = true }) {
   }, [copyFormat, handleCopy2xPng, handleCopyWebp]);
 
   /** Video recording (WebM or MP4). */
-  const { isRecording, isProcessing, recordFormat, setRecordFormat, startRecording: recStart, stopRecording } = useCanvasRecorder('shaderbox-image-rects');
+  const {
+    isRecording,
+    isProcessing,
+    recordFormat,
+    setRecordFormat,
+    startRecording: recStart,
+    stopRecording,
+    pendingDownload,
+    clearPendingDownload,
+    recordError,
+    clearRecordError,
+  } = useCanvasRecorder('shaderbox-image-rects');
 
   const startRecording = useCallback(() => {
     recStart(canvasRef.current);
@@ -572,7 +584,7 @@ export default function AppV2({ menuHidden = true }) {
                 defaultValue={IMAGE_RECTS_URL_DEFAULTS.gridSize}
                 onReset={() => setGridSize(IMAGE_RECTS_URL_DEFAULTS.gridSize)}
                 min={8}
-                max={64}
+                max={256}
                 step={1}
                 snapValues={GRID_SNAPS}
                 snapPointCount={GRID_SNAPS.length}
@@ -628,6 +640,12 @@ export default function AppV2({ menuHidden = true }) {
           <div className="pointer-events-none absolute inset-x-0 bottom-0 h-6 bg-linear-to-t from-surface-elevated to-transparent" aria-hidden />
         </footer>
       </div>
+      <RecordingDownloadBanner
+        pending={pendingDownload}
+        onDismiss={clearPendingDownload}
+        recordError={recordError}
+        onClearError={clearRecordError}
+      />
     </div>
   );
 }

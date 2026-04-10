@@ -86,7 +86,7 @@ void main() {
   float aspect = u_resolution.x / u_resolution.y;
   uv.x *= aspect;
 
-  float gridSize = clamp(u_gridSize, 2.0, 128.0);
+  float gridSize = clamp(u_gridSize, 2.0, 256.0);
   vec2 gridUV = uv * gridSize;
   vec2 cellUV = fract(gridUV);
   vec2 cellID = floor(gridUV);

@@ -31,7 +31,7 @@ function SingleSliderWithInput({
   max,
   step,
   snapPointCount = 0,
-  /** When set, slider and input use these discrete values (e.g. [8,12,16,24,32,48,64]). */
+  /** When set, slider and input use these discrete values (e.g. GRID_SNAPS). */
   snapValues = null,
   format = (n) => String(n),
   parse = (s) => (Number.isFinite(Number(s)) ? Number(s) : null),

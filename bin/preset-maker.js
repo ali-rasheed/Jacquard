@@ -42,7 +42,7 @@ function parseUrlState(search) {
   num('bg', 'bgShade', 0, 4);
   num('warp', 'warpShade', 0, 4);
   num('weft', 'weftShade', 0, 4);
-  num('grid', 'gridSize', 8, 64);
+  num('grid', 'gridSize', 8, 256);
   num('steps', 'gradSteps', 0, 16);
   num('rect', 'rectAspect', 0.5, 1);
   num('corner', 'cornerRadius', 0, 0.5);

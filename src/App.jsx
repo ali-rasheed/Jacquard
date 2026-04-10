@@ -66,6 +66,7 @@ import {
   paletteSwatchUnselected,
 } from './uiConstants';
 import { Icon, GroupIcon, AppSelect, DirectionSwitch, SegmentedControl, SegmentedControlButton, IconButton } from './components/ui';
+import { RecordingDownloadBanner } from './components/RecordingDownloadBanner.jsx';
 
 /** Lazy load to avoid circular/order-dependent init in production bundle (TDZ). */
 const AppV2 = lazy(() => import('./AppV2.jsx'));
@@ -114,7 +115,7 @@ function parseUrlState(search) {
   num('bg', 'bgShade', 0, 5);
   num('warp', 'warpShade', 0, 5);
   num('weft', 'weftShade', 0, 5);
-  num('grid', 'gridSize', 8, 64);
+  num('grid', 'gridSize', 8, 256);
   num('preset', 'presetIndex', 0, PRESETS.length - 1);
   grad('warp');
   grad('weft');
@@ -691,7 +692,18 @@ export default function App() {
   }, [view, exportScale]);
 
   /** Video recording (WebM or MP4). Canvas resolved per current view. */
-  const { isRecording, isProcessing, recordFormat, setRecordFormat, startRecording: recStart, stopRecording } = useCanvasRecorder('shaderbox');
+  const {
+    isRecording,
+    isProcessing,
+    recordFormat,
+    setRecordFormat,
+    startRecording: recStart,
+    stopRecording,
+    pendingDownload,
+    clearPendingDownload,
+    recordError,
+    clearRecordError,
+  } = useCanvasRecorder('shaderbox');
 
   const startRecording = useCallback(() => {
     const canvas = getCopyCanvas(view, canvasRef, halftoneCanvasRef, halftoneContainerRef);
@@ -1144,7 +1156,7 @@ export default function App() {
                   )}
                   <div className="flex flex-col gap-1.5">
                     <Label.Root className={typeLabel} htmlFor="combo-grid">Grid</Label.Root>
-                    <SliderWithInput id="combo-grid" value={comboGridSize} onValueChange={setComboGridSize} defaultValue={COMBO_DEFAULTS.gridSize} onReset={() => setComboGridSize(COMBO_DEFAULTS.gridSize)} min={8} max={64} step={1} snapValues={GRID_SNAPS} snapPointCount={GRID_SNAPS.length} aria-label="Grid size" />
+                    <SliderWithInput id="combo-grid" value={comboGridSize} onValueChange={setComboGridSize} defaultValue={COMBO_DEFAULTS.gridSize} onReset={() => setComboGridSize(COMBO_DEFAULTS.gridSize)} min={8} max={256} step={1} snapValues={GRID_SNAPS} snapPointCount={GRID_SNAPS.length} aria-label="Grid size" />
                     <div className="flex items-center gap-2">
                       <span className={typeLabel}>Palette</span>
                       {PALETTE_SWATCH_COLORS.map((c, i) => (
@@ -1396,7 +1408,7 @@ export default function App() {
                       value={gridSize}
                       onValueChange={setGridSize}
                       min={8}
-                      max={64}
+                      max={256}
                       step={1}
                       snapValues={GRID_SNAPS}
                       snapPointCount={GRID_SNAPS.length}
@@ -1947,6 +1959,12 @@ export default function App() {
           </footer>
         </div>
       </div>
+      <RecordingDownloadBanner
+        pending={pendingDownload}
+        onDismiss={clearPendingDownload}
+        recordError={recordError}
+        onClearError={clearRecordError}
+      />
     </div>
   );
 }
