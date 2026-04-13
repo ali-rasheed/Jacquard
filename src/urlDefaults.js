@@ -44,15 +44,35 @@ export const IMAGE_RECTS_URL_DEFAULTS = {
   gridSize: 32,
   palette: 0,
   bgShade: 2,
-  colorizeMode: true,
+  /** 0 = brand palette, 1 = image RGB, 2 = warp/weft pattern colors (URL cm). */
+  rectColorSource: 1,
   quantizeSteps: 0,
+  /** 0 = band RGB channels, 1 = band HSV (posterize hue/sat/value). */
+  quantizeMode: 0,
+  /** Curve before banding: 1 = linear, <1 lifts shadows, >1 darkens midtones. */
+  quantizeGamma: 1,
+  /** 0–1: stable per-cell noise before rounding (reduces flat bands). */
+  quantizeDither: 0,
   shadeFrom: 0,
   patternIndex: 0,
   rectRadius: 0.18,
   rectAspect: 0.85,
   rectRatio: 1,
+  patternWarpShade: 1,
+  patternWeftShade: 3,
+  lumaSizeMix: 0,
+  lumaSizeInvert: 0,
+  lumaSizeFloor: 0.2,
+  /** 0 = always weave rects; 1 = plain cell unless image luma ≤ stitchLumaMax. */
+  cellGeometryMode: 0,
+  /** Max luminance (0–1) that still shows weave; above → plain full cell. */
+  stitchLumaMax: 0.42,
   copyFormat: 'png',
   copyScale: 2,
+  /** Dark-stitches + non-stitch cells show BG (legacy v5). */
+  mosaicBgGaps: false,
+  /** Mosaic canvas: 'fit' = contain in stage, 'fill' = grow to fill main area. */
+  patternFit: 'fit',
 };
 
 export const HALFTONE_DEFAULTS = {
@@ -76,11 +96,21 @@ export const COMBO_DEFAULTS = {
   gridSize: 32,
   palette: 0,
   bgShade: 2,
-  colorizeMode: true,
+  rectColorSource: 1,
   quantizeSteps: 0,
+  quantizeMode: 0,
+  quantizeGamma: 1,
+  quantizeDither: 0,
   shadeFrom: 0,
   patternIndex: 0,
   rectRadius: 0.18,
   rectAspect: 0.85,
   rectRatio: 1,
+  patternWarpShade: 1,
+  patternWeftShade: 3,
+  lumaSizeMix: 0,
+  lumaSizeInvert: 0,
+  lumaSizeFloor: 0.2,
+  cellGeometryMode: 0,
+  stitchLumaMax: 0.42,
 };

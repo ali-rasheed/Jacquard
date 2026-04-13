@@ -3,9 +3,9 @@
  * Type scale, palette swatches, sidebar/button/select/pill classes, and FPS pill typography.
  */
 
-/** Palette 0–3 main (500) swatch colors; matches useShaderSandbox / useImageRectsSandbox PALETTE_RGBA. */
-export const PALETTE_SWATCH_COLORS = ['rgb(145, 75, 28)', 'rgb(240, 55, 147)', 'rgb(0, 128, 188)', 'rgb(0, 124, 35)'];
-export const PALETTE_NAMES = ['Citrine', 'Garnet', 'Lapis', 'Peridot'];
+/** Palette 0–4 main (500) swatch colors; matches useShaderSandbox / fragment shaders (Quartz = quartz/500). */
+export const PALETTE_SWATCH_COLORS = ['rgb(145, 75, 28)', 'rgb(240, 55, 147)', 'rgb(0, 128, 188)', 'rgb(0, 124, 35)', 'rgb(89, 87, 85)'];
+export const PALETTE_NAMES = ['Citrine', 'Garnet', 'Lapis', 'Peridot', 'Quartz'];
 export const SHADE_NAMES = ['950', '500', '100', '400', 'Transparent', 'eee'];
 /** Material Symbols Outlined icon name for the Transparent shade (used in pills). */
 export const SHADE_TRANSPARENT_ICON = 'opacity';
@@ -63,9 +63,9 @@ export const navBtn =
 export const navBtnActive = `border-accent bg-accent/10 text-accent ${navBtn}`;
 export const navBtnInactive = `border-border-subtle bg-transparent text-text-secondary hover:border-border hover:bg-surface-hover hover:text-text ${navBtn}`;
 
-/** Sidebar show/hide toggle in nav. */
+/** Sidebar show/hide toggle in nav (left-aligned with title/tabs; no ml-auto). */
 export const menuToggle =
-  `ml-auto flex h-8 items-center gap-1.5 rounded-md border px-2.5 ${typeBase} transition-colors focus:ring-2 focus:ring-accent/40`;
+  `flex h-8 shrink-0 items-center gap-1.5 rounded-md border px-2.5 ${typeBase} transition-colors focus:ring-2 focus:ring-accent/40`;
 export const menuToggleActive = 'border-accent bg-accent/10 text-accent';
 export const menuToggleInactive = 'border-border-subtle bg-transparent text-text-secondary hover:border-border hover:bg-surface-hover hover:text-text';
 

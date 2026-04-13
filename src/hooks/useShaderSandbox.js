@@ -92,15 +92,17 @@ function createProgram(gl, vertexSource, fragmentSource) {
 }
 
 // ENS palette RGBA (0–1), matches shader getPaletteColor. [palette][shade] = [r,g,b,a]; shade 0–4 = 950,500,100,400,Transparent.
+// Palette 4 = Quartz neutrals from ENS Core variables (quartz/900,500,100,400 — 300 sits between 100–400 in Figma).
 const PALETTE_RGBA = [
   [[0.247, 0.114, 0.035, 1], [0.596, 0.302, 0.106, 1], [0.973, 0.969, 0.886, 1], [0.855, 0.725, 0.525, 1], [0, 0, 0, 0]],
   [[0.322, 0.024, 0.141, 1], [0.941, 0.216, 0.576, 1], [0.984, 0.922, 0.941, 1], [0.988, 0.706, 0.812, 1], [0, 0, 0, 0]],
   [[0.008, 0.161, 0.231, 1], [0.0, 0.502, 0.737, 1], [0.902, 0.953, 0.973, 1], [0.455, 0.725, 0.875, 1], [0, 0, 0, 0]],
   [[0.012, 0.188, 0.063, 1], [0.0, 0.486, 0.137, 1], [0.843, 0.914, 0.89, 1], [0.51, 0.816, 0.561, 1], [0, 0, 0, 0]],
+  [[0.098039, 0.098039, 0.098039, 1], [0.34902, 0.341176, 0.333333, 1], [0.933333, 0.929412, 0.929412, 1], [0.45098, 0.45098, 0.45098, 1], [0, 0, 0, 0]],
 ];
 
 function getPaletteColor(paletteIndex, shadeIndex) {
-  const p = Math.max(0, Math.min(3, Math.floor(paletteIndex)));
+  const p = Math.max(0, Math.min(4, Math.floor(paletteIndex)));
   const s = Math.max(0, Math.min(4, Math.floor(shadeIndex)));
   return PALETTE_RGBA[p][s];
 }

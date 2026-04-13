@@ -55,6 +55,7 @@ export const PRESETS = [
   { id: 'garnet-twill-flat', label: 'Garnet · 2/2 Twill · Flat', pattern: 6, palette: 1, bgShade: 3, warpShade: 0, weftShade: 3, warpGradient: flatGrad(0), weftGradient: flatGrad(3) },
   { id: 'lapis-satin-flat', label: 'Lapis · Satin · Flat', pattern: 4, palette: 2, bgShade: 1, warpShade: 1, weftShade: 3, warpGradient: flatGrad(1), weftGradient: flatGrad(3) },
   { id: 'peridot-houndstooth-flat', label: 'Peridot · Houndstooth · Flat', pattern: 11, palette: 3, bgShade: 0, warpShade: 0, weftShade: 2, warpGradient: flatGrad(0), weftGradient: flatGrad(2) },
+  { id: 'quartz-plain-flat', label: 'Quartz · Plain · Flat', pattern: 0, palette: 4, bgShade: 2, warpShade: 1, weftShade: 3, warpGradient: flatGrad(1), weftGradient: flatGrad(3) },
   { id: 'citrine-plain-grad', label: 'Citrine · Plain · Grad', pattern: 0, palette: 0, bgShade: 3, warpShade: 1, weftShade: 3, ...grad(0, 3, 1, 2) },
   { id: 'garnet-twill-grad', label: 'Garnet · 2/2 Twill · Grad', pattern: 6, palette: 1, bgShade: 0, warpShade: 0, weftShade: 3, ...grad(0, 3, 1, 2) },
   { id: 'lapis-satin-grad', label: 'Lapis · Satin · Grad', pattern: 4, palette: 2, bgShade: 2, warpShade: 1, weftShade: 2, ...grad(0, 2, 2, 3, 1, 1) },

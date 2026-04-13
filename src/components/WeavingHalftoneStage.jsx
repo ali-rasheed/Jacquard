@@ -201,6 +201,7 @@ export function WeavingHalftoneStage({
         }}
       >
         <ShaderCanvas
+          patternFit={patternFit}
           patternIndex={patternIndex}
           palette={palette}
           bgShade={bgShade}

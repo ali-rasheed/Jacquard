@@ -13,7 +13,7 @@ uniform float u_tileW;
 uniform float u_tileH;            // Repeat size of this pattern (e.g. 8×8)
 uniform float u_patternTexHeight; // Total texture height (10 * numPatterns)
 
-// Colorway and shades (palette 0–3, shade 0–3 per warp/weft/bg)
+// Colorway and shades (palette 0–4, shade 0–3 per warp/weft/bg)
 uniform float u_palette;
 uniform float u_bgShade;
 uniform float u_warpShade;
@@ -126,10 +126,10 @@ float getPatternFromTexture(float row, float col) {
 }
 
 // --- ENS COLOR PICK (colorway + shade) ---
-// Palette 0–3 = Citrine, Garnet, Lapis, Peridot. Shade 0–5 = 950, 500, 100, 400, Transparent, eee.
+// Palette 0–4 = Citrine, Garnet, Lapis, Peridot, Quartz (ENS Core — Quartz uses tokens 900,500,100,400). Shade 0–5 = 950, 500, 100, 400, Transparent, eee.
 // Returns sRGB vec4 for the given palette and shade; alpha=0 for Transparent.
 vec4 getPaletteColor(float palette, float shade) {
-    int p = int(mod(floor(palette + 0.01), 4.0));
+    int p = int(mod(floor(palette + 0.01), 5.0));
     int s = int(mod(floor(shade + 0.01), 6.0));
     if (s == 4) return vec4(0.0, 0.0, 0.0, 0.0);  // Transparent
     if (s == 5) return vec4(0.933, 0.933, 0.933, 1.0);  // eee (#eeeeee)
@@ -151,11 +151,17 @@ vec4 getPaletteColor(float palette, float shade) {
         if (s == 2) return vec4(0.902, 0.953, 0.973, 1.0);   // 100
         return vec4(0.455, 0.725, 0.875, 1.0);               // 400
     }
-    // Peridot
-    if (s == 0) return vec4(0.012, 0.188, 0.063, 1.0);   // 950
-    if (s == 1) return vec4(0.0, 0.486, 0.137, 1.0);      // 500
-    if (s == 2) return vec4(0.843, 0.914, 0.890, 1.0);   // 100
-    return vec4(0.51, 0.816, 0.561, 1.0);                 // 400
+    if (p == 3) { // Peridot
+        if (s == 0) return vec4(0.012, 0.188, 0.063, 1.0);   // 950
+        if (s == 1) return vec4(0.0, 0.486, 0.137, 1.0);      // 500
+        if (s == 2) return vec4(0.843, 0.914, 0.890, 1.0);   // 100
+        return vec4(0.51, 0.816, 0.561, 1.0);                 // 400
+    }
+    // Quartz (neutral ramp: 900, 500, 100, 400 — Figma quartz/300 between 100 and 400)
+    if (s == 0) return vec4(0.098039, 0.098039, 0.098039, 1.0);   // 900
+    if (s == 1) return vec4(0.34902, 0.341176, 0.333333, 1.0);   // 500
+    if (s == 2) return vec4(0.933333, 0.929412, 0.929412, 1.0);   // 100
+    return vec4(0.45098, 0.45098, 0.45098, 1.0);                  // 400
 }
 
 // Hash for deterministic per-cell palette when u_useAllColorways is on.
@@ -226,7 +232,7 @@ void main() {
     vec4 weftColor;
     if (u_useAllColorways > 0.5) {
       float scale = max(0.001, u_colorwayNoiseScale);
-      float cellPalette = mod(floor(hash(cellID * scale + vec2(u_colorwaySeed, 0.0)) * 4.0), 4.0);
+      float cellPalette = mod(floor(hash(cellID * scale + vec2(u_colorwaySeed, 0.0)) * 5.0), 5.0);
       warpColor = getPaletteColor(cellPalette, u_warpShade);
       weftColor = getPaletteColor(cellPalette, u_weftShade);
     } else {

@@ -1,6 +1,5 @@
 /**
- * Shader Sandbox — ENS Weaving Draft.
- * WebGL canvas reads shaders from src/shaders/*.glsl. Controls: Radix Select + Slider.
+ * ENS Warp&Weft — root shell: Weave, Mosaic, Print mosaic; URL sync; shared sidebars / lazy stages.
  */
 import { useState, useCallback, useRef, useEffect, lazy, Suspense } from 'react';
 import { motion } from 'motion/react';
@@ -12,6 +11,12 @@ import { useCanvasRecorder, supportsMP4 } from './hooks/useCanvasRecorder';
 import { halftoneCmykPresets } from '@paper-design/shaders-react';
 import { PATTERNS } from './patterns';
 import { getCopyCanvas } from './copyHelpers';
+
+/** Copy/export/record: weaving + halftone uses halftone canvas (legacy view name `weavingHalftone`). */
+function copyExportView(view, weaveHalftoneOn) {
+  if (view === 'weaving' && weaveHalftoneOn) return 'weavingHalftone';
+  return view;
+}
 import {
   EXPORT_MAX_DIMENSION,
   EXPORT_SCALES,
@@ -74,6 +79,25 @@ const WeavingHalftoneStage = lazy(() => import('./components/WeavingHalftoneStag
 const ImageRectsHalftoneStage = lazy(() => import('./components/ImageRectsHalftoneStage.jsx').then((m) => ({ default: m.ImageRectsHalftoneStage })));
 const HALFTONE_TYPE_MAP = ['dots', 'ink', 'sharp'];
 
+/** Image rects + halftone: quantize color space (see fragmentImageRects.glsl). */
+const COMBO_QUANTIZE_MODE_OPTIONS = [
+  { value: 0, label: 'RGB' },
+  { value: 1, label: 'HSV' },
+];
+
+const COMBO_RECT_COLOR_OPTIONS = [
+  { value: 0, label: 'Brand' },
+  { value: 1, label: 'Image' },
+  { value: 2, label: 'Pattern' },
+];
+
+const COMBO_CELL_GEOMETRY_OPTIONS = [
+  { value: 0, label: 'Weave' },
+  { value: 1, label: 'Dark stitches' },
+];
+
+const comboShadePickOptions = (prefix) => SHADE_NAMES.map((name, i) => ({ value: i, label: `${prefix}: ${name}` }));
+
 function packHexColors(values) {
   return values.map((v) => String(v).replace('#', '')).join(',');
 }
@@ -111,7 +135,7 @@ function parseUrlState(search) {
     };
   };
   num('p', 'pattern', 0, PATTERNS.length - 1);
-  num('pal', 'palette', 0, 3);
+  num('pal', 'palette', 0, 4);
   num('bg', 'bgShade', 0, 5);
   num('warp', 'warpShade', 0, 5);
   num('weft', 'weftShade', 0, 5);
@@ -146,15 +170,48 @@ function parseUrlState(search) {
   num('hgc', 'halftoneGainC', -1, 1);
   num('hgy', 'halftoneGainY', -1, 1);
   num('cg', 'comboGridSize', 8, 96);
-  num('cpal', 'comboPalette', 0, 3);
+  num('cpal', 'comboPalette', 0, 4);
   num('cbg', 'comboBgShade', 0, 5);
-  num('ccm', 'comboColorizeMode', 0, 1);
+  num('ccm', 'comboRectColorSource', 0, 2);
+  num('cpws', 'comboPatternWarpShade', 0, 4);
+  num('cpwf', 'comboPatternWeftShade', 0, 4);
   num('cq', 'comboQuantizeSteps', 0, 32);
-  num('csf', 'comboShadeFrom', 0, 3);
+  num('cqm', 'comboQuantizeMode', 0, 1);
   num('cp', 'comboPatternIndex', 0, PATTERNS.length - 1);
   num('crr', 'comboRectRadius', 0, 0.5);
   num('cra', 'comboRectAspect', 0.3, 1.5);
   num('cratio', 'comboRectRatio', 0.2, 1);
+  const cqg = params.get('cqg');
+  if (cqg != null) {
+    const n = Number(cqg);
+    if (Number.isFinite(n)) out.comboQuantizeGamma = Math.max(0.25, Math.min(4, n / 100));
+  }
+  const cqd = params.get('cqd');
+  if (cqd != null) {
+    const n = Number(cqd);
+    if (Number.isFinite(n)) out.comboQuantizeDither = Math.max(0, Math.min(1, n / 100));
+  }
+  const cls = params.get('cls');
+  if (cls != null) {
+    const n = Number(cls);
+    if (Number.isFinite(n)) out.comboLumaSizeMix = Math.max(0, Math.min(1, n / 100));
+  }
+  const clsi = params.get('clsi');
+  if (clsi != null) {
+    const n = Number(clsi);
+    if (n === 0 || n === 1) out.comboLumaSizeInvert = n;
+  }
+  const clsf = params.get('clsf');
+  if (clsf != null) {
+    const n = Number(clsf);
+    if (Number.isFinite(n)) out.comboLumaSizeFloor = Math.max(0.05, Math.min(1, n / 100));
+  }
+  num('cgm', 'comboCellGeometryMode', 0, 1);
+  const cglt = params.get('cglt');
+  if (cglt != null) {
+    const n = Number(cglt);
+    if (Number.isFinite(n)) out.comboStitchLumaMax = Math.max(0, Math.min(1, n / 100));
+  }
   const ht = params.get('ht');
   if (ht != null && HALFTONE_TYPE_MAP[Number(ht)]) out.halftoneType = HALFTONE_TYPE_MAP[Number(ht)];
   const hcols = params.get('hcols');
@@ -170,29 +227,41 @@ function parseUrlState(search) {
   if (cs !== null && [1, 2, 4, 8].includes(Number(cs))) out.copyScale = Number(cs);
   const v = params.get('v');
   if (v === '1') out.view = 'weaving';
-  else if (v === '2') out.view = 'imageRects';
-  else if (v === '3') out.view = 'weavingHalftone';
+  else if (v === '2' || v === '5' || v === '6') out.view = 'imageRects';
+  else if (v === '3') out.view = 'weaving';
   else if (v === '4') out.view = 'imageRectsHalftone';
+  const wht = params.get('wht');
+  if (wht === '1') out.weaveHalftoneOn = true;
+  if (wht === '0') out.weaveHalftoneOn = false;
+  if (v === '3') out.weaveHalftoneOn = true;
   const display = params.get('display');
   if (display === 'fill' || display === 'fit') out.patternFit = display;
   const menu = params.get('menu');
   if (menu === '1') out.menuHidden = false; // menu=1 → sidebar always visible
   return out;
 }
-const VIEW_TO_V = { weaving: 1, imageRects: 2, weavingHalftone: 3, imageRectsHalftone: 4 };
 function getInitialView() {
   const v = new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '').get('v');
-  if (v === '2') return 'imageRects';
-  if (v === '3') return 'weavingHalftone';
+  if (v === '2' || v === '5' || v === '6') return 'imageRects';
   if (v === '4') return 'imageRectsHalftone';
   return 'weaving';
+}
+
+function getInitialWeaveHalftone() {
+  const p = new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '');
+  const v = p.get('v');
+  const wht = p.get('wht');
+  return v === '3' || wht === '1';
 }
 /** Build compact search string from state; omit defaults to keep URL short. */
 function buildUrlState(state) {
   const def = WEAVING_URL_DEFAULTS;
   const p = new URLSearchParams();
-  const viewNum = state.view != null ? VIEW_TO_V[state.view] : undefined;
-  if (viewNum != null && viewNum !== 1) p.set('v', String(viewNum));
+  let urlV = 1;
+  if (state.view === 'imageRects') urlV = 2;
+  else if (state.view === 'imageRectsHalftone') urlV = 4;
+  else if (state.view === 'weaving' && state.weaveHalftoneOn) urlV = 3;
+  if (urlV !== 1) p.set('v', String(urlV));
   if (state.presetIndex != null && state.presetIndex >= 0 && state.presetIndex < PRESETS.length) p.set('preset', String(state.presetIndex));
   if (state.pattern !== def.pattern) p.set('p', String(state.pattern));
   if (state.palette !== def.palette) p.set('pal', String(state.palette));
@@ -250,9 +319,18 @@ function buildUrlState(state) {
   if (state.comboGridSize !== COMBO_DEFAULTS.gridSize) p.set('cg', String(state.comboGridSize));
   if (state.comboPalette !== COMBO_DEFAULTS.palette) p.set('cpal', String(state.comboPalette));
   if (state.comboBgShade !== COMBO_DEFAULTS.bgShade) p.set('cbg', String(state.comboBgShade));
-  if (state.comboColorizeMode !== COMBO_DEFAULTS.colorizeMode) p.set('ccm', state.comboColorizeMode ? '1' : '0');
+  if (state.comboRectColorSource !== COMBO_DEFAULTS.rectColorSource) p.set('ccm', String(state.comboRectColorSource));
+  if (state.comboPatternWarpShade !== COMBO_DEFAULTS.patternWarpShade) p.set('cpws', String(state.comboPatternWarpShade));
+  if (state.comboPatternWeftShade !== COMBO_DEFAULTS.patternWeftShade) p.set('cpwf', String(state.comboPatternWeftShade));
+  if (state.comboLumaSizeMix !== COMBO_DEFAULTS.lumaSizeMix) p.set('cls', String(Math.round(state.comboLumaSizeMix * 100)));
+  if (state.comboLumaSizeInvert !== COMBO_DEFAULTS.lumaSizeInvert) p.set('clsi', String(state.comboLumaSizeInvert));
+  if (state.comboLumaSizeFloor !== COMBO_DEFAULTS.lumaSizeFloor) p.set('clsf', String(Math.round(state.comboLumaSizeFloor * 100)));
+  if (state.comboCellGeometryMode !== COMBO_DEFAULTS.cellGeometryMode) p.set('cgm', String(state.comboCellGeometryMode));
+  if (state.comboStitchLumaMax !== COMBO_DEFAULTS.stitchLumaMax) p.set('cglt', String(Math.round(state.comboStitchLumaMax * 100)));
   if (state.comboQuantizeSteps !== COMBO_DEFAULTS.quantizeSteps) p.set('cq', String(state.comboQuantizeSteps));
-  if (state.comboShadeFrom !== COMBO_DEFAULTS.shadeFrom) p.set('csf', String(state.comboShadeFrom));
+  if (state.comboQuantizeMode !== COMBO_DEFAULTS.quantizeMode) p.set('cqm', String(state.comboQuantizeMode));
+  if (state.comboQuantizeGamma !== COMBO_DEFAULTS.quantizeGamma) p.set('cqg', String(Math.round(state.comboQuantizeGamma * 100)));
+  if (state.comboQuantizeDither !== COMBO_DEFAULTS.quantizeDither) p.set('cqd', String(Math.round(state.comboQuantizeDither * 100)));
   if (state.comboPatternIndex !== COMBO_DEFAULTS.patternIndex) p.set('cp', String(state.comboPatternIndex));
   if (state.comboRectRadius !== COMBO_DEFAULTS.rectRadius) p.set('crr', String(Number(state.comboRectRadius.toFixed(2))));
   if (state.comboRectAspect !== COMBO_DEFAULTS.rectAspect) p.set('cra', String(Number(state.comboRectAspect.toFixed(2))));
@@ -263,8 +341,9 @@ function buildUrlState(state) {
 }
 
 export default function App() {
-  const [view, setView] = useState(getInitialView); // 'weaving' | 'weavingHalftone' | 'imageRects' | 'imageRectsHalftone' — persisted in URL ?v=1..4 so reload keeps mode
-  /** When true, sidebar is hidden until hover (v1–v4); when false, sidebar is always visible. Toggle in nav; persisted in URL ?menu=1. */
+  const [view, setView] = useState(getInitialView); // 'weaving' | 'imageRects' | 'imageRectsHalftone' — URL ?v=1–4 (+ legacy 5/6 → mosaic)
+  const [weaveHalftoneOn, setWeaveHalftoneOn] = useState(getInitialWeaveHalftone);
+  /** When true, sidebar is hidden until hover (v1–v5); when false, sidebar is always visible. Toggle in nav; persisted in URL ?menu=1. */
   const [menuHidden, setMenuHidden] = useState(true);
   const [presetIndex, setPresetIndex] = useState(null); // null = custom
   const [pattern, setPattern] = useState(WEAVING_URL_DEFAULTS.pattern);
@@ -300,7 +379,7 @@ export default function App() {
   const [shimmerNoiseMin, setShimmerNoiseMin] = useState(WEAVING_URL_DEFAULTS.shimmerNoiseMin); // clamp min for noise factor (0–2)
   const [shimmerNoiseMax, setShimmerNoiseMax] = useState(WEAVING_URL_DEFAULTS.shimmerNoiseMax); // clamp max for noise factor (0–2)
   const [shimmerBlendMode, setShimmerBlendMode] = useState(WEAVING_URL_DEFAULTS.shimmerBlendMode); // 0–10: Add, Multiply, Screen, Overlay, Soft Light, Hard Light, Color Dodge, Color Burn, Linear Burn, Difference, Exclusion
-  /** Use all 4 colorways: per-cell palette from colorwaySeed hash (mod 4). */
+  /** Use all 5 colorways: per-cell palette from colorwaySeed hash (mod 5). */
   const [useAllColorways, setUseAllColorways] = useState(WEAVING_URL_DEFAULTS.useAllColorways);
   const [colorwaySeed, setColorwaySeed] = useState(WEAVING_URL_DEFAULTS.colorwaySeed);
   /** Colorway noise scale: spatial scale of per-cell palette variation (>1 = finer, <1 = coarser). */
@@ -345,14 +424,23 @@ export default function App() {
   /** Weaving  Halftone: optional image from desktop (object URL). When set, halftone uses this instead of weaving. */
   const [halftoneCustomImageUrl, setHalftoneCustomImageUrl] = useState('');
 
-  /** Image Rects + Halftone combo view: image from file only (no web URL). */
+  /** Print mosaic (combo): image from file only (no web URL). */
   const [comboImageSource, setComboImageSource] = useState('');
   const [comboGridSize, setComboGridSize] = useState(COMBO_DEFAULTS.gridSize);
   const [comboPalette, setComboPalette] = useState(COMBO_DEFAULTS.palette);
   const [comboBgShade, setComboBgShade] = useState(COMBO_DEFAULTS.bgShade);
-  const [comboColorizeMode, setComboColorizeMode] = useState(COMBO_DEFAULTS.colorizeMode);
+  const [comboRectColorSource, setComboRectColorSource] = useState(COMBO_DEFAULTS.rectColorSource);
+  const [comboPatternWarpShade, setComboPatternWarpShade] = useState(COMBO_DEFAULTS.patternWarpShade);
+  const [comboPatternWeftShade, setComboPatternWeftShade] = useState(COMBO_DEFAULTS.patternWeftShade);
+  const [comboLumaSizeMix, setComboLumaSizeMix] = useState(COMBO_DEFAULTS.lumaSizeMix);
+  const [comboLumaSizeInvert, setComboLumaSizeInvert] = useState(COMBO_DEFAULTS.lumaSizeInvert);
+  const [comboLumaSizeFloor, setComboLumaSizeFloor] = useState(COMBO_DEFAULTS.lumaSizeFloor);
+  const [comboCellGeometryMode, setComboCellGeometryMode] = useState(COMBO_DEFAULTS.cellGeometryMode);
+  const [comboStitchLumaMax, setComboStitchLumaMax] = useState(COMBO_DEFAULTS.stitchLumaMax);
   const [comboQuantizeSteps, setComboQuantizeSteps] = useState(COMBO_DEFAULTS.quantizeSteps);
-  const [comboShadeFrom, setComboShadeFrom] = useState(COMBO_DEFAULTS.shadeFrom);
+  const [comboQuantizeMode, setComboQuantizeMode] = useState(COMBO_DEFAULTS.quantizeMode);
+  const [comboQuantizeGamma, setComboQuantizeGamma] = useState(COMBO_DEFAULTS.quantizeGamma);
+  const [comboQuantizeDither, setComboQuantizeDither] = useState(COMBO_DEFAULTS.quantizeDither);
   const [comboPatternIndex, setComboPatternIndex] = useState(COMBO_DEFAULTS.patternIndex);
   const [comboRectRadius, setComboRectRadius] = useState(COMBO_DEFAULTS.rectRadius);
   const [comboRectAspect, setComboRectAspect] = useState(COMBO_DEFAULTS.rectAspect);
@@ -468,14 +556,24 @@ export default function App() {
     if (q.comboGridSize != null) setComboGridSize(GRID_SNAPS.includes(q.comboGridSize) ? q.comboGridSize : GRID_SNAPS[getGridSizeIndex(q.comboGridSize)]);
     if (q.comboPalette != null) setComboPalette(q.comboPalette);
     if (q.comboBgShade != null) setComboBgShade(q.comboBgShade);
-    if (q.comboColorizeMode != null) setComboColorizeMode(!!q.comboColorizeMode);
+    if (q.comboRectColorSource != null) setComboRectColorSource(q.comboRectColorSource);
+    if (q.comboPatternWarpShade != null) setComboPatternWarpShade(q.comboPatternWarpShade);
+    if (q.comboPatternWeftShade != null) setComboPatternWeftShade(q.comboPatternWeftShade);
+    if (q.comboLumaSizeMix != null) setComboLumaSizeMix(q.comboLumaSizeMix);
+    if (q.comboLumaSizeInvert != null) setComboLumaSizeInvert(q.comboLumaSizeInvert);
+    if (q.comboLumaSizeFloor != null) setComboLumaSizeFloor(q.comboLumaSizeFloor);
+    if (q.comboCellGeometryMode != null) setComboCellGeometryMode(q.comboCellGeometryMode);
+    if (q.comboStitchLumaMax != null) setComboStitchLumaMax(q.comboStitchLumaMax);
     if (q.comboQuantizeSteps != null) setComboQuantizeSteps(q.comboQuantizeSteps);
-    if (q.comboShadeFrom != null) setComboShadeFrom(q.comboShadeFrom);
+    if (q.comboQuantizeMode != null) setComboQuantizeMode(q.comboQuantizeMode);
+    if (q.comboQuantizeGamma != null) setComboQuantizeGamma(q.comboQuantizeGamma);
+    if (q.comboQuantizeDither != null) setComboQuantizeDither(q.comboQuantizeDither);
     if (q.comboPatternIndex != null) setComboPatternIndex(q.comboPatternIndex);
     if (q.comboRectRadius != null) setComboRectRadius(q.comboRectRadius);
     if (q.comboRectAspect != null) setComboRectAspect(q.comboRectAspect);
     if (q.comboRectRatio != null) setComboRectRatio(q.comboRectRatio);
     if (q.view != null) setView(q.view);
+    if (q.weaveHalftoneOn != null) setWeaveHalftoneOn(!!q.weaveHalftoneOn);
     if (q.menuHidden === false) setMenuHidden(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- run once on mount; applyPreset is stable
   }, []);
@@ -486,12 +584,12 @@ export default function App() {
     if (view === 'imageRects') return undefined;
     urlSyncTimeoutRef.current = setTimeout(() => {
       const search = buildUrlState({
-        view, menuHidden, presetIndex, pattern, palette, bgShade, warpShade, weftShade, gridSize,
+        view, weaveHalftoneOn, menuHidden, presetIndex, pattern, palette, bgShade, warpShade, weftShade, gridSize,
         warpGradient, weftGradient, gradSteps, rectAspect, cornerRadius, canvasAspect, patternFit, copyFormat, copyScale,
         useAllColorways, colorwaySeed, colorwayNoiseScale, shimmer, shimmerSpeed, shimmerWidth, shimmerIntensity, shimmerPosition, shimmerRotation, shimmerNoise, shimmerNoiseSeed, shimmerNoiseMin, shimmerNoiseMax, shimmerBlendMode,
         halftonePresetIndex, halftoneSize, halftoneSoftness, halftoneGridNoise, halftoneContrast, halftoneType,
         halftoneColorBack, halftoneColorC, halftoneColorM, halftoneColorY, halftoneColorK, halftoneFloodC, halftoneGainC, halftoneGainY,
-        comboGridSize, comboPalette, comboBgShade, comboColorizeMode, comboQuantizeSteps, comboShadeFrom, comboPatternIndex, comboRectRadius, comboRectAspect, comboRectRatio,
+        comboGridSize, comboPalette, comboBgShade, comboRectColorSource, comboQuantizeSteps, comboQuantizeMode, comboQuantizeGamma, comboQuantizeDither, comboPatternIndex, comboPatternWarpShade, comboPatternWeftShade, comboLumaSizeMix, comboLumaSizeInvert, comboLumaSizeFloor, comboCellGeometryMode, comboStitchLumaMax, comboRectRadius, comboRectAspect, comboRectRatio,
       });
       const url = search ? `${window.location.pathname}?${search}` : window.location.pathname;
       if (window.location.pathname + (window.location.search || '') !== url) {
@@ -499,7 +597,7 @@ export default function App() {
       }
     }, 400);
     return () => { clearTimeout(urlSyncTimeoutRef.current); };
-  }, [view, menuHidden, presetIndex, pattern, palette, bgShade, warpShade, weftShade, gridSize, warpGradient, weftGradient, gradSteps, rectAspect, cornerRadius, canvasAspect, patternFit, copyFormat, copyScale, useAllColorways, colorwaySeed, colorwayNoiseScale, shimmer, shimmerSpeed, shimmerWidth, shimmerIntensity, shimmerPosition, shimmerRotation, shimmerNoise, shimmerNoiseSeed, shimmerNoiseMin, shimmerNoiseMax, shimmerBlendMode, halftonePresetIndex, halftoneSize, halftoneSoftness, halftoneGridNoise, halftoneContrast, halftoneType, halftoneColorBack, halftoneColorC, halftoneColorM, halftoneColorY, halftoneColorK, halftoneFloodC, halftoneGainC, halftoneGainY, comboGridSize, comboPalette, comboBgShade, comboColorizeMode, comboQuantizeSteps, comboShadeFrom, comboPatternIndex, comboRectRadius, comboRectAspect, comboRectRatio]);
+  }, [view, weaveHalftoneOn, menuHidden, presetIndex, pattern, palette, bgShade, warpShade, weftShade, gridSize, warpGradient, weftGradient, gradSteps, rectAspect, cornerRadius, canvasAspect, patternFit, copyFormat, copyScale, useAllColorways, colorwaySeed, colorwayNoiseScale, shimmer, shimmerSpeed, shimmerWidth, shimmerIntensity, shimmerPosition, shimmerRotation, shimmerNoise, shimmerNoiseSeed, shimmerNoiseMin, shimmerNoiseMax, shimmerBlendMode, halftonePresetIndex, halftoneSize, halftoneSoftness, halftoneGridNoise, halftoneContrast, halftoneType, halftoneColorBack, halftoneColorC, halftoneColorM, halftoneColorY, halftoneColorK, halftoneFloodC, halftoneGainC, halftoneGainY, comboGridSize, comboPalette, comboBgShade, comboRectColorSource, comboQuantizeSteps, comboQuantizeMode, comboQuantizeGamma, comboQuantizeDither, comboPatternIndex, comboPatternWarpShade, comboPatternWeftShade, comboLumaSizeMix, comboLumaSizeInvert, comboLumaSizeFloor, comboCellGeometryMode, comboStitchLumaMax, comboRectRadius, comboRectAspect, comboRectRatio]);
 
   /** Animate colorway seed 0→100 over 20m and loop while colorwaySeedPlaying is true. */
   const COLORWAY_ANIM_DURATION_MS = 1200000; // 20 min (20× slower than 60s)
@@ -540,7 +638,7 @@ export default function App() {
       const r = Math.min(EXPORT_MAX_DIMENSION / width, EXPORT_MAX_DIMENSION / height);
       return [Math.round(width * r), Math.round(height * r)];
     };
-    if (view === 'weaving' && weavingCaptureRef.current?.captureAtResolution) {
+    if (view === 'weaving' && !weaveHalftoneOn && weavingCaptureRef.current?.captureAtResolution) {
       const canvas = canvasRef.current;
       if (!canvas?.width || !canvas?.height) throw new Error('Canvas not ready');
       const displayW = canvas.width / WEAVING_DPR;
@@ -551,7 +649,7 @@ export default function App() {
       await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
       return;
     }
-    const canvas = getCopyCanvas(view, canvasRef, halftoneCanvasRef, halftoneContainerRef);
+    const canvas = getCopyCanvas(copyExportView(view, weaveHalftoneOn), canvasRef, halftoneCanvasRef, halftoneContainerRef);
     if (!canvas || !canvas.width || !canvas.height) throw new Error('Canvas not ready');
     const w = canvas.width * copyScale;
     const h = canvas.height * copyScale;
@@ -564,7 +662,7 @@ export default function App() {
     const blob = await new Promise((resolve) => off.toBlob(resolve, 'image/png'));
     if (!blob) throw new Error('toBlob failed');
     await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
-  }, [view, copyScale]);
+  }, [view, weaveHalftoneOn, copyScale]);
 
   /** Copy canvas at copyScale× as WebP. Weaving: re-renders at target res then converts to WebP. */
   const handleCopyWebp = useCallback(async () => {
@@ -574,7 +672,7 @@ export default function App() {
       const r = Math.min(EXPORT_MAX_DIMENSION / width, EXPORT_MAX_DIMENSION / height);
       return [Math.round(width * r), Math.round(height * r)];
     };
-    if (view === 'weaving' && weavingCaptureRef.current?.captureAtResolution) {
+    if (view === 'weaving' && !weaveHalftoneOn && weavingCaptureRef.current?.captureAtResolution) {
       const canvas = canvasRef.current;
       if (!canvas?.width || !canvas?.height) throw new Error('Canvas not ready');
       const displayW = canvas.width / WEAVING_DPR;
@@ -602,7 +700,7 @@ export default function App() {
       await navigator.clipboard.write([new ClipboardItem({ 'image/webp': webpBlob })]);
       return;
     }
-    const canvas = getCopyCanvas(view, canvasRef, halftoneCanvasRef, halftoneContainerRef);
+    const canvas = getCopyCanvas(copyExportView(view, weaveHalftoneOn), canvasRef, halftoneCanvasRef, halftoneContainerRef);
     if (!canvas || !canvas.width || !canvas.height) throw new Error('Canvas not ready');
     const w = canvas.width * copyScale;
     const h = canvas.height * copyScale;
@@ -615,7 +713,7 @@ export default function App() {
     const blob = await new Promise((resolve) => off.toBlob(resolve, 'image/webp', 0.92));
     if (!blob) throw new Error('toBlob failed');
     await navigator.clipboard.write([new ClipboardItem({ 'image/webp': blob })]);
-  }, [view, copyScale]);
+  }, [view, weaveHalftoneOn, copyScale]);
 
   const handleCopy = useCallback(async () => {
     if (copyFeedbackTimeoutRef.current) clearTimeout(copyFeedbackTimeoutRef.current);
@@ -650,7 +748,7 @@ export default function App() {
         return [Math.round(width * r), Math.round(height * r)];
       };
 
-      if (view === 'weaving' && weavingCaptureRef.current?.captureAtResolution) {
+      if (view === 'weaving' && !weaveHalftoneOn && weavingCaptureRef.current?.captureAtResolution) {
         const canvas = canvasRef.current;
         if (!canvas?.width || !canvas?.height) throw new Error('Canvas not ready');
         const displayW = canvas.width / WEAVING_DPR;
@@ -665,7 +763,7 @@ export default function App() {
         a.click();
         URL.revokeObjectURL(url);
       } else {
-        const canvas = getCopyCanvas(view, canvasRef, halftoneCanvasRef, halftoneContainerRef);
+        const canvas = getCopyCanvas(copyExportView(view, weaveHalftoneOn), canvasRef, halftoneCanvasRef, halftoneContainerRef);
         if (!canvas || !canvas.width || !canvas.height) throw new Error('Canvas not ready');
         let [w, h] = capToMax(Math.round(canvas.width * scale), Math.round(canvas.height * scale));
         const off = document.createElement('canvas');
@@ -689,7 +787,7 @@ export default function App() {
       setExportFeedback(err?.message ?? 'Export failed');
       exportFeedbackTimeoutRef.current = setTimeout(() => setExportFeedback(null), 3000);
     }
-  }, [view, exportScale]);
+  }, [view, weaveHalftoneOn, exportScale]);
 
   /** Video recording (WebM or MP4). Canvas resolved per current view. */
   const {
@@ -706,9 +804,9 @@ export default function App() {
   } = useCanvasRecorder('shaderbox');
 
   const startRecording = useCallback(() => {
-    const canvas = getCopyCanvas(view, canvasRef, halftoneCanvasRef, halftoneContainerRef);
+    const canvas = getCopyCanvas(copyExportView(view, weaveHalftoneOn), canvasRef, halftoneCanvasRef, halftoneContainerRef);
     recStart(canvas);
-  }, [view, recStart]);
+  }, [view, weaveHalftoneOn, recStart]);
 
   const applyPreset = useCallback((index) => {
     if (index == null || index < 0 || index >= PRESETS.length) return;
@@ -762,6 +860,7 @@ export default function App() {
     setCornerRadius(WEAVING_URL_DEFAULTS.cornerRadius);
     setCanvasAspect(WEAVING_URL_DEFAULTS.canvasAspect);
     setPatternFit(WEAVING_URL_DEFAULTS.patternFit);
+    setWeaveHalftoneOn(false);
     setShimmer(WEAVING_URL_DEFAULTS.shimmer);
     setShimmerPlaying(true);
     setShimmerPausedAtTime(0);
@@ -810,9 +909,18 @@ export default function App() {
     setComboGridSize(COMBO_DEFAULTS.gridSize);
     setComboPalette(COMBO_DEFAULTS.palette);
     setComboBgShade(COMBO_DEFAULTS.bgShade);
-    setComboColorizeMode(COMBO_DEFAULTS.colorizeMode);
+    setComboRectColorSource(COMBO_DEFAULTS.rectColorSource);
+    setComboPatternWarpShade(COMBO_DEFAULTS.patternWarpShade);
+    setComboPatternWeftShade(COMBO_DEFAULTS.patternWeftShade);
+    setComboLumaSizeMix(COMBO_DEFAULTS.lumaSizeMix);
+    setComboLumaSizeInvert(COMBO_DEFAULTS.lumaSizeInvert);
+    setComboLumaSizeFloor(COMBO_DEFAULTS.lumaSizeFloor);
+    setComboCellGeometryMode(COMBO_DEFAULTS.cellGeometryMode);
+    setComboStitchLumaMax(COMBO_DEFAULTS.stitchLumaMax);
     setComboQuantizeSteps(COMBO_DEFAULTS.quantizeSteps);
-    setComboShadeFrom(COMBO_DEFAULTS.shadeFrom);
+    setComboQuantizeMode(COMBO_DEFAULTS.quantizeMode);
+    setComboQuantizeGamma(COMBO_DEFAULTS.quantizeGamma);
+    setComboQuantizeDither(COMBO_DEFAULTS.quantizeDither);
     setComboPatternIndex(COMBO_DEFAULTS.patternIndex);
     setComboRectRadius(COMBO_DEFAULTS.rectRadius);
     setComboRectAspect(COMBO_DEFAULTS.rectAspect);
@@ -826,7 +934,7 @@ export default function App() {
     const rand = (lo, hi) => lo + Math.random() * (hi - lo);
     setPresetIndex(null);
     setPattern(randInt(0, PATTERNS.length - 1));
-    setPalette(randInt(0, 3));
+    setPalette(randInt(0, 4));
     setBgShade(randInt(0, 4));
     setWarpShade(randInt(0, 4));
     setWeftShade(randInt(0, 4));
@@ -907,17 +1015,70 @@ export default function App() {
     { value: 1, label: 'Left', icon: 'arrow_back' },
   ];
 
+  /** Main bar only: same `patternFit` / `?display=` for Weave, Print mosaic, and Mosaic (AppV2). */
+  const navViewportFitFill = (
+    <div className="flex shrink-0 items-center" title="Canvas in stage">
+      <SegmentedControl>
+        <div className="flex h-full">
+          <SegmentedControlButton
+            active={patternFit === 'fit'}
+            aria-pressed={patternFit === 'fit'}
+            aria-label="Fit canvas in view"
+            onClick={() => setPatternFit('fit')}
+          >
+            Fit
+          </SegmentedControlButton>
+          <SegmentedControlButton
+            active={patternFit === 'fill'}
+            aria-pressed={patternFit === 'fill'}
+            aria-label="Fill canvas to available space"
+            onClick={() => setPatternFit('fill')}
+          >
+            Fill
+          </SegmentedControlButton>
+        </div>
+      </SegmentedControl>
+    </div>
+  );
+
   if (view === 'imageRects') {
     return (
       <div className="flex min-h-0 flex-col bg-surface" style={{ height: '100dvh' }}>
-        <nav className="flex min-h-9 shrink-0 items-center gap-3 border-b border-border-subtle bg-surface-elevated px-3 py-2" aria-label="App mode">
-          <h1 className={`shrink-0 ${typeBase} font-semibold tracking-[-0.01em] text-text`}>Shader Sandbox</h1>
-          <div className="flex items-center gap-1">
-            <button type="button" className={navBtnInactive} onClick={() => setView('weaving')} aria-pressed={false} aria-label="Weaving draft">Weaving</button>
-            <button type="button" className={navBtnInactive} onClick={() => setView('weavingHalftone')} aria-pressed={false} aria-label="Weaving  Halftone"><span className="inline-flex items-center gap-1">Weaving  <Icon name="lens_blur" className={iconSm} /></span></button>
-            <button type="button" className={navBtnInactive} onClick={() => setView('imageRectsHalftone')} aria-pressed={false} aria-label="Image Rects + Halftone"><span className="inline-flex items-center gap-1">Image Rects + <Icon name="lens_blur" className={iconSm} /></span></button>
-            <button type="button" className={navBtnActive} onClick={() => setView('imageRects')} aria-pressed aria-label="Image to colored rects">Image Rects</button>
+        <nav className="flex w-full min-h-9 shrink-0 flex-wrap items-center gap-3 border-b border-border-subtle bg-surface-elevated px-3 py-2" aria-label="App mode">
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-3">
+            <h1 className={`shrink-0 text-left ${typeBase} font-semibold tracking-[-0.01em] text-text`}>ENS Warp&Weft</h1>
+            <button
+              type="button"
+              className={`${menuToggle} ${menuHidden ? menuToggleInactive : menuToggleActive}`}
+              onClick={() => setMenuHidden((h) => !h)}
+              aria-pressed={!menuHidden}
+              aria-label={menuHidden ? 'Show menu' : 'Hide menu'}
+              title={menuHidden ? 'Show menu (always visible)' : 'Hide menu (show on hover)'}
+            >
+              <Icon name={menuHidden ? 'dock_to_right' : 'close'} className={iconMd} />
+            </button>
+            <button type="button" className={navBtnInactive} onClick={() => setView('weaving')} aria-pressed={false} aria-label="Weave draft — pattern and colors">Weave</button>
+            <div className="flex shrink-0 flex-wrap items-center gap-1">
+              <button type="button" className={navBtnInactive} onClick={() => setView('imageRectsHalftone')} aria-pressed={false} aria-label="Print mosaic — image grid with CMYK halftone"><span className="inline-flex items-center gap-1">Print mosaic <Icon name="lens_blur" className={iconSm} /></span></button>
+              <button type="button" className={navBtnActive} onClick={() => setView('imageRects')} aria-pressed aria-label="Mosaic — image or video to colored rects">Mosaic</button>
+            </div>
           </div>
+          {navViewportFitFill}
+        </nav>
+        <div className="min-h-0 flex-1 overflow-hidden">
+          <Suspense fallback={<div className="flex h-full items-center justify-center text-text-secondary">Loading…</div>}>
+            <AppV2 menuHidden={menuHidden} patternFit={patternFit} onPatternFitChange={setPatternFit} />
+          </Suspense>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex min-h-0 flex-col bg-surface" style={{ height: '100dvh' }}>
+      <nav className="flex w-full min-h-9 shrink-0 flex-wrap items-center gap-3 border-b border-border-subtle bg-surface-elevated px-3 py-2" aria-label="App mode">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-3">
+          <h1 className={`shrink-0 text-left ${typeBase} font-semibold tracking-[-0.01em] text-text`}>ENS Warp&Weft</h1>
           <button
             type="button"
             className={`${menuToggle} ${menuHidden ? menuToggleInactive : menuToggleActive}`}
@@ -928,36 +1089,13 @@ export default function App() {
           >
             <Icon name={menuHidden ? 'dock_to_right' : 'close'} className={iconMd} />
           </button>
-        </nav>
-        <div className="min-h-0 flex-1 overflow-hidden">
-          <Suspense fallback={<div className="flex h-full items-center justify-center text-text-secondary">Loading…</div>}>
-            <AppV2 menuHidden={menuHidden} />
-          </Suspense>
+          <div className="flex flex-wrap items-center gap-1">
+            <button type="button" className={view === 'weaving' ? navBtnActive : navBtnInactive} onClick={() => setView('weaving')} aria-pressed={view === 'weaving'} aria-label="Weave draft — pattern and colors">Weave</button>
+            <button type="button" className={view === 'imageRectsHalftone' ? navBtnActive : navBtnInactive} onClick={() => setView('imageRectsHalftone')} aria-pressed={view === 'imageRectsHalftone'} aria-label="Print mosaic — image grid with CMYK halftone"><span className="inline-flex items-center gap-1">Print mosaic <Icon name="lens_blur" className={iconSm} /></span></button>
+            <button type="button" className={navBtnInactive} onClick={() => setView('imageRects')} aria-pressed={false} aria-label="Mosaic — image or video to colored rects">Mosaic</button>
+          </div>
         </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex min-h-0 flex-col bg-surface" style={{ height: '100dvh' }}>
-      <nav className="flex min-h-9 shrink-0 items-center gap-3 border-b border-border-subtle bg-surface-elevated px-3 py-2" aria-label="App mode">
-        <h1 className={`shrink-0 ${typeBase} font-semibold tracking-[-0.01em] text-text`}>Shader Sandbox</h1>
-        <div className="flex items-center gap-1">
-          <button type="button" className={view === 'weaving' ? navBtnActive : navBtnInactive} onClick={() => setView('weaving')} aria-pressed={view === 'weaving'} aria-label="Weaving draft">Weaving</button>
-          <button type="button" className={view === 'weavingHalftone' ? navBtnActive : navBtnInactive} onClick={() => setView('weavingHalftone')} aria-pressed={view === 'weavingHalftone'} aria-label="Weaving  Halftone"><span className="inline-flex items-center gap-1">Weaving  <Icon name="lens_blur" className={iconSm} /></span></button>
-          <button type="button" className={view === 'imageRectsHalftone' ? navBtnActive : navBtnInactive} onClick={() => setView('imageRectsHalftone')} aria-pressed={view === 'imageRectsHalftone'} aria-label="Image Rects + Halftone"><span className="inline-flex items-center gap-1">Image Rects + <Icon name="lens_blur" className={iconSm} /></span></button>
-          <button type="button" className={navBtnInactive} onClick={() => setView('imageRects')} aria-pressed={false} aria-label="Image to colored rects">Image Rects</button>
-        </div>
-        <button
-          type="button"
-          className={`${menuToggle} ${menuHidden ? menuToggleInactive : menuToggleActive}`}
-          onClick={() => setMenuHidden((h) => !h)}
-          aria-pressed={!menuHidden}
-          aria-label={menuHidden ? 'Show menu' : 'Hide menu'}
-          title={menuHidden ? 'Show menu (always visible)' : 'Hide menu (show on hover)'}
-        >
-          <Icon name={menuHidden ? 'dock_to_right' : 'close'} className={iconMd} />
-        </button>
+        {navViewportFitFill}
       </nav>
       <div className="relative flex min-h-0 flex-1 flex-row overflow-hidden bg-surface">
         {/* When menuHidden: fixed overlay (show on hover). When menu open: in-flow, no absolute positioning. */}
@@ -1103,7 +1241,7 @@ export default function App() {
                     <Icon name={isProcessing ? 'hourglass_empty' : isRecording ? 'stop' : 'videocam'} className={iconSm} />
                   </IconButton>
                 </SegmentedControl>
-                {view === 'weavingHalftone' && (
+                {view === 'weaving' && weaveHalftoneOn && (
                   <>
                     <label className={`${btnGhost} cursor-pointer`}>
                       <Icon name="upload_file" className={iconMd} />
@@ -1141,7 +1279,7 @@ export default function App() {
                       accept="image/*"
                       className="sr-only"
                       onChange={handleComboImageFile}
-                      aria-label="Pick an image from your computer for Image Rects + Halftone"
+                      aria-label="Pick an image from your computer for Print mosaic"
                     />
                   </label>
                 )}
@@ -1150,7 +1288,7 @@ export default function App() {
             {view === 'imageRectsHalftone' && (
               <>
                 <div className={sidebarGroup}>
-                  <div className={sidebarGroupTitle}>Image Rects</div>
+                  <div className={sidebarGroupTitle}>Mosaic source</div>
                   {(!comboImageSource || comboImageSource.startsWith('blob:')) && (
                     <span className={typeCaption}>{comboImageSource ? 'Using your image' : 'Pick “Image from desktop” in Actions'}</span>
                   )}
@@ -1180,35 +1318,63 @@ export default function App() {
                       title="Weave pattern"
                       placeholder="Pattern"
                     />
-                    <Label.Root className={typeLabel} htmlFor="combo-radius">Radius</Label.Root>
-                    <SliderWithInput id="combo-radius" value={comboRectRadius} onValueChange={setComboRectRadius} defaultValue={COMBO_DEFAULTS.rectRadius} onReset={() => setComboRectRadius(COMBO_DEFAULTS.rectRadius)} min={0} max={0.5} step={0.01} format={(n) => n.toFixed(2)} aria-label="Rect radius" />
-                    <Label.Root className={typeLabel} htmlFor="combo-aspect">Aspect</Label.Root>
-                    <SliderWithInput id="combo-aspect" value={comboRectAspect} onValueChange={setComboRectAspect} defaultValue={COMBO_DEFAULTS.rectAspect} onReset={() => setComboRectAspect(COMBO_DEFAULTS.rectAspect)} min={0.3} max={1.5} step={0.01} format={(n) => n.toFixed(2)} aria-label="Rect aspect" />
-                    <Label.Root className={typeLabel} htmlFor="combo-ratio">Ratio</Label.Root>
-                    <SliderWithInput id="combo-ratio" value={comboRectRatio} onValueChange={setComboRectRatio} defaultValue={COMBO_DEFAULTS.rectRatio} onReset={() => setComboRectRatio(COMBO_DEFAULTS.rectRatio)} min={0.2} max={1} step={0.01} format={(n) => n.toFixed(2)} aria-label="Rect ratio" />
-                    <div className="flex items-center gap-1">
-                      <span className={typeLabel}>Mode</span>
-                      <button type="button" className={`flex-1 rounded border px-2 py-1 text-[10px] ${comboColorizeMode ? toggleBtnActive : 'border-border-subtle'}`} onClick={() => setComboColorizeMode(true)}>Color</button>
-                      <button type="button" className={`flex-1 rounded border px-2 py-1 text-[10px] ${!comboColorizeMode ? toggleBtnActive : 'border-border-subtle'}`} onClick={() => setComboColorizeMode(false)}>Brand</button>
-                      {comboColorizeMode !== COMBO_DEFAULTS.colorizeMode && (
-                        <IconButton size="sm" onClick={() => setComboColorizeMode(COMBO_DEFAULTS.colorizeMode)} title="Reset color mode" aria-label="Reset combo color mode to default">
-                          <Icon name="restart_alt" className={iconSm} />
-                        </IconButton>
-                      )}
-                    </div>
+                    <Label.Root className={typeLabel} htmlFor="combo-rect-color">Rect color</Label.Root>
+                    <AppSelect
+                      id="combo-rect-color"
+                      labelText="Rect color source"
+                      value={comboRectColorSource}
+                      onValueChange={(v) => setComboRectColorSource(Number(v))}
+                      defaultValue={COMBO_DEFAULTS.rectColorSource}
+                      onReset={() => setComboRectColorSource(COMBO_DEFAULTS.rectColorSource)}
+                      options={COMBO_RECT_COLOR_OPTIONS}
+                      title="Image, brand palette, or weave warp/weft"
+                      placeholder="Color"
+                    />
+                    {comboRectColorSource === 2 && (
+                      <>
+                        <Label.Root className={typeLabel} htmlFor="combo-pws">Warp shade</Label.Root>
+                        <AppSelect id="combo-pws" labelText="Warp shade" value={comboPatternWarpShade} onValueChange={(v) => setComboPatternWarpShade(Number(v))} defaultValue={COMBO_DEFAULTS.patternWarpShade} onReset={() => setComboPatternWarpShade(COMBO_DEFAULTS.patternWarpShade)} options={comboShadePickOptions('W')} title="Warp thread shade" placeholder="Warp" />
+                        <Label.Root className={typeLabel} htmlFor="combo-pwf">Weft shade</Label.Root>
+                        <AppSelect id="combo-pwf" labelText="Weft shade" value={comboPatternWeftShade} onValueChange={(v) => setComboPatternWeftShade(Number(v))} defaultValue={COMBO_DEFAULTS.patternWeftShade} onReset={() => setComboPatternWeftShade(COMBO_DEFAULTS.patternWeftShade)} options={comboShadePickOptions('F')} title="Weft thread shade" placeholder="Weft" />
+                      </>
+                    )}
                     <Label.Root className={typeLabel} htmlFor="combo-quantize">Quantize</Label.Root>
                     <SliderWithInput id="combo-quantize" value={comboQuantizeSteps} onValueChange={setComboQuantizeSteps} defaultValue={COMBO_DEFAULTS.quantizeSteps} onReset={() => setComboQuantizeSteps(COMBO_DEFAULTS.quantizeSteps)} min={0} max={32} step={1} aria-label="Quantize steps" />
-                    <Label.Root className={typeLabel} htmlFor="combo-shade">Shade from</Label.Root>
+                    <Label.Root className={typeLabel} htmlFor="combo-qspace">Quantize space</Label.Root>
                     <AppSelect
-                      id="combo-shade"
-                      labelText="Shade from"
-                      value={comboShadeFrom}
-                      onValueChange={(v) => setComboShadeFrom(Number(v))}
-                      defaultValue={COMBO_DEFAULTS.shadeFrom}
-                      onReset={() => setComboShadeFrom(COMBO_DEFAULTS.shadeFrom)}
-                      options={[{ value: 0, label: 'Color' }, { value: 1, label: 'Warp' }, { value: 2, label: 'Weft' }, { value: 3, label: 'Warp+Weft' }]}
-                      title="Shade from"
+                      id="combo-qspace"
+                      labelText="Quantize color space"
+                      value={comboQuantizeMode}
+                      onValueChange={(v) => setComboQuantizeMode(Number(v))}
+                      defaultValue={COMBO_DEFAULTS.quantizeMode}
+                      onReset={() => setComboQuantizeMode(COMBO_DEFAULTS.quantizeMode)}
+                      options={COMBO_QUANTIZE_MODE_OPTIONS}
+                      title="RGB vs HSV banding"
+                      placeholder="Space"
                     />
+                    <div className="flex items-center gap-1">
+                      <GroupIcon name="contrast" title="Gamma" />
+                      <Label.Root className={`${typeLabel} sr-only`} htmlFor="combo-qgamma">Gamma</Label.Root>
+                      <SliderWithInput id="combo-qgamma" value={comboQuantizeGamma} onValueChange={setComboQuantizeGamma} defaultValue={COMBO_DEFAULTS.quantizeGamma} onReset={() => setComboQuantizeGamma(COMBO_DEFAULTS.quantizeGamma)} min={0.25} max={4} step={0.05} format={(n) => n.toFixed(2)} aria-label="Quantize gamma" />
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <GroupIcon name="blur_linear" title="Dither" />
+                      <Label.Root className={`${typeLabel} sr-only`} htmlFor="combo-qdither">Dither</Label.Root>
+                      <SliderWithInput id="combo-qdither" value={comboQuantizeDither} onValueChange={setComboQuantizeDither} defaultValue={COMBO_DEFAULTS.quantizeDither} onReset={() => setComboQuantizeDither(COMBO_DEFAULTS.quantizeDither)} min={0} max={1} step={0.05} format={(n) => n.toFixed(2)} aria-label="Quantize dither" />
+                    </div>
+                    <Label.Root className={typeLabel} htmlFor="combo-luma-mix">Brightness → size</Label.Root>
+                    <SliderWithInput id="combo-luma-mix" value={comboLumaSizeMix} onValueChange={setComboLumaSizeMix} defaultValue={COMBO_DEFAULTS.lumaSizeMix} onReset={() => setComboLumaSizeMix(COMBO_DEFAULTS.lumaSizeMix)} min={0} max={1} step={0.05} format={(n) => n.toFixed(2)} aria-label="Scale rects by image brightness" />
+                    <AppSelect id="combo-luma-inv" labelText="Bright vs dark smaller" value={comboLumaSizeInvert} onValueChange={(v) => setComboLumaSizeInvert(Number(v))} defaultValue={COMBO_DEFAULTS.lumaSizeInvert} onReset={() => setComboLumaSizeInvert(COMBO_DEFAULTS.lumaSizeInvert)} options={[{ value: 0, label: 'Dark smaller' }, { value: 1, label: 'Bright smaller' }]} title="Luma size polarity" placeholder="Polarity" />
+                    <Label.Root className={typeLabel} htmlFor="combo-luma-floor">Min scale</Label.Root>
+                    <SliderWithInput id="combo-luma-floor" value={comboLumaSizeFloor} onValueChange={setComboLumaSizeFloor} defaultValue={COMBO_DEFAULTS.lumaSizeFloor} onReset={() => setComboLumaSizeFloor(COMBO_DEFAULTS.lumaSizeFloor)} min={0.05} max={1} step={0.05} format={(n) => n.toFixed(2)} aria-label="Smallest rect vs base ratio" />
+                    <Label.Root className={typeLabel} htmlFor="combo-cgeom">Cell geometry</Label.Root>
+                    <AppSelect id="combo-cgeom" labelText="Cell geometry" value={comboCellGeometryMode} onValueChange={(v) => setComboCellGeometryMode(Number(v))} defaultValue={COMBO_DEFAULTS.cellGeometryMode} onReset={() => setComboCellGeometryMode(COMBO_DEFAULTS.cellGeometryMode)} options={COMBO_CELL_GEOMETRY_OPTIONS} title="Weave vs darkness-gated stitches" placeholder="Geometry" />
+                    {comboCellGeometryMode === 1 && (
+                      <>
+                        <Label.Root className={typeLabel} htmlFor="combo-stitch-luma">Stitch max luma</Label.Root>
+                        <SliderWithInput id="combo-stitch-luma" value={comboStitchLumaMax} onValueChange={setComboStitchLumaMax} defaultValue={COMBO_DEFAULTS.stitchLumaMax} onReset={() => setComboStitchLumaMax(COMBO_DEFAULTS.stitchLumaMax)} min={0} max={1} step={0.02} format={(n) => n.toFixed(2)} aria-label="Stitch if cell luma at or below this" />
+                      </>
+                    )}
                     <Label.Root className={typeLabel} htmlFor="combo-bg">BG shade</Label.Root>
                     <AppSelect
                       id="combo-bg"
@@ -1435,6 +1601,7 @@ export default function App() {
                       onReset={() => setGradSteps(WEAVING_URL_DEFAULTS.gradSteps)}
                     />
                   </div>
+                  {view === 'weaving' && (
                   <div className="flex flex-wrap items-center gap-1.5">
                     <GroupIcon name="aspect_ratio" title="Rect ratio (36×40 = 0.9)" locked={!randomizeRectAspect} onLockChange={() => setRandomizeRectAspect((v) => !v)} />
                     <Label.Root className="sr-only" htmlFor="rect-aspect-slider">Rect aspect ratio (36×40 spec = 0.9)</Label.Root>
@@ -1452,6 +1619,7 @@ export default function App() {
                       onReset={() => setRectAspect(WEAVING_URL_DEFAULTS.rectAspect)}
                     />
                   </div>
+                  )}
                   <div className="flex flex-wrap items-center gap-1.5">
                     <GroupIcon name="crop" title="Canvas aspect" />
                     <Label.Root className="sr-only" htmlFor="canvas-aspect-slider">Canvas aspect ratio</Label.Root>
@@ -1469,21 +1637,33 @@ export default function App() {
                       onReset={() => setCanvasAspect(WEAVING_URL_DEFAULTS.canvasAspect)}
                     />
                   </div>
+                  {view === 'weaving' && (
                   <div className="flex flex-wrap items-center gap-1.5">
-                    <GroupIcon name="fit_screen" title="Display" />
-                    <Label.Root className="sr-only" htmlFor="pattern-fit-select">Pattern display</Label.Root>
-                    <AppSelect
-                      id="pattern-fit-select"
-                      labelText="Pattern display"
-                      value={patternFit}
-                      onValueChange={setPatternFit}
-                      defaultValue={WEAVING_URL_DEFAULTS.patternFit}
-                      onReset={() => setPatternFit(WEAVING_URL_DEFAULTS.patternFit)}
-                      options={[{ value: 'fit', label: 'Fit' }, { value: 'fill', label: 'Fill' }]}
-                      title="Fill or fit pattern on screen"
-                      placeholder="Fit"
-                    />
+                    <GroupIcon name="lens_blur" title="Halftone output" />
+                    <span className={`${controlLabel} ${typeLabel}`}>Halftone</span>
+                    <SegmentedControl>
+                      <div className="flex h-full">
+                        <SegmentedControlButton
+                          active={!weaveHalftoneOn}
+                          aria-pressed={!weaveHalftoneOn}
+                          aria-label="Flat weave output"
+                          onClick={() => setWeaveHalftoneOn(false)}
+                        >
+                          Off
+                        </SegmentedControlButton>
+                        <SegmentedControlButton
+                          active={weaveHalftoneOn}
+                          aria-pressed={weaveHalftoneOn}
+                          aria-label="CMYK halftone over weave"
+                          onClick={() => setWeaveHalftoneOn(true)}
+                        >
+                          On
+                        </SegmentedControlButton>
+                      </div>
+                    </SegmentedControl>
                   </div>
+                  )}
+                  {view === 'weaving' && (
                   <div className="flex flex-wrap items-center gap-1.5">
                     <GroupIcon name="rounded_corner" title="Radius" locked={!randomizeCornerRadius} onLockChange={() => setRandomizeCornerRadius((v) => !v)} />
                     <Label.Root className="sr-only" htmlFor="radius-slider">Corner radius</Label.Root>
@@ -1501,6 +1681,7 @@ export default function App() {
                       onReset={() => setCornerRadius(WEAVING_URL_DEFAULTS.cornerRadius)}
                     />
                   </div>
+                  )}
                 </div>
                 <div className={sidebarGroup}>
                   <div className={sidebarGroupTitle}>Shimmer</div>
@@ -1696,10 +1877,10 @@ export default function App() {
                       type="button"
                       className={`${toggleBtn} ${useAllColorways ? toggleBtnActive : ''}`}
                       aria-pressed={useAllColorways}
-                      aria-label="Use all 4 colorways (randomized per cell)"
+                      aria-label="Use all 5 colorways (randomized per cell)"
                       onClick={() => setUseAllColorways((u) => !u)}
                     >
-                      Use all 4 colorways
+                      Use all 5 colorways
                     </button>
                     {useAllColorways !== WEAVING_URL_DEFAULTS.useAllColorways && (
                       <IconButton size="sm" onClick={() => setUseAllColorways(WEAVING_URL_DEFAULTS.useAllColorways)} title="Reset all-colorways toggle" aria-label="Reset all colorways toggle to default">
@@ -1752,7 +1933,7 @@ export default function App() {
                 </div>
               </>
             )}
-            {(view === 'weavingHalftone' || view === 'imageRectsHalftone') && (
+            {((view === 'weaving' && weaveHalftoneOn) || view === 'imageRectsHalftone') && (
               <>
                 <div className={sidebarGroup}>
                   <div className={`${sidebarGroupTitle} inline-flex items-center gap-1`}><Icon name="lens_blur" className={iconXs} /> preset</div>
@@ -1840,9 +2021,62 @@ export default function App() {
           </div>
         </motion.aside>
         <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-          <main className={`flex min-h-0 flex-1 overflow-auto p-4 ${view === 'weavingHalftone' || view === 'imageRectsHalftone' ? 'flex-col items-stretch' : 'items-center justify-center'}`}>
-            {view === 'weaving' && (
-              <ShaderCanvas patternIndex={pattern} palette={palette} bgShade={bgShade} warpShade={warpShade} weftShade={weftShade} gridSize={gridSize} warpGradient={warpGradient} weftGradient={weftGradient} gradSteps={gradSteps} rectAspect={rectAspect} cornerRadius={cornerRadius} canvasAspect={canvasAspect} shimmer={shimmer} shimmerSpeed={shimmerSpeed} shimmerWidth={shimmerWidth} shimmerIntensity={shimmerIntensity} shimmerPosition={shimmerPosition} shimmerRotation={shimmerRotation} shimmerNoise={shimmerNoise} shimmerNoiseSeed={shimmerNoiseSeed} shimmerNoiseMin={shimmerNoiseMin} shimmerNoiseMax={shimmerNoiseMax} shimmerBlendMode={shimmerBlendMode} useAllColorways={useAllColorways} colorwaySeed={colorwaySeed} colorwayNoiseScale={colorwayNoiseScale} shimmerPlaying={shimmerPlaying} shimmerPausedAtTime={shimmerPausedAtTime} shimmerPhase={shimmerPhase} onShimmerTime={onShimmerTime} patterns={PATTERNS} onFpsChange={setFps} onCanvasRef={(el) => { canvasRef.current = el; }} onCaptureReady={(api) => { weavingCaptureRef.current = api; }} />
+          <main
+            className={
+              (view === 'weaving' && weaveHalftoneOn) || view === 'imageRectsHalftone'
+                ? 'flex min-h-0 flex-1 flex-col items-stretch overflow-auto p-4'
+                : patternFit === 'fill'
+                  ? 'flex min-h-0 flex-1 flex-col overflow-hidden p-4'
+                  : 'flex min-h-0 flex-1 items-center justify-center overflow-auto p-4'
+            }
+          >
+            {view === 'weaving' && !weaveHalftoneOn && (
+              <div
+                className={
+                  patternFit === 'fill'
+                    ? 'flex min-h-0 min-w-0 flex-1 flex-col items-stretch justify-stretch'
+                    : 'flex shrink-0 items-center justify-center'
+                }
+                style={patternFit === 'fit' ? { width: '150%', height: '150%' } : undefined}
+              >
+                <ShaderCanvas
+                  patternFit={patternFit}
+                  patternIndex={pattern}
+                  palette={palette}
+                  bgShade={bgShade}
+                  warpShade={warpShade}
+                  weftShade={weftShade}
+                  gridSize={gridSize}
+                  warpGradient={warpGradient}
+                  weftGradient={weftGradient}
+                  gradSteps={gradSteps}
+                  rectAspect={rectAspect}
+                  cornerRadius={cornerRadius}
+                  canvasAspect={canvasAspect}
+                  shimmer={shimmer}
+                  shimmerSpeed={shimmerSpeed}
+                  shimmerWidth={shimmerWidth}
+                  shimmerIntensity={shimmerIntensity}
+                  shimmerPosition={shimmerPosition}
+                  shimmerRotation={shimmerRotation}
+                  shimmerNoise={shimmerNoise}
+                  shimmerNoiseSeed={shimmerNoiseSeed}
+                  shimmerNoiseMin={shimmerNoiseMin}
+                  shimmerNoiseMax={shimmerNoiseMax}
+                  shimmerBlendMode={shimmerBlendMode}
+                  useAllColorways={useAllColorways}
+                  colorwaySeed={colorwaySeed}
+                  colorwayNoiseScale={colorwayNoiseScale}
+                  shimmerPlaying={shimmerPlaying}
+                  shimmerPausedAtTime={shimmerPausedAtTime}
+                  shimmerPhase={shimmerPhase}
+                  onShimmerTime={onShimmerTime}
+                  patterns={PATTERNS}
+                  onFpsChange={setFps}
+                  onCanvasRef={(el) => { canvasRef.current = el; }}
+                  onCaptureReady={(api) => { weavingCaptureRef.current = api; }}
+                />
+              </div>
             )}
             {view === 'imageRectsHalftone' && (
               <Suspense fallback={<div className="flex flex-1 items-center justify-center text-text-secondary">Loading…</div>}>
@@ -1852,15 +2086,25 @@ export default function App() {
                     gridSize={comboGridSize}
                     palette={comboPalette}
                     bgShade={comboBgShade}
-                    colorizeMode={comboColorizeMode}
+                    rectColorSource={comboRectColorSource}
                     quantizeSteps={comboQuantizeSteps}
+                    quantizeMode={comboQuantizeMode}
+                    quantizeGamma={comboQuantizeGamma}
+                    quantizeDither={comboQuantizeDither}
                     rectShade={1}
-                    shadeFrom={comboShadeFrom}
+                    shadeFrom={0}
+                    patternWarpShade={comboPatternWarpShade}
+                    patternWeftShade={comboPatternWeftShade}
                     patternIndex={comboPatternIndex}
                     patterns={PATTERNS}
                     rectRadius={comboRectRadius}
                     rectAspect={comboRectAspect}
                     rectRatio={comboRectRatio}
+                    lumaSizeMix={comboLumaSizeMix}
+                    lumaSizeInvert={comboLumaSizeInvert}
+                    lumaSizeFloor={comboLumaSizeFloor}
+                    cellGeometryMode={comboCellGeometryMode}
+                    stitchLumaMax={comboStitchLumaMax}
                     patternFit={patternFit}
                     size={halftoneSize}
                     softness={halftoneSoftness}
@@ -1881,7 +2125,7 @@ export default function App() {
                 </div>
               </Suspense>
             )}
-            {view === 'weavingHalftone' && (
+            {view === 'weaving' && weaveHalftoneOn && (
               <Suspense fallback={<div className="flex flex-1 items-center justify-center text-text-secondary">Loading…</div>}>
                 <div className="flex min-h-0 flex-1 w-full flex-col">
                   <WeavingHalftoneStage

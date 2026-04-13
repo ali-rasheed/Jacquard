@@ -16,15 +16,25 @@ export function ImageRectsHalftoneStage({
   gridSize,
   palette,
   bgShade,
-  colorizeMode,
+  rectColorSource,
   quantizeSteps,
+  quantizeMode,
+  quantizeGamma,
+  quantizeDither,
   rectShade,
   shadeFrom,
+  patternWarpShade,
+  patternWeftShade,
   patternIndex,
   patterns,
   rectRadius,
   rectAspect,
   rectRatio,
+  lumaSizeMix,
+  lumaSizeInvert,
+  lumaSizeFloor,
+  cellGeometryMode,
+  stitchLumaMax,
   patternFit = 'fit',
   // Halftone
   size,
@@ -93,13 +103,23 @@ export function ImageRectsHalftoneStage({
     gridSize,
     palette,
     bgShade,
-    colorizeMode,
+    rectColorSource,
     quantizeSteps,
+    quantizeMode,
+    quantizeGamma,
+    quantizeDither,
     shadeFrom,
+    patternWarpShade,
+    patternWeftShade,
     patternIndex,
     rectRadius,
     rectAspect,
     rectRatio,
+    lumaSizeMix,
+    lumaSizeInvert,
+    lumaSizeFloor,
+    cellGeometryMode,
+    stitchLumaMax,
     capture,
   ]);
 
@@ -170,15 +190,25 @@ export function ImageRectsHalftoneStage({
           gridSize={gridSize}
           palette={palette}
           bgShade={bgShade}
-          colorizeMode={colorizeMode}
+          rectColorSource={rectColorSource}
           quantizeSteps={quantizeSteps}
+          quantizeMode={quantizeMode}
+          quantizeGamma={quantizeGamma}
+          quantizeDither={quantizeDither}
           rectShade={rectShade}
           shadeFrom={shadeFrom}
+          patternWarpShade={patternWarpShade}
+          patternWeftShade={patternWeftShade}
           patternIndex={patternIndex}
           patterns={patterns ?? []}
           rectRadius={rectRadius}
           rectAspect={rectAspect}
           rectRatio={rectRatio}
+          lumaSizeMix={lumaSizeMix}
+          lumaSizeInvert={lumaSizeInvert}
+          lumaSizeFloor={lumaSizeFloor}
+          cellGeometryMode={cellGeometryMode}
+          stitchLumaMax={stitchLumaMax}
           onCanvasRef={handleCanvasRef}
           onImageSize={handleImageSize}
         />

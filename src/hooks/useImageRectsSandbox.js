@@ -1,7 +1,8 @@
 /**
- * useImageRectsSandbox — V2 only. WebGL canvas that samples an image per grid cell
- * and draws rounded rects. Uses same weave pattern texture as v1 for rect orientation (warp/weft).
- * Exposes captureAtResolution(w, h) so copy/export can render at target resolution for sharpness.
+ * useImageRectsSandbox — Image Rects WebGL. Samples a texture (static image, animated GIF, or video)
+ * per grid cell and draws rounded rects; weave pattern sets orientation (warp/weft).
+ * staticImage: upload once on load. video / gif: re-upload each frame so motion shows in the shader.
+ * Exposes captureAtResolution(w, h) for sharp copy/export.
  */
 const DPR = 2;
 import { useRef, useEffect, useCallback, useState } from 'react';
@@ -50,10 +51,11 @@ function createPlaceholderTexture(gl) {
   return tex;
 }
 
-function uploadImageToTexture(gl, texture, image) {
+/** Upload HTMLImageElement, HTMLVideoElement, or ImageBitmap to the 2D texture (sRGB). */
+function uploadSourceToTexture(gl, texture, source) {
   gl.activeTexture(gl.TEXTURE0);
   gl.bindTexture(gl.TEXTURE_2D, texture);
-  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, source);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
@@ -64,15 +66,20 @@ function uploadImageToTexture(gl, texture, image) {
  * When image loads, the hook reports its size via onImageSize(w, h) and imageSize state
  * so the UI can match aspect ratio and resolution (e.g. canvas/capture dimensions).
  * Image is cached by source so changing grid/palette etc. does not reload it.
+ * Quantize extras (mode/gamma/dither) map to u_quantize* in fragmentImageRects.glsl.
  */
-export function useImageRectsSandbox(vertexSource, fragmentSource, imageSource, gridSize, palette, bgShade, colorizeMode, quantizeSteps, rectShade, shadeFrom, patternIndex, patterns, rectRadius, rectAspect, rectRatio, onFpsChange, onImageSize, onCaptureReady) {
+/**
+ * mediaTextureKind: staticImage = one upload after load; video = HTMLVideoElement, upload while playing;
+ * gif = HTMLImageElement (animated GIF), upload every frame so frames advance.
+ */
+export function useImageRectsSandbox(vertexSource, fragmentSource, imageSource, gridSize, palette, bgShade, rectColorSource, quantizeSteps, quantizeMode, quantizeGamma, quantizeDither, rectShade, shadeFrom, patternWarpShade, patternWeftShade, patternIndex, patterns, rectRadius, rectAspect, rectRatio, lumaSizeMix, lumaSizeInvert, lumaSizeFloor, cellGeometryMode, stitchLumaMax, nonStitchShowsBg, onFpsChange, onImageSize, onCaptureReady, mediaTextureKind = 'staticImage') {
   const canvasRef = useRef(null);
   const containerRef = useRef(null);
   const onFpsChangeRef = useRef(onFpsChange);
   const onImageSizeRef = useRef(onImageSize);
   const onCaptureReadyRef = useRef(onCaptureReady);
-  /** Keep loaded image by source so changing grid/palette etc. doesn't reload the image. */
-  const imageCacheRef = useRef({ source: null, img: null });
+  /** Cached decoded media: static img, video element, or gif img — keyed by blob/object URL. */
+  const mediaCacheRef = useRef({ source: null, pendingUrl: null, kind: 'staticImage', img: null, video: null });
   const [error, setError] = useState('');
   const [fps, setFps] = useState(0);
   const [imageSize, setImageSize] = useState(null);
@@ -129,6 +136,22 @@ export function useImageRectsSandbox(vertexSource, fragmentSource, imageSource, 
 
     const render = () => {
       if (!program || !uniformLocs || !imageTexture || !patternTexture) return;
+      const cache = mediaCacheRef.current;
+      if (imageSource && cache.kind === 'video' && cache.video && (cache.source === imageSource || cache.pendingUrl === imageSource)) {
+        if (cache.video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+          try {
+            uploadSourceToTexture(gl, imageTexture, cache.video);
+          } catch {
+            /* ignore transient video frame errors */
+          }
+        }
+      } else if (imageSource && cache.kind === 'gif' && cache.img && cache.source === imageSource && cache.img.complete) {
+        try {
+          uploadSourceToTexture(gl, imageTexture, cache.img);
+        } catch {
+          /* ignore */
+        }
+      }
       gl.useProgram(program);
       gl.activeTexture(gl.TEXTURE0);
       gl.bindTexture(gl.TEXTURE_2D, imageTexture);
@@ -140,13 +163,24 @@ export function useImageRectsSandbox(vertexSource, fragmentSource, imageSource, 
       gl.uniform1f(uniformLocs.gridSize, gridSize);
       gl.uniform1f(uniformLocs.palette, palette);
       gl.uniform1f(uniformLocs.bgShade, bgShade);
-      gl.uniform1f(uniformLocs.colorizeMode, colorizeMode);
+      gl.uniform1f(uniformLocs.rectColorSource, rectColorSource);
       gl.uniform1f(uniformLocs.quantizeSteps, quantizeSteps);
+      gl.uniform1f(uniformLocs.quantizeMode, quantizeMode);
+      gl.uniform1f(uniformLocs.quantizeGamma, quantizeGamma);
+      gl.uniform1f(uniformLocs.quantizeDither, quantizeDither);
       gl.uniform1f(uniformLocs.rectShade, rectShade);
       gl.uniform1f(uniformLocs.shadeFrom, shadeFrom);
+      gl.uniform1f(uniformLocs.patternWarpShade, patternWarpShade ?? 1);
+      gl.uniform1f(uniformLocs.patternWeftShade, patternWeftShade ?? 3);
       gl.uniform1f(uniformLocs.rectRadius, rectRadius ?? 0.18);
       gl.uniform1f(uniformLocs.rectAspect, rectAspect ?? 0.85);
       gl.uniform1f(uniformLocs.rectRatio, rectRatio ?? 1.0);
+      gl.uniform1f(uniformLocs.lumaSizeMix, lumaSizeMix ?? 0);
+      gl.uniform1f(uniformLocs.lumaSizeInvert, lumaSizeInvert ?? 0);
+      gl.uniform1f(uniformLocs.lumaSizeFloor, lumaSizeFloor ?? 0.2);
+      gl.uniform1f(uniformLocs.cellGeometryMode, cellGeometryMode ?? 0);
+      gl.uniform1f(uniformLocs.stitchLumaMax, stitchLumaMax ?? 0.42);
+      gl.uniform1f(uniformLocs.nonStitchShowsBg, nonStitchShowsBg ?? 0);
       const pat = list[Math.min(Math.max(0, Math.floor(patternIndex)), list.length - 1)] ?? list[0];
       gl.uniform1f(uniformLocs.patternIndex, Math.floor(patternIndex));
       gl.uniform1f(uniformLocs.tileW, pat?.tileW ?? 8);
@@ -184,13 +218,24 @@ export function useImageRectsSandbox(vertexSource, fragmentSource, imageSource, 
         patternTexHeight: gl.getUniformLocation(program, 'u_patternTexHeight'),
         palette: gl.getUniformLocation(program, 'u_palette'),
         bgShade: gl.getUniformLocation(program, 'u_bgShade'),
-        colorizeMode: gl.getUniformLocation(program, 'u_colorizeMode'),
+        rectColorSource: gl.getUniformLocation(program, 'u_rectColorSource'),
         quantizeSteps: gl.getUniformLocation(program, 'u_quantizeSteps'),
+        quantizeMode: gl.getUniformLocation(program, 'u_quantizeMode'),
+        quantizeGamma: gl.getUniformLocation(program, 'u_quantizeGamma'),
+        quantizeDither: gl.getUniformLocation(program, 'u_quantizeDither'),
         rectShade: gl.getUniformLocation(program, 'u_rectShade'),
         shadeFrom: gl.getUniformLocation(program, 'u_shadeFrom'),
+        patternWarpShade: gl.getUniformLocation(program, 'u_patternWarpShade'),
+        patternWeftShade: gl.getUniformLocation(program, 'u_patternWeftShade'),
         rectRadius: gl.getUniformLocation(program, 'u_rectRadius'),
         rectAspect: gl.getUniformLocation(program, 'u_rectAspect'),
         rectRatio: gl.getUniformLocation(program, 'u_rectRatio'),
+        lumaSizeMix: gl.getUniformLocation(program, 'u_lumaSizeMix'),
+        lumaSizeInvert: gl.getUniformLocation(program, 'u_lumaSizeInvert'),
+        lumaSizeFloor: gl.getUniformLocation(program, 'u_lumaSizeFloor'),
+        cellGeometryMode: gl.getUniformLocation(program, 'u_cellGeometryMode'),
+        stitchLumaMax: gl.getUniformLocation(program, 'u_stitchLumaMax'),
+        nonStitchShowsBg: gl.getUniformLocation(program, 'u_nonStitchShowsBg'),
       };
 
       imageTexture = createPlaceholderTexture(gl);
@@ -206,35 +251,114 @@ export function useImageRectsSandbox(vertexSource, fragmentSource, imageSource, 
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
 
-      const cache = imageCacheRef.current;
+      const cache = mediaCacheRef.current;
+      const kind = mediaTextureKind === 'video' ? 'video' : mediaTextureKind === 'gif' ? 'gif' : 'staticImage';
+
+      const stopVideo = () => {
+        if (cache.video) {
+          try {
+            cache.video.pause();
+            cache.video.removeAttribute('src');
+            cache.video.load();
+          } catch {
+            /* ignore */
+          }
+          cache.video = null;
+        }
+        cache.pendingUrl = null;
+      };
+
       if (imageSource) {
-        if (cache.source === imageSource && cache.img?.complete) {
-          uploadImageToTexture(gl, imageTexture, cache.img);
-          setImageSize({ width: cache.img.naturalWidth, height: cache.img.naturalHeight });
-          onImageSizeRef.current?.(cache.img.naturalWidth, cache.img.naturalHeight);
+        const videoStillLoading = kind === 'video' && cache.video && cache.pendingUrl === imageSource;
+        const cacheHit = imageSource && (
+          (cache.source === imageSource && (
+            (kind === 'video' && cache.video)
+            || (kind !== 'video' && cache.img?.complete)
+          ))
+          || videoStillLoading
+        );
+        if (cacheHit) {
+          if (kind === 'video' && cache.video) {
+            const w = cache.video.videoWidth;
+            const h = cache.video.videoHeight;
+            if (w > 0 && h > 0) {
+              if (cache.video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+                uploadSourceToTexture(gl, imageTexture, cache.video);
+              }
+              setImageSize({ width: w, height: h });
+              onImageSizeRef.current?.(w, h);
+            }
+          } else if (cache.img?.complete) {
+            uploadSourceToTexture(gl, imageTexture, cache.img);
+            setImageSize({ width: cache.img.naturalWidth, height: cache.img.naturalHeight });
+            onImageSizeRef.current?.(cache.img.naturalWidth, cache.img.naturalHeight);
+          }
         } else {
           cache.source = null;
           cache.img = null;
-          const img = new Image();
-          img.crossOrigin = 'anonymous';
-          img.onload = () => {
-            cache.source = imageSource;
-            cache.img = img;
-            uploadImageToTexture(gl, imageTexture, img);
-            const w = img.naturalWidth;
-            const h = img.naturalHeight;
-            setImageSize({ width: w, height: h });
-            onImageSizeRef.current?.(w, h);
-          };
-          img.onerror = () => {
-            setError('Failed to load image');
-            setImageSize(null);
-          };
-          img.src = imageSource;
+          stopVideo();
+          cache.kind = kind;
+
+          if (kind === 'video') {
+            const video = document.createElement('video');
+            video.muted = true;
+            video.loop = true;
+            video.playsInline = true;
+            video.setAttribute('playsinline', '');
+            video.setAttribute('webkit-playsinline', '');
+            video.crossOrigin = 'anonymous';
+            video.preload = 'auto';
+            cache.video = video;
+            cache.pendingUrl = imageSource;
+            video.onloadedmetadata = () => {
+              const w = video.videoWidth;
+              const h = video.videoHeight;
+              if (w > 0 && h > 0) {
+                setImageSize({ width: w, height: h });
+                onImageSizeRef.current?.(w, h);
+              }
+            };
+            video.onerror = () => {
+              setError('Failed to load video');
+              setImageSize(null);
+              stopVideo();
+              cache.source = null;
+            };
+            video.oncanplay = () => {
+              cache.source = imageSource;
+              cache.pendingUrl = null;
+              if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+                uploadSourceToTexture(gl, imageTexture, video);
+              }
+            };
+            video.src = imageSource;
+            video.play().catch(() => {
+              setError('Video play blocked — try picking the file again');
+            });
+          } else {
+            const img = new Image();
+            img.crossOrigin = 'anonymous';
+            img.onload = () => {
+              cache.source = imageSource;
+              cache.img = img;
+              uploadSourceToTexture(gl, imageTexture, img);
+              const w = img.naturalWidth;
+              const h = img.naturalHeight;
+              setImageSize({ width: w, height: h });
+              onImageSizeRef.current?.(w, h);
+            };
+            img.onerror = () => {
+              setError(kind === 'gif' ? 'Failed to load GIF' : 'Failed to load image');
+              setImageSize(null);
+            };
+            img.src = imageSource;
+          }
         }
       } else {
         cache.source = null;
         cache.img = null;
+        stopVideo();
+        cache.kind = 'staticImage';
         setImageSize(null);
       }
 
@@ -287,7 +411,7 @@ export function useImageRectsSandbox(vertexSource, fragmentSource, imageSource, 
       if (patternTexture) gl.deleteTexture(patternTexture);
       if (program) gl.deleteProgram(program);
     };
-  }, [vertexSource, fragmentSource, imageSource, gridSize, palette, bgShade, colorizeMode, quantizeSteps, rectShade, shadeFrom, patternIndex, patterns, rectRadius, rectAspect, rectRatio]);
+  }, [vertexSource, fragmentSource, imageSource, gridSize, palette, bgShade, rectColorSource, quantizeSteps, quantizeMode, quantizeGamma, quantizeDither, rectShade, shadeFrom, patternWarpShade, patternWeftShade, patternIndex, patterns, rectRadius, rectAspect, rectRatio, lumaSizeMix, lumaSizeInvert, lumaSizeFloor, cellGeometryMode, stitchLumaMax, nonStitchShowsBg, mediaTextureKind]);
 
   useEffect(() => {
     const cleanup = run();

@@ -1,6 +1,7 @@
 /**
- * ImageRectsCanvas — V2 only. Renders the image-to-colored-rects shader.
- * Weave pattern (from patterns/index.js) sets rect orientation per cell (warp/weft).
+ * ImageRectsCanvas — Image / video / GIF → colored rects shader (V2 family).
+ * Weave pattern sets rect orientation; quantize + optional stitch gating — fragmentImageRects.glsl.
+ * mediaTextureKind: staticImage | video | gif — passed through to the sandbox hook for upload cadence.
  */
 import { memo } from 'react';
 import { useImageRectsSandbox } from '../hooks/useImageRectsSandbox';
@@ -14,7 +15,7 @@ import { fpsPill } from '../uiConstants';
  * When no image is loaded, fallback is 1:1.
  * patternFit: 'fill' = container fills view; 'fit' = container fits inside view.
  */
-function ImageRectsCanvasInner({ imageSource, gridSize, palette, bgShade, colorizeMode, quantizeSteps, rectShade, shadeFrom, patternIndex, patterns, rectRadius, rectAspect, rectRatio, patternFit = 'fit', onFpsChange, onCanvasRef, onCaptureReady }) {
+function ImageRectsCanvasInner({ imageSource, mediaTextureKind = 'staticImage', gridSize, palette, bgShade, rectColorSource, quantizeSteps, quantizeMode, quantizeGamma, quantizeDither, rectShade, shadeFrom, patternWarpShade, patternWeftShade, patternIndex, patterns, rectRadius, rectAspect, rectRatio, lumaSizeMix, lumaSizeInvert, lumaSizeFloor, cellGeometryMode, stitchLumaMax, nonStitchShowsBg = false, patternFit = 'fit', onFpsChange, onCanvasRef, onCaptureReady }) {
   const { canvasRef, containerRef, error, fps, imageSize } = useImageRectsSandbox(
     vertexSource,
     fragmentSource,
@@ -22,18 +23,30 @@ function ImageRectsCanvasInner({ imageSource, gridSize, palette, bgShade, colori
     gridSize ?? 32,
     palette ?? 0,
     bgShade ?? 2,
-    colorizeMode ?? true,
+    rectColorSource ?? 1,
     quantizeSteps ?? 0,
+    quantizeMode ?? 0,
+    quantizeGamma ?? 1,
+    quantizeDither ?? 0,
     rectShade ?? 1,
     shadeFrom ?? 0,
+    patternWarpShade ?? 1,
+    patternWeftShade ?? 3,
     patternIndex ?? 0,
     patterns ?? PATTERNS,
     rectRadius ?? 0.18,
     rectAspect ?? 0.85,
     rectRatio ?? 1.0,
+    lumaSizeMix ?? 0,
+    lumaSizeInvert ?? 0,
+    lumaSizeFloor ?? 0.2,
+    cellGeometryMode ?? 0,
+    stitchLumaMax ?? 0.42,
+    nonStitchShowsBg ? 1 : 0,
     onFpsChange,
     undefined,
-    onCaptureReady
+    onCaptureReady,
+    mediaTextureKind
   );
 
   const aspectRatio = imageSize

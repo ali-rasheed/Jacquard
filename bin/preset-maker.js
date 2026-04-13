@@ -38,7 +38,7 @@ function parseUrlState(search) {
     };
   };
   num('p', 'pattern', 0, PATTERNS.length - 1);
-  num('pal', 'palette', 0, 3);
+  num('pal', 'palette', 0, 4);
   num('bg', 'bgShade', 0, 4);
   num('warp', 'warpShade', 0, 4);
   num('weft', 'weftShade', 0, 4);

@@ -1,7 +1,7 @@
 /**
- * AppV2 — Image to colored rects. Pick an image; shader draws a grid of rounded rects
- * colored by the image (one sample per cell). Weave pattern sets rect orientation (warp/weft) per cell.
- * Inherits v1 patterns: copy (PNG/WebP), WebM recording, URL state, shortcuts, SliderWithInput, WEAVE_ICONS, Reload/Randomize.
+ * AppV2 — Mosaic: image, video, or GIF → colored rects (one sample per cell). Weave orientation;
+ * brand / image / pattern color; quantize, stitches, optional background gaps (legacy v5), Fit/Fill canvas.
+ * Copy, WebM/MP4 record, URL state (?v=2, gap=, display=), shortcuts.
  */
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { motion } from 'motion/react';
@@ -31,41 +31,73 @@ import {
   paletteSwatch,
   paletteSwatchSelected,
   paletteSwatchUnselected,
+  toggleBtn,
+  toggleBtnActive,
 } from './uiConstants';
 import { Icon, GroupIcon, AppSelect, SegmentedControl, SegmentedControlButton, IconButton } from './components/ui';
 import { RecordingDownloadBanner } from './components/RecordingDownloadBanner.jsx';
 
-const MODE_OPTIONS = [
-  { value: 'colorize', label: 'Colorization' },
-  { value: 'brand', label: 'Brand colors' },
+/** Rect fill: brand = palette from cell image luma; image = sampled RGB; pattern = warp vs weft shades only. */
+const RECT_COLOR_SOURCE_OPTIONS = [
+  { value: 0, label: 'Brand' },
+  { value: 1, label: 'Image' },
+  { value: 2, label: 'Pattern' },
 ];
 
-const SHADE_FROM_OPTIONS = [
-  { value: 0, label: 'Color' },
-  { value: 1, label: 'Warp' },
-  { value: 2, label: 'Weft' },
-  { value: 3, label: 'Warp+Weft' },
+/** How cell color is banded when quantize steps ≥ 2 (see fragmentImageRects.glsl). */
+const QUANTIZE_MODE_OPTIONS = [
+  { value: 0, label: 'RGB' },
+  { value: 1, label: 'HSV' },
 ];
 
-/** Parse URL search params into Image Rects state. imageSource is not in URL (blob). */
+/** Cell shape: always weave rects, or plain tiles except where image is dark enough. */
+const CELL_GEOMETRY_OPTIONS = [
+  { value: 0, label: 'Weave' },
+  { value: 1, label: 'Dark stitches' },
+];
+
+/** Map picked file to WebGL upload strategy (V6 video/GIF). */
+function inferMediaTextureKindFromFile(file) {
+  if (!file) return 'staticImage';
+  if (file.type.startsWith('video/')) return 'video';
+  if (file.type === 'image/gif') return 'gif';
+  const n = file.name.toLowerCase();
+  if (n.endsWith('.gif')) return 'gif';
+  if (/\.(webm|mp4|mov|m4v|ogv|avi)$/i.test(n)) return 'video';
+  return 'staticImage';
+}
+
+/** Parse URL search params into Mosaic state. imageSource is not in URL (blob). v=2|5|6 supported; v=5 enables bg gaps. */
 function parseUrlStateV2(search) {
   const params = new URLSearchParams(search);
   const out = {};
   const num = (paramKey, stateKey, min, max) => {
-    const v = params.get(paramKey);
-    if (v == null) return;
-    const n = Number(v);
+    const val = params.get(paramKey);
+    if (val == null) return;
+    const n = Number(val);
     if (!Number.isFinite(n)) return;
     out[stateKey] = min != null && max != null ? Math.max(min, Math.min(max, n)) : n;
   };
-  const v = params.get('v');
-  if (v != null && v !== '2') return out;
+  const vParam = params.get('v');
+  const mosaicV = vParam == null || vParam === '2' || vParam === '5' || vParam === '6';
+  if (!mosaicV) return out;
+  if (vParam === '5') {
+    out.mosaicBgGaps = true;
+    if (params.get('gm') == null && params.get('gap') == null) out.cellGeometryMode = 1;
+  }
+  const gap = params.get('gap');
+  if (gap === '1') out.mosaicBgGaps = true;
+  if (gap === '0') out.mosaicBgGaps = false;
+  const display = params.get('display');
+  if (display === 'fill' || display === 'fit') out.patternFit = display;
   num('grid', 'gridSize', 8, 256);
-  num('pal', 'palette', 0, 3);
+  num('pal', 'palette', 0, 4);
   num('bg', 'bgShade', 0, 5);
-  num('cm', 'colorizeMode', 0, 1);
+  num('cm', 'rectColorSource', 0, 2);
+  num('pws', 'patternWarpShade', 0, 4);
+  num('pwf', 'patternWeftShade', 0, 4);
   num('q', 'quantizeSteps', 0, 32);
-  num('sf', 'shadeFrom', 0, 3);
+  num('qm', 'quantizeMode', 0, 1);
   num('p', 'patternIndex', 0, PATTERNS.length - 1);
   num('rr', 'rectRadius', 0, 0.5);
   num('ra', 'rectAspect', 0.3, 1.5);
@@ -74,10 +106,41 @@ function parseUrlStateV2(search) {
   if (cf === 'webp' || cf === 'png') out.copyFormat = cf;
   const cs = params.get('cs');
   if (cs !== null && [1, 2, 4, 8].includes(Number(cs))) out.copyScale = Number(cs);
+  const qg = params.get('qg');
+  if (qg != null) {
+    const n = Number(qg);
+    if (Number.isFinite(n)) out.quantizeGamma = Math.max(0.25, Math.min(4, n / 100));
+  }
+  const qd = params.get('qd');
+  if (qd != null) {
+    const n = Number(qd);
+    if (Number.isFinite(n)) out.quantizeDither = Math.max(0, Math.min(1, n / 100));
+  }
+  const ls = params.get('ls');
+  if (ls != null) {
+    const n = Number(ls);
+    if (Number.isFinite(n)) out.lumaSizeMix = Math.max(0, Math.min(1, n / 100));
+  }
+  const lsi = params.get('lsi');
+  if (lsi != null) {
+    const n = Number(lsi);
+    if (n === 0 || n === 1) out.lumaSizeInvert = n;
+  }
+  const lsf = params.get('lsf');
+  if (lsf != null) {
+    const n = Number(lsf);
+    if (Number.isFinite(n)) out.lumaSizeFloor = Math.max(0.05, Math.min(1, n / 100));
+  }
+  num('gm', 'cellGeometryMode', 0, 1);
+  const glt = params.get('glt');
+  if (glt != null) {
+    const n = Number(glt);
+    if (Number.isFinite(n)) out.stitchLumaMax = Math.max(0, Math.min(1, n / 100));
+  }
   return out;
 }
 
-/** Build URL search string from Image Rects state; omit defaults to keep URL short. */
+/** Build URL search string from Mosaic state; omit defaults to keep URL short. */
 function buildUrlStateV2(state) {
   const def = IMAGE_RECTS_URL_DEFAULTS;
   const p = new URLSearchParams();
@@ -85,9 +148,18 @@ function buildUrlStateV2(state) {
   if (state.gridSize !== def.gridSize) p.set('grid', String(state.gridSize));
   if (state.palette !== def.palette) p.set('pal', String(state.palette));
   if (state.bgShade !== def.bgShade) p.set('bg', String(state.bgShade));
-  if (state.colorizeMode !== def.colorizeMode) p.set('cm', state.colorizeMode ? '1' : '0');
+  if (state.rectColorSource !== def.rectColorSource) p.set('cm', String(state.rectColorSource));
+  if (state.patternWarpShade !== def.patternWarpShade) p.set('pws', String(state.patternWarpShade));
+  if (state.patternWeftShade !== def.patternWeftShade) p.set('pwf', String(state.patternWeftShade));
+  if (state.lumaSizeMix !== def.lumaSizeMix) p.set('ls', String(Math.round(state.lumaSizeMix * 100)));
+  if (state.lumaSizeInvert !== def.lumaSizeInvert) p.set('lsi', String(state.lumaSizeInvert));
+  if (state.lumaSizeFloor !== def.lumaSizeFloor) p.set('lsf', String(Math.round(state.lumaSizeFloor * 100)));
+  if (state.cellGeometryMode !== def.cellGeometryMode) p.set('gm', String(state.cellGeometryMode));
+  if (state.stitchLumaMax !== def.stitchLumaMax) p.set('glt', String(Math.round(state.stitchLumaMax * 100)));
   if (state.quantizeSteps !== def.quantizeSteps) p.set('q', String(state.quantizeSteps));
-  if (state.shadeFrom !== def.shadeFrom) p.set('sf', String(state.shadeFrom));
+  if (state.quantizeMode !== def.quantizeMode) p.set('qm', String(state.quantizeMode));
+  if (state.quantizeGamma !== def.quantizeGamma) p.set('qg', String(Math.round(state.quantizeGamma * 100)));
+  if (state.quantizeDither !== def.quantizeDither) p.set('qd', String(Math.round(state.quantizeDither * 100)));
   if (state.patternIndex !== def.patternIndex) p.set('p', String(state.patternIndex));
   if (state.rectRadius !== def.rectRadius) p.set('rr', String(Number(state.rectRadius.toFixed(2))));
   if (state.rectAspect !== def.rectAspect) p.set('ra', String(Number(state.rectAspect.toFixed(2))));
@@ -95,20 +167,47 @@ function buildUrlStateV2(state) {
   if (state.copyFormat !== def.copyFormat) p.set('cf', state.copyFormat);
   if (state.copyScale !== def.copyScale) p.set('cs', String(state.copyScale));
   if (state.menuHidden === false) p.set('menu', '1');
+  if (state.mosaicBgGaps === true) p.set('gap', '1');
+  if (state.patternFit != null && state.patternFit !== def.patternFit) p.set('display', state.patternFit);
   const s = p.toString();
   return s.length <= URL_STATE_MAX_LEN ? s : '';
 }
 
-/** menuHidden: when true, sidebar is hidden until hover (fixed overlay); when false, always visible. Passed from App.jsx for v2 (Image Rects) to match v1/v3/v4 toggle. */
-export default function AppV2({ menuHidden = true }) {
+/**
+ * menuHidden: hover-reveal sidebar vs always visible (from App.jsx).
+ * patternFit + onPatternFitChange: optional controlled viewport (e.g. Fit/Fill in App.jsx nav); when set, sidebar Viewport block is omitted.
+ */
+export default function AppV2({
+  menuHidden = true,
+  viewTitle = 'Mosaic',
+  patternFit: patternFitProp = IMAGE_RECTS_URL_DEFAULTS.patternFit,
+  onPatternFitChange,
+}) {
+  const patternFitExternal = typeof onPatternFitChange === 'function';
   const [imageSource, setImageSource] = useState('');
+  const [mediaTextureKind, setMediaTextureKind] = useState('staticImage');
   const [gridSize, setGridSize] = useState(IMAGE_RECTS_URL_DEFAULTS.gridSize);
   const [palette, setPalette] = useState(IMAGE_RECTS_URL_DEFAULTS.palette);
   const [bgShade, setBgShade] = useState(IMAGE_RECTS_URL_DEFAULTS.bgShade);
-  const [colorizeMode, setColorizeMode] = useState(IMAGE_RECTS_URL_DEFAULTS.colorizeMode); // true = colorization, false = brand
+  const [rectColorSource, setRectColorSource] = useState(IMAGE_RECTS_URL_DEFAULTS.rectColorSource);
+  const [patternWarpShade, setPatternWarpShade] = useState(IMAGE_RECTS_URL_DEFAULTS.patternWarpShade);
+  const [patternWeftShade, setPatternWeftShade] = useState(IMAGE_RECTS_URL_DEFAULTS.patternWeftShade);
+  const [lumaSizeMix, setLumaSizeMix] = useState(IMAGE_RECTS_URL_DEFAULTS.lumaSizeMix);
+  const [lumaSizeInvert, setLumaSizeInvert] = useState(IMAGE_RECTS_URL_DEFAULTS.lumaSizeInvert);
+  const [lumaSizeFloor, setLumaSizeFloor] = useState(IMAGE_RECTS_URL_DEFAULTS.lumaSizeFloor);
+  const [cellGeometryMode, setCellGeometryMode] = useState(IMAGE_RECTS_URL_DEFAULTS.cellGeometryMode);
+  const [mosaicBgGaps, setMosaicBgGaps] = useState(IMAGE_RECTS_URL_DEFAULTS.mosaicBgGaps);
+  const [patternFitInternal, setPatternFitInternal] = useState(IMAGE_RECTS_URL_DEFAULTS.patternFit);
+  const patternFit = patternFitExternal ? patternFitProp : patternFitInternal;
+  const setPatternFit = patternFitExternal ? onPatternFitChange : setPatternFitInternal;
+  const [stitchLumaMax, setStitchLumaMax] = useState(IMAGE_RECTS_URL_DEFAULTS.stitchLumaMax);
   const [quantizeSteps, setQuantizeSteps] = useState(IMAGE_RECTS_URL_DEFAULTS.quantizeSteps); // 0 = off, 2–32 = steps
-  const rectShade = 1; // fixed; shadeFrom controls brand mode shading
-  const [shadeFrom, setShadeFrom] = useState(IMAGE_RECTS_URL_DEFAULTS.shadeFrom); // 0=color, 1=warp, 2=weft, 3=warp+weft (brand)
+  const [quantizeMode, setQuantizeMode] = useState(IMAGE_RECTS_URL_DEFAULTS.quantizeMode);
+  const [quantizeGamma, setQuantizeGamma] = useState(IMAGE_RECTS_URL_DEFAULTS.quantizeGamma);
+  const [quantizeDither, setQuantizeDither] = useState(IMAGE_RECTS_URL_DEFAULTS.quantizeDither);
+  const rectShade = 1; // fixed
+  /** Brand-mode palette shading: locked to image luma (Color). Warp/Weft/Warp+Weft UI disabled — see docs/FEATURES.md */
+  const shadeFromLocked = 0;
   const [patternIndex, setPatternIndex] = useState(IMAGE_RECTS_URL_DEFAULTS.patternIndex); // weave pattern (same list as v1)
   const [rectRadius, setRectRadius] = useState(IMAGE_RECTS_URL_DEFAULTS.rectRadius); // corner radius in cell space (0 = sharp)
   const [rectAspect, setRectAspect] = useState(IMAGE_RECTS_URL_DEFAULTS.rectAspect); // rect width/height (e.g. 34/40)
@@ -225,15 +324,24 @@ export default function AppV2({ menuHidden = true }) {
     const randInt = (lo, hi) => lo + Math.floor(Math.random() * (hi - lo + 1));
     const rand = (lo, hi) => lo + Math.random() * (hi - lo);
     setGridSize(pick(GRID_SNAPS));
-    setPalette(randInt(0, 3));
+    setPalette(randInt(0, 4));
     setBgShade(randInt(0, 4));
-    setColorizeMode(Math.random() < 0.5);
+    setRectColorSource(randInt(0, 2));
+    setPatternWarpShade(randInt(0, 4));
+    setPatternWeftShade(randInt(0, 4));
+    setLumaSizeMix(Number(rand(0, 1).toFixed(2)));
+    setLumaSizeInvert(randInt(0, 1));
+    setLumaSizeFloor(Number(rand(0.1, 0.95).toFixed(2)));
     setQuantizeSteps(randInt(0, 32));
-    setShadeFrom(randInt(0, 3));
+    setQuantizeMode(randInt(0, 1));
+    setQuantizeGamma(Number(rand(0.55, 1.65).toFixed(2)));
+    setQuantizeDither(Number(rand(0, 0.85).toFixed(2)));
     setPatternIndex(randInt(0, PATTERNS.length - 1));
     setRectRadius(Number(rand(0.05, 0.45).toFixed(2)));
     setRectAspect(Number(rand(0.3, 1.5).toFixed(2)));
     setRectRatio(Number(rand(0.3, 1).toFixed(2)));
+    setCellGeometryMode(randInt(0, 1));
+    setStitchLumaMax(Number(rand(0.15, 0.75).toFixed(2)));
   }, []);
 
   /** Reset all Image Rects controls to defaults. */
@@ -241,20 +349,32 @@ export default function AppV2({ menuHidden = true }) {
     setGridSize(IMAGE_RECTS_URL_DEFAULTS.gridSize);
     setPalette(IMAGE_RECTS_URL_DEFAULTS.palette);
     setBgShade(IMAGE_RECTS_URL_DEFAULTS.bgShade);
-    setColorizeMode(IMAGE_RECTS_URL_DEFAULTS.colorizeMode);
+    setRectColorSource(IMAGE_RECTS_URL_DEFAULTS.rectColorSource);
+    setPatternWarpShade(IMAGE_RECTS_URL_DEFAULTS.patternWarpShade);
+    setPatternWeftShade(IMAGE_RECTS_URL_DEFAULTS.patternWeftShade);
+    setLumaSizeMix(IMAGE_RECTS_URL_DEFAULTS.lumaSizeMix);
+    setLumaSizeInvert(IMAGE_RECTS_URL_DEFAULTS.lumaSizeInvert);
+    setLumaSizeFloor(IMAGE_RECTS_URL_DEFAULTS.lumaSizeFloor);
+    setCellGeometryMode(IMAGE_RECTS_URL_DEFAULTS.cellGeometryMode);
+    setMosaicBgGaps(IMAGE_RECTS_URL_DEFAULTS.mosaicBgGaps);
+    setPatternFit(IMAGE_RECTS_URL_DEFAULTS.patternFit);
+    setStitchLumaMax(IMAGE_RECTS_URL_DEFAULTS.stitchLumaMax);
     setQuantizeSteps(IMAGE_RECTS_URL_DEFAULTS.quantizeSteps);
-    setShadeFrom(IMAGE_RECTS_URL_DEFAULTS.shadeFrom);
+    setQuantizeMode(IMAGE_RECTS_URL_DEFAULTS.quantizeMode);
+    setQuantizeGamma(IMAGE_RECTS_URL_DEFAULTS.quantizeGamma);
+    setQuantizeDither(IMAGE_RECTS_URL_DEFAULTS.quantizeDither);
     setPatternIndex(IMAGE_RECTS_URL_DEFAULTS.patternIndex);
     setRectRadius(IMAGE_RECTS_URL_DEFAULTS.rectRadius);
     setRectAspect(IMAGE_RECTS_URL_DEFAULTS.rectAspect);
     setRectRatio(IMAGE_RECTS_URL_DEFAULTS.rectRatio);
     setCopyFormat(IMAGE_RECTS_URL_DEFAULTS.copyFormat);
     setCopyScale(IMAGE_RECTS_URL_DEFAULTS.copyScale);
+    setMediaTextureKind('staticImage');
     setImageSource((prev) => {
       if (prev) URL.revokeObjectURL(prev);
       return '';
     });
-  }, []);
+  }, [setPatternFit]);
 
   /** On mount: parse URL and apply to state (once). */
   useEffect(() => {
@@ -265,15 +385,30 @@ export default function AppV2({ menuHidden = true }) {
     if (q.gridSize != null) setGridSize(GRID_SNAPS.includes(q.gridSize) ? q.gridSize : GRID_SNAPS[getGridSizeIndex(q.gridSize)]);
     if (q.palette != null) setPalette(q.palette);
     if (q.bgShade != null) setBgShade(q.bgShade);
-    if (q.colorizeMode != null) setColorizeMode(q.colorizeMode === 1);
+    if (q.rectColorSource != null) setRectColorSource(q.rectColorSource);
+    if (q.patternWarpShade != null) setPatternWarpShade(q.patternWarpShade);
+    if (q.patternWeftShade != null) setPatternWeftShade(q.patternWeftShade);
+    if (q.lumaSizeMix != null) setLumaSizeMix(q.lumaSizeMix);
+    if (q.lumaSizeInvert != null) setLumaSizeInvert(q.lumaSizeInvert);
+    if (q.lumaSizeFloor != null) setLumaSizeFloor(q.lumaSizeFloor);
+    if (q.cellGeometryMode != null) setCellGeometryMode(q.cellGeometryMode);
+    if (q.stitchLumaMax != null) setStitchLumaMax(q.stitchLumaMax);
     if (q.quantizeSteps != null) setQuantizeSteps(q.quantizeSteps);
-    if (q.shadeFrom != null) setShadeFrom(q.shadeFrom);
+    if (q.quantizeMode != null) setQuantizeMode(q.quantizeMode);
+    if (q.quantizeGamma != null) setQuantizeGamma(q.quantizeGamma);
+    if (q.quantizeDither != null) setQuantizeDither(q.quantizeDither);
     if (q.patternIndex != null) setPatternIndex(q.patternIndex);
     if (q.rectRadius != null) setRectRadius(q.rectRadius);
     if (q.rectAspect != null) setRectAspect(q.rectAspect);
     if (q.rectRatio != null) setRectRatio(q.rectRatio);
     if (q.copyFormat != null) setCopyFormat(q.copyFormat);
     if (q.copyScale != null) setCopyScale(q.copyScale);
+    if (q.mosaicBgGaps != null) setMosaicBgGaps(!!q.mosaicBgGaps);
+    if (q.patternFit != null) {
+      if (typeof onPatternFitChange === 'function') onPatternFitChange(q.patternFit);
+      else setPatternFitInternal(q.patternFit);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once on mount; onPatternFitChange is stable (setState)
   }, []);
 
   /** Sync state to URL (debounced). */
@@ -281,8 +416,9 @@ export default function AppV2({ menuHidden = true }) {
   useEffect(() => {
     urlSyncTimeoutRef.current = setTimeout(() => {
       const search = buildUrlStateV2({
-        gridSize, palette, bgShade, colorizeMode, quantizeSteps, shadeFrom, patternIndex,
-        rectRadius, rectAspect, rectRatio, copyFormat, copyScale, menuHidden,
+        gridSize, palette, bgShade, rectColorSource, quantizeSteps, quantizeMode, quantizeGamma, quantizeDither, patternIndex,
+        patternWarpShade, patternWeftShade, lumaSizeMix, lumaSizeInvert, lumaSizeFloor, cellGeometryMode, stitchLumaMax,
+        rectRadius, rectAspect, rectRatio, copyFormat, copyScale, menuHidden, mosaicBgGaps, patternFit,
       });
       const url = search ? `${window.location.pathname}?${search}` : window.location.pathname;
       if (window.location.pathname + (window.location.search || '') !== url) {
@@ -290,7 +426,7 @@ export default function AppV2({ menuHidden = true }) {
       }
     }, 400);
     return () => { clearTimeout(urlSyncTimeoutRef.current); };
-  }, [gridSize, palette, bgShade, colorizeMode, quantizeSteps, shadeFrom, patternIndex, rectRadius, rectAspect, rectRatio, copyFormat, copyScale, menuHidden]);
+  }, [gridSize, palette, bgShade, rectColorSource, quantizeSteps, quantizeMode, quantizeGamma, quantizeDither, patternIndex, patternWarpShade, patternWeftShade, lumaSizeMix, lumaSizeInvert, lumaSizeFloor, cellGeometryMode, stitchLumaMax, rectRadius, rectAspect, rectRatio, copyFormat, copyScale, menuHidden, mosaicBgGaps, patternFit]);
 
   /** Keyboard shortcuts: Mod+C copy, Mod+Shift+R / F5 reload (no presets in v2). */
   useEffect(() => {
@@ -321,6 +457,7 @@ export default function AppV2({ menuHidden = true }) {
   const handleFileChange = useCallback((e) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    setMediaTextureKind(inferMediaTextureKindFromFile(file));
     setImageSource((prev) => {
       if (prev) URL.revokeObjectURL(prev);
       return URL.createObjectURL(file);
@@ -345,12 +482,40 @@ export default function AppV2({ menuHidden = true }) {
         animate={{ opacity: menuHidden ? 0 : 1 }}
         whileHover={menuHidden ? { opacity: 1 } : undefined}
         transition={{ duration: 0.2 }}
-        aria-label="Image Rects controls"
+        aria-label="Mosaic menu"
       >
-        <h1 className={`shrink-0 ${typeBase} font-semibold tracking-[-0.01em] text-text`}>
-          Image to Colored Rects
+        <h1 className={`shrink-0 text-left ${typeBase} font-semibold tracking-[-0.01em] text-text`}>
+          {viewTitle}
         </h1>
         <div className="flex flex-col gap-3">
+          {!patternFitExternal && (
+            <div className={`${sidebarGroup} ${sidebarGroupSticky}`}>
+              <div className={sidebarGroupTitle}>Viewport</div>
+              <div className="flex flex-wrap items-center gap-2">
+                <GroupIcon name="fit_screen" title="Canvas size in stage" />
+                <SegmentedControl>
+                  <div className="flex h-full">
+                    <SegmentedControlButton
+                      active={patternFit === 'fit'}
+                      aria-pressed={patternFit === 'fit'}
+                      aria-label="Fit canvas in view"
+                      onClick={() => setPatternFit('fit')}
+                    >
+                      Fit
+                    </SegmentedControlButton>
+                    <SegmentedControlButton
+                      active={patternFit === 'fill'}
+                      aria-pressed={patternFit === 'fill'}
+                      aria-label="Fill canvas to available space"
+                      onClick={() => setPatternFit('fill')}
+                    >
+                      Fill
+                    </SegmentedControlButton>
+                  </div>
+                </SegmentedControl>
+              </div>
+            </div>
+          )}
           <div className={`${sidebarGroup} ${sidebarGroupSticky}`}>
             <div className={sidebarGroupTitle}>Actions</div>
             <div className="flex flex-wrap items-center gap-2">
@@ -362,7 +527,7 @@ export default function AppV2({ menuHidden = true }) {
                 <Icon name="shuffle" className={iconMd} />
                 <span>Randomize</span>
               </button>
-              <button type="button" className={btnGhost} onClick={handleReset} aria-label="Reset parameters to defaults" title="Reset Image Rects parameters to defaults">
+              <button type="button" className={btnGhost} onClick={handleReset} aria-label="Reset parameters to defaults" title="Reset Mosaic parameters to defaults">
                 <Icon name="restart_alt" className={iconMd} />
                 <span>Reset</span>
               </button>
@@ -433,13 +598,13 @@ export default function AppV2({ menuHidden = true }) {
               </SegmentedControl>
               <label className={btnGhost + ' cursor-pointer'}>
                 <Icon name="upload_file" className={iconMd} />
-                <span>Pick image</span>
+                <span>Pick media</span>
                 <input
                   type="file"
-                  accept="image/*"
+                  accept="image/*,video/*,image/gif"
                   className="sr-only"
                   onChange={handleFileChange}
-                  aria-label="Pick an image from desktop"
+                  aria-label="Pick image, video, or GIF from desktop"
                 />
               </label>
             </div>
@@ -449,15 +614,15 @@ export default function AppV2({ menuHidden = true }) {
             <div className="flex flex-wrap items-center gap-2">
               <GroupIcon name="tune" title="Mode" />
               <AppSelect
-                id="colorize-mode"
-                labelText="Rect color source (mode)"
-                value={colorizeMode ? 'colorize' : 'brand'}
-                onValueChange={(v) => setColorizeMode(v === 'colorize')}
-                defaultValue={IMAGE_RECTS_URL_DEFAULTS.colorizeMode ? 'colorize' : 'brand'}
-                onReset={() => setColorizeMode(IMAGE_RECTS_URL_DEFAULTS.colorizeMode)}
-                options={MODE_OPTIONS}
-                title="Rect color source"
-                placeholder="Mode"
+                id="rect-color-source-v2"
+                labelText="Rect color from"
+                value={rectColorSource}
+                onValueChange={(v) => setRectColorSource(Number(v))}
+                defaultValue={IMAGE_RECTS_URL_DEFAULTS.rectColorSource}
+                onReset={() => setRectColorSource(IMAGE_RECTS_URL_DEFAULTS.rectColorSource)}
+                options={RECT_COLOR_SOURCE_OPTIONS}
+                title="Image RGB, brand palette, or warp/weft pattern colors"
+                placeholder="Color"
               />
               <span className={`${controlLabel} ${typeLabel}`} title="Weave pattern">Weave</span>
               <AppSelect id="weave-pattern-v2" labelText="Weave pattern" value={patternIndex} onValueChange={(v) => setPatternIndex(Number(v))} defaultValue={IMAGE_RECTS_URL_DEFAULTS.patternIndex} onReset={() => setPatternIndex(IMAGE_RECTS_URL_DEFAULTS.patternIndex)} options={patternOptions} title="Weave pattern" placeholder="Weave" />
@@ -484,91 +649,203 @@ export default function AppV2({ menuHidden = true }) {
                 )}
               </div>
               <AppSelect id="bg-shade-v2" labelText="Background shade" value={bgShade} onValueChange={(v) => setBgShade(Number(v))} defaultValue={IMAGE_RECTS_URL_DEFAULTS.bgShade} onReset={() => setBgShade(IMAGE_RECTS_URL_DEFAULTS.bgShade)} options={shadeOptions('BG')} title="Background shade" placeholder="BG" />
-              {!colorizeMode && (
-                <AppSelect
-                  id="shade-from-v2"
-                  labelText="Shade from (brand: color vs warp/weft)"
-                  value={shadeFrom}
-                  onValueChange={(v) => setShadeFrom(Number(v))}
-                  defaultValue={IMAGE_RECTS_URL_DEFAULTS.shadeFrom}
-                  onReset={() => setShadeFrom(IMAGE_RECTS_URL_DEFAULTS.shadeFrom)}
-                  options={SHADE_FROM_OPTIONS}
-                  title="Shade from (brand: color vs warp/weft)"
-                  placeholder="Shade from"
-                />
+              {rectColorSource === 2 && (
+                <>
+                  <AppSelect
+                    id="pattern-warp-shade-v2"
+                    labelText="Warp thread shade"
+                    value={patternWarpShade}
+                    onValueChange={(v) => setPatternWarpShade(Number(v))}
+                    defaultValue={IMAGE_RECTS_URL_DEFAULTS.patternWarpShade}
+                    onReset={() => setPatternWarpShade(IMAGE_RECTS_URL_DEFAULTS.patternWarpShade)}
+                    options={shadeOptions('Warp')}
+                    title="Palette shade for warp-oriented rects"
+                    placeholder="Warp"
+                  />
+                  <AppSelect
+                    id="pattern-weft-shade-v2"
+                    labelText="Weft thread shade"
+                    value={patternWeftShade}
+                    onValueChange={(v) => setPatternWeftShade(Number(v))}
+                    defaultValue={IMAGE_RECTS_URL_DEFAULTS.patternWeftShade}
+                    onReset={() => setPatternWeftShade(IMAGE_RECTS_URL_DEFAULTS.patternWeftShade)}
+                    options={shadeOptions('Weft')}
+                    title="Palette shade for weft-oriented rects"
+                    placeholder="Weft"
+                  />
+                </>
               )}
             </div>
           </div>
           <div className={sidebarGroup}>
             <div className={sidebarGroupTitle}>Quantize</div>
-            <div className="flex flex-wrap items-center gap-2">
-              <GroupIcon name="gradient" title="Quantize" />
-              <Label.Root className="sr-only" htmlFor="quantize-slider-v2">Quantize steps</Label.Root>
-              <SliderWithInput
-                id="quantize-slider-v2"
-                value={quantizeSteps}
-                onValueChange={setQuantizeSteps}
-                defaultValue={IMAGE_RECTS_URL_DEFAULTS.quantizeSteps}
-                onReset={() => setQuantizeSteps(IMAGE_RECTS_URL_DEFAULTS.quantizeSteps)}
-                min={0}
-                max={32}
-                step={1}
-                format={(n) => (n === 0 ? 'off' : String(n))}
-                parse={(s) => { if (s === 'off' || s === '') return 0; const n = Number(s); return Number.isFinite(n) ? n : null; }}
-                aria-label="Quantize steps (0 = off)"
-              />
-            </div>
-          </div>
-          <div className={sidebarGroup}>
-            <div className={sidebarGroupTitle}>Rect shape</div>
             <div className="flex flex-col gap-2">
               <div className="flex flex-wrap items-center gap-2">
-                <GroupIcon name="rounded_corner" title="Corner radius" />
-                <Label.Root className="sr-only" htmlFor="rect-radius-v2">Corner radius</Label.Root>
+                <GroupIcon name="gradient" title="Quantize" />
+                <Label.Root className="sr-only" htmlFor="quantize-slider-v2">Quantize steps</Label.Root>
                 <SliderWithInput
-                  id="rect-radius-v2"
-                  value={rectRadius}
-                  onValueChange={setRectRadius}
-                  defaultValue={IMAGE_RECTS_URL_DEFAULTS.rectRadius}
-                  onReset={() => setRectRadius(IMAGE_RECTS_URL_DEFAULTS.rectRadius)}
+                  id="quantize-slider-v2"
+                  value={quantizeSteps}
+                  onValueChange={setQuantizeSteps}
+                  defaultValue={IMAGE_RECTS_URL_DEFAULTS.quantizeSteps}
+                  onReset={() => setQuantizeSteps(IMAGE_RECTS_URL_DEFAULTS.quantizeSteps)}
                   min={0}
-                  max={0.5}
-                  step={0.01}
-                  format={(n) => n.toFixed(2)}
-                  aria-label="Corner radius"
+                  max={32}
+                  step={1}
+                  format={(n) => (n === 0 ? 'off' : String(n))}
+                  parse={(s) => { if (s === 'off' || s === '') return 0; const n = Number(s); return Number.isFinite(n) ? n : null; }}
+                  aria-label="Quantize steps (0 = off)"
                 />
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                <GroupIcon name="aspect_ratio" title="Aspect ratio (width/height)" />
-                <Label.Root className="sr-only" htmlFor="rect-aspect-v2">Aspect ratio</Label.Root>
+                <AppSelect
+                  id="quantize-mode-v2"
+                  labelText="Quantize in color space"
+                  value={quantizeMode}
+                  onValueChange={(v) => setQuantizeMode(Number(v))}
+                  defaultValue={IMAGE_RECTS_URL_DEFAULTS.quantizeMode}
+                  onReset={() => setQuantizeMode(IMAGE_RECTS_URL_DEFAULTS.quantizeMode)}
+                  options={QUANTIZE_MODE_OPTIONS}
+                  title="Band colors in RGB (per channel) or HSV (posterize hue/sat/value)"
+                  placeholder="Space"
+                />
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <GroupIcon name="contrast" title="Gamma before banding" />
+                <Label.Root className="sr-only" htmlFor="quantize-gamma-v2">Quantize gamma</Label.Root>
                 <SliderWithInput
-                  id="rect-aspect-v2"
-                  value={rectAspect}
-                  onValueChange={setRectAspect}
-                  defaultValue={IMAGE_RECTS_URL_DEFAULTS.rectAspect}
-                  onReset={() => setRectAspect(IMAGE_RECTS_URL_DEFAULTS.rectAspect)}
-                  min={0.3}
-                  max={1.5}
+                  id="quantize-gamma-v2"
+                  value={quantizeGamma}
+                  onValueChange={setQuantizeGamma}
+                  defaultValue={IMAGE_RECTS_URL_DEFAULTS.quantizeGamma}
+                  onReset={() => setQuantizeGamma(IMAGE_RECTS_URL_DEFAULTS.quantizeGamma)}
+                  min={0.25}
+                  max={4}
                   step={0.05}
                   format={(n) => n.toFixed(2)}
-                  aria-label="Rect aspect (width/height)"
+                  aria-label="Gamma curve before quantize (1 = neutral)"
                 />
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                <GroupIcon name="crop_square" title="Rect ratio (scale in cell)" />
-                <Label.Root className="sr-only" htmlFor="rect-ratio-v2">Rect ratio</Label.Root>
+                <GroupIcon name="blur_linear" title="Dither" />
+                <Label.Root className="sr-only" htmlFor="quantize-dither-v2">Quantize dither</Label.Root>
                 <SliderWithInput
-                  id="rect-ratio-v2"
-                  value={rectRatio}
-                  onValueChange={setRectRatio}
-                  defaultValue={IMAGE_RECTS_URL_DEFAULTS.rectRatio}
-                  onReset={() => setRectRatio(IMAGE_RECTS_URL_DEFAULTS.rectRatio)}
-                  min={0.2}
+                  id="quantize-dither-v2"
+                  value={quantizeDither}
+                  onValueChange={setQuantizeDither}
+                  defaultValue={IMAGE_RECTS_URL_DEFAULTS.quantizeDither}
+                  onReset={() => setQuantizeDither(IMAGE_RECTS_URL_DEFAULTS.quantizeDither)}
+                  min={0}
                   max={1}
                   step={0.05}
                   format={(n) => n.toFixed(2)}
-                  aria-label="Rect ratio (scale in cell)"
+                  aria-label="Per-cell dither before rounding (0 = off)"
                 />
+              </div>
+            </div>
+          </div>
+          <div className={sidebarGroup}>
+            <div className={sidebarGroupTitle}>Brightness & stitches</div>
+            <div className="flex flex-col gap-2">
+              <div className="flex flex-col gap-1.5">
+                <span className={`${typeLabel} text-text-muted`}>Size from brightness (per cell)</span>
+                <div className="flex flex-wrap items-center gap-2">
+                  <GroupIcon name="brightness_6" title="Luma drives size" />
+                  <Label.Root className="sr-only" htmlFor="luma-size-mix-v2">Brightness size mix</Label.Root>
+                  <SliderWithInput
+                    id="luma-size-mix-v2"
+                    value={lumaSizeMix}
+                    onValueChange={setLumaSizeMix}
+                    defaultValue={IMAGE_RECTS_URL_DEFAULTS.lumaSizeMix}
+                    onReset={() => setLumaSizeMix(IMAGE_RECTS_URL_DEFAULTS.lumaSizeMix)}
+                    min={0}
+                    max={1}
+                    step={0.05}
+                    format={(n) => n.toFixed(2)}
+                    aria-label="How much image brightness scales each rect (0 = off)"
+                  />
+                </div>
+                <AppSelect
+                  id="luma-size-invert-v2"
+                  labelText="Bright vs dark smaller"
+                  value={lumaSizeInvert}
+                  onValueChange={(v) => setLumaSizeInvert(Number(v))}
+                  defaultValue={IMAGE_RECTS_URL_DEFAULTS.lumaSizeInvert}
+                  onReset={() => setLumaSizeInvert(IMAGE_RECTS_URL_DEFAULTS.lumaSizeInvert)}
+                  options={[
+                    { value: 0, label: 'Dark smaller' },
+                    { value: 1, label: 'Bright smaller' },
+                  ]}
+                  title="Which end of brightness maps to smaller rects"
+                  placeholder="Polarity"
+                />
+                <div className="flex flex-wrap items-center gap-2">
+                  <Label.Root className="sr-only" htmlFor="luma-size-floor-v2">Min rect scale</Label.Root>
+                  <SliderWithInput
+                    id="luma-size-floor-v2"
+                    value={lumaSizeFloor}
+                    onValueChange={setLumaSizeFloor}
+                    defaultValue={IMAGE_RECTS_URL_DEFAULTS.lumaSizeFloor}
+                    onReset={() => setLumaSizeFloor(IMAGE_RECTS_URL_DEFAULTS.lumaSizeFloor)}
+                    min={0.05}
+                    max={1}
+                    step={0.05}
+                    format={(n) => n.toFixed(2)}
+                    aria-label="Smallest rect scale vs base (at dark or bright end)"
+                  />
+                </div>
+              </div>
+              <div className="flex flex-col gap-1.5 border-t border-border-subtle pt-2">
+                <span className={`${typeLabel} text-text-muted`}>Stitch vs plain (by image darkness)</span>
+                <AppSelect
+                  id="cell-geometry-v2"
+                  labelText="Cell geometry mode"
+                  value={cellGeometryMode}
+                  onValueChange={(v) => setCellGeometryMode(Number(v))}
+                  defaultValue={IMAGE_RECTS_URL_DEFAULTS.cellGeometryMode}
+                  onReset={() => setCellGeometryMode(IMAGE_RECTS_URL_DEFAULTS.cellGeometryMode)}
+                  options={CELL_GEOMETRY_OPTIONS}
+                  title="Weave rects everywhere, or plain cells except where the image is dark enough"
+                  placeholder="Geometry"
+                />
+                {cellGeometryMode === 1 && (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <GroupIcon name="texture" title="Stitch darkness cutoff" />
+                    <Label.Root className="sr-only" htmlFor="stitch-luma-max-v2">Max brightness for stitches</Label.Root>
+                    <SliderWithInput
+                      id="stitch-luma-max-v2"
+                      value={stitchLumaMax}
+                      onValueChange={setStitchLumaMax}
+                      defaultValue={IMAGE_RECTS_URL_DEFAULTS.stitchLumaMax}
+                      onReset={() => setStitchLumaMax(IMAGE_RECTS_URL_DEFAULTS.stitchLumaMax)}
+                      min={0}
+                      max={1}
+                      step={0.02}
+                      format={(n) => n.toFixed(2)}
+                      aria-label="Weave stitch only if cell luma is at or below this (plain tile if brighter)"
+                    />
+                  </div>
+                )}
+              </div>
+              <div className="flex flex-wrap items-center gap-2 border-t border-border-subtle pt-2">
+                <button
+                  type="button"
+                  className={`${toggleBtn} ${mosaicBgGaps ? toggleBtnActive : ''}`}
+                  aria-pressed={mosaicBgGaps}
+                  aria-label="Background gaps: show canvas between dark stitch cells"
+                  title="Non-stitch cells show background (legacy v5)"
+                  onClick={() => {
+                    setMosaicBgGaps((g) => {
+                      const next = !g;
+                      if (next) setCellGeometryMode(1);
+                      else setCellGeometryMode(IMAGE_RECTS_URL_DEFAULTS.cellGeometryMode);
+                      return next;
+                    });
+                  }}
+                >
+                  <Icon name="grid_4x4" className={iconSm} />
+                  <span className={typeLabel}>Background gaps</span>
+                </button>
               </div>
             </div>
           </div>
@@ -596,39 +873,80 @@ export default function AppV2({ menuHidden = true }) {
       </motion.aside>
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-        <main className="flex min-h-0 flex-1 items-center justify-center overflow-auto p-4">
+        <main
+          className={
+            patternFit === 'fill'
+              ? 'flex min-h-0 flex-1 flex-col overflow-hidden p-4'
+              : 'flex min-h-0 flex-1 items-center justify-center overflow-auto p-4'
+          }
+        >
+          <div
+            className={
+              patternFit === 'fill'
+                ? 'flex min-h-0 min-w-0 flex-1 flex-col items-stretch justify-stretch'
+                : 'flex shrink-0 items-center justify-center'
+            }
+            style={patternFit === 'fit' ? { width: '150%', height: '150%' } : undefined}
+          >
           <ImageRectsCanvas
             imageSource={imageSource}
+            mediaTextureKind={mediaTextureKind}
             gridSize={gridSize}
             palette={palette}
             bgShade={bgShade}
-            colorizeMode={colorizeMode}
+            rectColorSource={rectColorSource}
             quantizeSteps={quantizeSteps}
+            quantizeMode={quantizeMode}
+            quantizeGamma={quantizeGamma}
+            quantizeDither={quantizeDither}
             rectShade={rectShade}
-            shadeFrom={shadeFrom}
+            shadeFrom={shadeFromLocked}
+            patternWarpShade={patternWarpShade}
+            patternWeftShade={patternWeftShade}
             patternIndex={patternIndex}
             patterns={PATTERNS}
             rectRadius={rectRadius}
             rectAspect={rectAspect}
             rectRatio={rectRatio}
+            lumaSizeMix={lumaSizeMix}
+            lumaSizeInvert={lumaSizeInvert}
+            lumaSizeFloor={lumaSizeFloor}
+            cellGeometryMode={cellGeometryMode}
+            stitchLumaMax={stitchLumaMax}
+            nonStitchShowsBg={mosaicBgGaps}
+            patternFit={patternFit}
             onFpsChange={setFps}
             onCanvasRef={(el) => { canvasRef.current = el; }}
             onCaptureReady={(api) => { imageRectsCaptureRef.current = api; }}
           />
+          </div>
         </main>
 
         <footer className="relative h-[100px] shrink-0 overflow-hidden border-t border-border-subtle bg-surface-elevated">
           <div className="flex h-full min-h-9 flex-wrap items-center gap-2 overflow-y-auto px-3 py-2">
-            <span className={pill}>{imageSource ? 'Image loaded' : 'Pick an image'}</span>
+            <span className={pill}>
+              {imageSource
+                ? (mediaTextureKind === 'video' ? 'Video playing' : mediaTextureKind === 'gif' ? 'GIF playing' : 'Image loaded')
+                : 'Pick image, video, or GIF'}
+            </span>
             <span className={pill}>Weave: {PATTERNS[patternIndex]?.name ?? '—'}</span>
-            <span className={pill}>{colorizeMode ? 'Colorization' : 'Brand'}</span>
-            {!colorizeMode && (
-              <span className={pill}>Shade: {SHADE_FROM_OPTIONS.find((o) => o.value === shadeFrom)?.label ?? 'Color'}</span>
+            <span className={pill}>Color: {RECT_COLOR_SOURCE_OPTIONS.find((o) => o.value === rectColorSource)?.label ?? '—'}</span>
+            {rectColorSource === 2 && (
+              <span className={pill}>W/W: {SHADE_NAMES[patternWarpShade]} / {SHADE_NAMES[patternWeftShade]}</span>
             )}
-            <span className={pill}>Quantize: {quantizeSteps === 0 ? 'off' : quantizeSteps}</span>
-            <span className={pill}>Radius: {rectRadius.toFixed(2)}</span>
-            <span className={pill}>Aspect: {rectAspect.toFixed(2)}</span>
-            <span className={pill}>Rect: {rectRatio.toFixed(2)}</span>
+            {lumaSizeMix > 0.01 ? (
+              <span className={pill}>Luma size {lumaSizeMix.toFixed(2)}{lumaSizeInvert ? ' (bright−)' : ' (dark−)'}</span>
+            ) : null}
+            {cellGeometryMode === 1 ? (
+              <span className={pill}>Stitches ≤ {stitchLumaMax.toFixed(2)}</span>
+            ) : null}
+            <span className={pill}>Quantize: {quantizeSteps === 0 ? 'off' : `${quantizeSteps} · ${QUANTIZE_MODE_OPTIONS[quantizeMode]?.label ?? 'RGB'}`}</span>
+            {quantizeSteps >= 2 ? (
+              <>
+                <span className={pill}>γ {quantizeGamma.toFixed(2)}</span>
+                <span className={pill}>Dither {quantizeDither.toFixed(2)}</span>
+              </>
+            ) : null}
             <span className={pill}>{PALETTE_NAMES[palette]}</span>
             <span className={pill}>BG: {bgShade === 4 ? <><Icon name={SHADE_TRANSPARENT_ICON} className={iconXs} /></> : SHADE_NAMES[bgShade]}</span>
             <span className={pill}>Grid: {gridSize}</span>

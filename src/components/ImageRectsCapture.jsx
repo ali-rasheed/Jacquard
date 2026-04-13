@@ -1,7 +1,7 @@
 /**
  * ImageRectsCapture — Headless image-rects canvas for pipeline capture.
- * Renders the image→rects shader (weave pattern orients rects) at given width×height
- * and forwards the canvas ref for toDataURL(). No chrome (FPS, border). Used by
+ * Renders the image→rects shader (weave pattern orients rects; optional luma-driven size)
+ * at given width×height and forwards the canvas ref for toDataURL(). Used by
  * ImageRectsHalftoneStage to feed HalftoneCmyk.
  */
 import { useCallback } from 'react';
@@ -17,15 +17,25 @@ export function ImageRectsCapture({
   gridSize,
   palette,
   bgShade,
-  colorizeMode,
+  rectColorSource,
   quantizeSteps,
+  quantizeMode,
+  quantizeGamma,
+  quantizeDither,
   rectShade,
   shadeFrom,
+  patternWarpShade,
+  patternWeftShade,
   patternIndex,
   patterns,
   rectRadius,
   rectAspect,
   rectRatio,
+  lumaSizeMix,
+  lumaSizeInvert,
+  lumaSizeFloor,
+  cellGeometryMode,
+  stitchLumaMax,
   onCanvasRef,
   onImageSize,
 }) {
@@ -36,17 +46,30 @@ export function ImageRectsCapture({
     gridSize ?? 32,
     palette ?? 0,
     bgShade ?? 2,
-    colorizeMode ?? true,
+    rectColorSource ?? 1,
     quantizeSteps ?? 0,
+    quantizeMode ?? 0,
+    quantizeGamma ?? 1,
+    quantizeDither ?? 0,
     rectShade ?? 1,
     shadeFrom ?? 0,
+    patternWarpShade ?? 1,
+    patternWeftShade ?? 3,
     patternIndex ?? 0,
     patterns ?? PATTERNS,
     rectRadius ?? 0.18,
     rectAspect ?? 0.85,
     rectRatio ?? 1.0,
+    lumaSizeMix ?? 0,
+    lumaSizeInvert ?? 0,
+    lumaSizeFloor ?? 0.2,
+    cellGeometryMode ?? 0,
+    stitchLumaMax ?? 0.42,
+    0,
     undefined,
-    onImageSize
+    onImageSize,
+    undefined,
+    'staticImage'
   );
 
   const setRef = useCallback(
