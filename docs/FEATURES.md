@@ -48,7 +48,7 @@ Data flow: **React state → uniforms / props → fragment shaders**. Resolution
 
 **`?menu=1`** — sidebar always visible (vs hover-reveal overlay).
 
-**`?display=fit|fill`** — pattern / stage fit (weaving, print mosaic, and **Mosaic** via **`AppV2`**).
+**`?display=fit|fill`** — **Fit** = contain (full canvas visible, letterboxed); **Fill** = cover (scale until the shorter stage dimension is filled, may crop). Same semantics on **Weave** (`ShaderCanvas`), **Mosaic** (`ImageRectsCanvas`), and halftone views (`HalftoneCmyk` `fit`).
 
 **`?wht=1|0`** — optional weave halftone override with **`v=1`** (does not replace **`v=3`** bookmarks).
 
@@ -60,16 +60,19 @@ Data flow: **React state → uniforms / props → fragment shaders**. Resolution
 
 - **Controls:** presets, palette, weave pattern, shades, gradients, grid & layout, shimmer, colorways, **Halftone Off/On**, copy scale/format, optional MP4/WebM recording. **Fit / Fill** is only in the **main nav** (far right), not the sidebar.
 - **Colorways:** Five named palettes (Citrine, Garnet, Lapis, Peridot, **Quartz**). **Quartz** aligns with ENS Core neutrals in shader slots (see previous doc detail).
-- **URL:** compact keys in `buildUrlState` / `parseUrlState` in `App.jsx`.
+- **What:** **Use all 5 colorways** can distribute palette indices three ways in `fragment.glsl`: **Random** (legacy per-cell hash), **Smooth** (2D gradient noise + FBM: octaves, persistence, lacunarity, bias), **Bleed** (anisotropic FBM for streaks along threads; run length, angle, cross-fiber mix, optional **draft-coupled** warp/weft blend). **Include palettes** toggles restrict the pool (bitmask); all five on matches legacy behavior. **Why:** Coherent regions and fiber-parallel “dye” looks without Manhattan/Voronoi; URL-shareable tuning.
+- **URL:** `cnm` (0–2), `cns`/`seed`, `cpm` (0–31 include mask), FBM `cno`/`cnp`/`cnl`/`cnbb`, bleed `cba`/`cbr`/`cbx`/`cbd`, plus existing weave keys — `buildUrlState` / `parseUrlState` in `App.jsx`.
 
 ---
 
 ## Mosaic (`AppV2`)
 
 - **Media:** image, video, or GIF via one file input; **`mediaTextureKind`** inferred from file.
+- **What:** When you load a **video** file (switch from still image / GIF to **video** as the decoded source), **canvas recording starts automatically** (WebM/MP4 per toolbar). **Why:** Capture the mosaic output together with the source video without an extra click; stop from the toolbar or by switching back to image/GIF (recording stops when **`mediaTextureKind`** is not **`video`**).
 - **Background gaps:** toggle + URL **`gap=`**; aligns with legacy v5 shader flag **`nonStitchShowsBg`**.
 - **Viewport:** **`patternFit`** from **`App.jsx`** (nav bar) + **`display=`**; passed through to **`ImageRectsCanvas`**.
-- **URL:** `v=2` written when sharing; params include `grid`, `pal`, `gap`, `display`, quantize keys, etc.
+- **What:** **Stitch-in** (sidebar **Stitch-in**): optional animation from a **blank** background-only frame to the full mosaic by ramping **`u_stitchRevealProgress`** 0→1. **Noise** uses isotropic FBM on cell IDs (organic scatter); **Bleed** uses the same dye-bleed–style streaks as weave “all colorways” (rotation, anisotropy, optional draft coupling to warp/weft). **Replay** / **New seed** / **duration** / **scale** / **softness** control the look; **Why:** lets mosaic reads like thread appearing from empty cloth, with two distinct visual orders.
+- **URL:** `v=2` written when sharing; params include `grid`, `pal`, `gap`, `display`, quantize keys, stitch-in keys (`srm`, `srd`, `srs`, `srsc`, `srso`, bleed `srba`/`srbr`/`srbc`/`srbd`), etc.
 
 ---
 
@@ -85,6 +88,7 @@ Data flow: **React state → uniforms / props → fragment shaders**. Resolution
 
 - **Keyboard:** Mod+C copy, Mod+Shift+R / F5 reload (details vary by shell).
 - **Export:** PNG/WebP clipboard; scaled capture capped by `EXPORT_MAX_DIMENSION`.
+- **What:** Canvas **WebM/MP4** recording uses WebGL `gl.finish()` after each draw so GPU work completes before `VideoFrame` / `MediaRecorder` read the framebuffer (avoids corrupted or noisy frames). **Why:** WebGL is asynchronous; sampling the canvas too early produced garbage output in some browsers.
 - **Footer / FPS:** Mosaic layout; weaving uses nav-adjacent readouts where wired.
 
 ---

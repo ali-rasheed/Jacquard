@@ -1,21 +1,22 @@
 /**
  * ImageRectsCanvas — Image / video / GIF → colored rects shader (V2 family).
  * Weave pattern sets rect orientation; quantize + optional stitch gating — fragmentImageRects.glsl.
+ * Optional stitch-in (noise / bleed) animates stitch visibility from a blank frame — see AppV2 + u_stitchReveal*.
  * mediaTextureKind: staticImage | video | gif — passed through to the sandbox hook for upload cadence.
  */
 import { memo } from 'react';
 import { useImageRectsSandbox } from '../hooks/useImageRectsSandbox';
+import { useAspectViewportBox } from '../hooks/useAspectViewportBox';
 import fragmentSource from '../shaders/fragmentImageRects.glsl?raw';
 import vertexSource from '../shaders/vertex.glsl?raw';
 import { PATTERNS } from '../patterns';
 import { fpsPill } from '../uiConstants';
 
 /**
- * Container aspect ratio follows the loaded image so the canvas is not stretched.
- * When no image is loaded, fallback is 1:1.
- * patternFit: 'fill' = container fills view; 'fit' = container fits inside view.
+ * Canvas aspect matches loaded image (or 1:1 placeholder). Viewport uses ResizeObserver:
+ * patternFit 'fit' = contain (full canvas visible); 'fill' = cover (shortest side of stage filled).
  */
-function ImageRectsCanvasInner({ imageSource, mediaTextureKind = 'staticImage', gridSize, palette, bgShade, rectColorSource, quantizeSteps, quantizeMode, quantizeGamma, quantizeDither, rectShade, shadeFrom, patternWarpShade, patternWeftShade, patternIndex, patterns, rectRadius, rectAspect, rectRatio, lumaSizeMix, lumaSizeInvert, lumaSizeFloor, cellGeometryMode, stitchLumaMax, nonStitchShowsBg = false, patternFit = 'fit', onFpsChange, onCanvasRef, onCaptureReady }) {
+function ImageRectsCanvasInner({ imageSource, mediaTextureKind = 'staticImage', gridSize, palette, bgShade, rectColorSource, quantizeSteps, quantizeMode, quantizeGamma, quantizeDither, rectShade, shadeFrom, patternWarpShade, patternWeftShade, patternIndex, patterns, rectRadius, rectAspect, rectRatio, lumaSizeMix, lumaSizeInvert, lumaSizeFloor, cellGeometryMode, stitchLumaMax, nonStitchShowsBg = false, stitchRevealMode = 0, stitchRevealProgress = 1, stitchRevealSeed = 0, stitchRevealScale = 0.12, stitchRevealSoftness = 0.06, stitchRevealBleedAnisotropy = 3, stitchRevealBleedRotation = 0, stitchRevealBleedCrossFiber = 0.2, stitchRevealBleedDraftCoupled = 0, patternFit = 'fit', onFpsChange, onCanvasRef, onCaptureReady }) {
   const { canvasRef, containerRef, error, fps, imageSize } = useImageRectsSandbox(
     vertexSource,
     fragmentSource,
@@ -43,32 +44,49 @@ function ImageRectsCanvasInner({ imageSource, mediaTextureKind = 'staticImage', 
     cellGeometryMode ?? 0,
     stitchLumaMax ?? 0.42,
     nonStitchShowsBg ? 1 : 0,
+    stitchRevealMode ?? 0,
+    stitchRevealProgress ?? 1,
+    stitchRevealSeed ?? 0,
+    stitchRevealScale ?? 0.12,
+    stitchRevealSoftness ?? 0.06,
+    stitchRevealBleedAnisotropy ?? 3,
+    stitchRevealBleedRotation ?? 0,
+    stitchRevealBleedCrossFiber ?? 0.2,
+    stitchRevealBleedDraftCoupled ?? 0,
     onFpsChange,
     undefined,
     onCaptureReady,
     mediaTextureKind
   );
 
-  const aspectRatio = imageSize
-    ? `${imageSize.width} / ${imageSize.height}`
-    : '1 / 1';
+  const viewportMode = patternFit === 'fill' ? 'cover' : 'contain';
+  const ar =
+    imageSize && imageSize.width > 0 && imageSize.height > 0
+      ? imageSize.width / imageSize.height
+      : 1;
+  const { outerRef, width: boxW, height: boxH } = useAspectViewportBox(viewportMode, ar);
 
-  const fill = patternFit === 'fill';
   return (
     <div
-      ref={containerRef}
-      className={`relative flex flex-col overflow-hidden rounded-md border border-border-subtle bg-surface-secondary w-100 ${fill ? 'flex-1 min-h-0 min-w-0' : 'flex-initial'}`}
-      style={{ aspectRatio }}
+      ref={outerRef}
+      className="relative flex h-full min-h-0 min-w-0 w-full flex-1 self-stretch items-center justify-center overflow-hidden"
     >
-      <canvas ref={(el) => { canvasRef.current = el; onCanvasRef?.(el); }} className="block flex-1 bg-surface" />
-      <div className={fpsPill}>
-        {fps || '--'} fps
-      </div>
-      {error ? (
-        <div className="absolute bottom-0 left-0 right-0 max-h-[120px] overflow-y-auto border-t border-border-subtle bg-surface-elevated p-3 font-mono text-xs leading-snug text-error">
-          {error}
+      <div
+        className="relative flex shrink-0 flex-col overflow-hidden rounded-md border border-border-subtle bg-surface-secondary"
+        style={{ width: boxW, height: boxH }}
+      >
+        <div ref={containerRef} className="relative flex h-full min-h-0 w-full flex-1 flex-col">
+          <canvas ref={(el) => { canvasRef.current = el; onCanvasRef?.(el); }} className="block min-h-0 flex-1 bg-surface" />
+          <div className={fpsPill}>
+            {fps || '--'} fps
+          </div>
+          {error ? (
+            <div className="absolute bottom-0 left-0 right-0 max-h-[120px] overflow-y-auto border-t border-border-subtle bg-surface-elevated p-3 font-mono text-xs leading-snug text-error">
+              {error}
+            </div>
+          ) : null}
         </div>
-      ) : null}
+      </div>
     </div>
   );
 }

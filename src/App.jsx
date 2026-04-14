@@ -1,7 +1,7 @@
 /**
  * ENS Warp&Weft — root shell: Weave, Mosaic, Print mosaic; URL sync; shared sidebars / lazy stages.
  */
-import { useState, useCallback, useRef, useEffect, lazy, Suspense } from 'react';
+import { useState, useCallback, useRef, useEffect, useLayoutEffect, lazy, Suspense } from 'react';
 import { motion } from 'motion/react';
 import * as Select from '@radix-ui/react-select';
 import * as Label from '@radix-ui/react-label';
@@ -41,12 +41,13 @@ import {
   SHADE_NAMES,
   typeBase,
   typeLabel,
-  typeValue,
   typeCaption,
   iconSm,
   iconMd,
   iconLg,
   iconXs,
+  iconPlayGlyph,
+  iconResetGlyph,
   SHADE_TRANSPARENT_ICON,
   btnGhost,
   selectTrigger,
@@ -110,6 +111,73 @@ function unpackHexColors(raw) {
   return parts.map((p) => `#${p.toLowerCase()}`);
 }
 
+/** Dye-bleed streak angle as fraction of a full turn (0–1); snap to 5° steps for shader/UI. */
+function snapColorwayBleedRotation(turns) {
+  const t = Number(turns);
+  if (!Number.isFinite(t)) return 0;
+  const clamped = Math.max(0, Math.min(1, t));
+  const deg = clamped * 360.0;
+  const snappedDeg = (Math.round(deg / 5.0) * 5.0) % 360.0;
+  return snappedDeg / 360.0;
+}
+
+/** Include-mask bitmask → index in the 7-step play cycle (one-hot ×5, then all five). */
+function colorwayIncludeMaskToStep(mask) {
+  const m = Math.round(Number(mask)) & 31;
+  if (m === 31) return 5;
+  for (let i = 0; i < 5; i += 1) if (m === (1 << i)) return i;
+  return 0;
+}
+function colorwayIncludeStepToMask(step) {
+  const s = ((Math.floor(step) % 7) + 7) % 7;
+  return s < 5 ? (1 << s) : 31;
+}
+/** Sine loop min↔max with value = `origin` at t=0; period `periodMs`. */
+function colorwayOscFromOrigin(tMs, periodMs, minV, maxV, origin) {
+  const span = maxV - minV;
+  if (span <= 0) return origin;
+  const u = Math.max(0, Math.min(1, (Number(origin) - minV) / span));
+  const phi = Math.asin(2 * u - 1);
+  const TAU = 2 * Math.PI;
+  return minV + span * (0.5 + 0.5 * Math.sin(phi + (tMs / periodMs) * TAU));
+}
+
+/** Which colorway params are auto-animated (single rAF loop in App). */
+const COLORWAY_ANIM_INITIAL = {
+  seed: false,
+  noiseScale: false,
+  noiseMode: false,
+  includeMask: false,
+  octaves: false,
+  persistence: false,
+  lacunarity: false,
+  bias: false,
+  bleedAnisotropy: false,
+  bleedRotation: false,
+  bleedCrossFiber: false,
+  bleedDraftCoupled: false,
+};
+
+const COLORWAY_SEED_LOOP_MS = 1_200_000; // 20 min → seed 0..100, loop
+
+/** Icon-only play/pause for colorway automation (sweeps / cycles; see aria-labels). */
+function ColorwayAnimPlayBtn({ active, onToggle, labelPlay, labelPause }) {
+  return (
+    <button
+      type="button"
+      className={`${toggleBtnIcon} ${active ? toggleBtnActive : ''}`}
+      aria-pressed={active}
+      aria-label={active ? labelPause : labelPlay}
+      onClick={onToggle}
+    >
+      <Icon name={active ? 'pause' : 'play_arrow'} className={iconPlayGlyph} />
+    </button>
+  );
+}
+
+/** 0°, 5°, …, 355° as turn fractions — matches `SliderWithInput` `snapValues`. */
+const COLORWAY_BLEED_ANGLE_TURNS = Array.from({ length: 72 }, (_, i) => (i * 5) / 360);
+
 /** Parse search params into state-like object. Only includes keys that were present. */
 function parseUrlState(search) {
   const params = new URLSearchParams(search);
@@ -149,7 +217,17 @@ function parseUrlState(search) {
   num('canvas', 'canvasAspect', 0.5, 2);
   num('all', 'useAllColorways', 0, 1);
   num('seed', 'colorwaySeed', 0, 999);
-  num('cns', 'colorwayNoiseScale', 0.25, 3);
+  num('cns', 'colorwayNoiseScale', 0.05, 2.5);
+  num('cnm', 'colorwayNoiseMode', 0, 2);
+  num('cno', 'colorwayNoiseOctaves', 1, 4);
+  num('cnp', 'colorwayNoisePersistence', 0.15, 0.95);
+  num('cnl', 'colorwayNoiseLacunarity', 1.05, 4);
+  num('cnbb', 'colorwayNoiseBias', 0.25, 4);
+  num('cba', 'colorwayBleedAnisotropy', 0.35, 12);
+  num('cbr', 'colorwayBleedRotation', 0, 1);
+  num('cbx', 'colorwayBleedCrossFiber', 0, 1);
+  num('cbd', 'colorwayBleedDraftCoupled', 0, 1);
+  num('cpm', 'colorwayIncludeMask', 0, 31);
   num('shimmer', 'shimmer', 0, 1);
   num('shimmerSp', 'shimmerSpeed', 1, 16);
   num('shimmerW', 'shimmerWidth', 0.25, 24);
@@ -286,6 +364,16 @@ function buildUrlState(state) {
   if (state.useAllColorways !== def.useAllColorways) p.set('all', state.useAllColorways ? '1' : '0');
   if (state.colorwaySeed !== def.colorwaySeed) p.set('seed', String(state.colorwaySeed));
   if (state.colorwayNoiseScale !== def.colorwayNoiseScale) p.set('cns', String(Number(state.colorwayNoiseScale.toFixed(2))));
+  if (state.colorwayNoiseMode !== def.colorwayNoiseMode) p.set('cnm', String(Math.round(state.colorwayNoiseMode)));
+  if (state.colorwayNoiseOctaves !== def.colorwayNoiseOctaves) p.set('cno', String(Math.round(state.colorwayNoiseOctaves)));
+  if (state.colorwayNoisePersistence !== def.colorwayNoisePersistence) p.set('cnp', String(Number(state.colorwayNoisePersistence.toFixed(2))));
+  if (state.colorwayNoiseLacunarity !== def.colorwayNoiseLacunarity) p.set('cnl', String(Number(state.colorwayNoiseLacunarity.toFixed(2))));
+  if (state.colorwayNoiseBias !== def.colorwayNoiseBias) p.set('cnbb', String(Number(state.colorwayNoiseBias.toFixed(2))));
+  if (state.colorwayBleedAnisotropy !== def.colorwayBleedAnisotropy) p.set('cba', String(Number(state.colorwayBleedAnisotropy.toFixed(2))));
+  if (state.colorwayBleedRotation !== def.colorwayBleedRotation) p.set('cbr', String(Number(state.colorwayBleedRotation.toFixed(3))));
+  if (state.colorwayBleedCrossFiber !== def.colorwayBleedCrossFiber) p.set('cbx', String(Number(state.colorwayBleedCrossFiber.toFixed(2))));
+  if (!!state.colorwayBleedDraftCoupled !== !!def.colorwayBleedDraftCoupled) p.set('cbd', state.colorwayBleedDraftCoupled ? '1' : '0');
+  if (state.colorwayIncludeMask !== def.colorwayIncludeMask) p.set('cpm', String(Math.round(state.colorwayIncludeMask)));
   if (state.shimmer !== def.shimmer) p.set('shimmer', state.shimmer ? '1' : '0');
   if (state.shimmerSpeed !== def.shimmerSpeed) p.set('shimmerSp', String(Math.round(state.shimmerSpeed)));
   if (state.shimmerWidth !== def.shimmerWidth) p.set('shimmerW', String(Number(state.shimmerWidth.toFixed(2))));
@@ -379,15 +467,60 @@ export default function App() {
   const [shimmerNoiseMin, setShimmerNoiseMin] = useState(WEAVING_URL_DEFAULTS.shimmerNoiseMin); // clamp min for noise factor (0–2)
   const [shimmerNoiseMax, setShimmerNoiseMax] = useState(WEAVING_URL_DEFAULTS.shimmerNoiseMax); // clamp max for noise factor (0–2)
   const [shimmerBlendMode, setShimmerBlendMode] = useState(WEAVING_URL_DEFAULTS.shimmerBlendMode); // 0–10: Add, Multiply, Screen, Overlay, Soft Light, Hard Light, Color Dodge, Color Burn, Linear Burn, Difference, Exclusion
-  /** Use all 5 colorways: per-cell palette from colorwaySeed hash (mod 5). */
+  /** Use all 5 colorways: hash, smooth FBM, or dye-bleed field → palette index (mod 5). */
   const [useAllColorways, setUseAllColorways] = useState(WEAVING_URL_DEFAULTS.useAllColorways);
   const [colorwaySeed, setColorwaySeed] = useState(WEAVING_URL_DEFAULTS.colorwaySeed);
-  /** Colorway noise scale: spatial scale of per-cell palette variation (>1 = finer, <1 = coarser). */
+  /** Spatial scale on cell grid for all colorway modes. */
   const [colorwayNoiseScale, setColorwayNoiseScale] = useState(WEAVING_URL_DEFAULTS.colorwayNoiseScale);
-  /** When true, colorway seed animates 0→100 over 20m and loops. */
-  const [colorwaySeedPlaying, setColorwaySeedPlaying] = useState(false);
-  const colorwayAnimStartRef = useRef(0);
-  const colorwayAnimFrameRef = useRef(null);
+  const [colorwayNoiseMode, setColorwayNoiseMode] = useState(WEAVING_URL_DEFAULTS.colorwayNoiseMode);
+  const [colorwayNoiseOctaves, setColorwayNoiseOctaves] = useState(WEAVING_URL_DEFAULTS.colorwayNoiseOctaves);
+  const [colorwayNoisePersistence, setColorwayNoisePersistence] = useState(WEAVING_URL_DEFAULTS.colorwayNoisePersistence);
+  const [colorwayNoiseLacunarity, setColorwayNoiseLacunarity] = useState(WEAVING_URL_DEFAULTS.colorwayNoiseLacunarity);
+  const [colorwayNoiseBias, setColorwayNoiseBias] = useState(WEAVING_URL_DEFAULTS.colorwayNoiseBias);
+  const [colorwayBleedAnisotropy, setColorwayBleedAnisotropy] = useState(WEAVING_URL_DEFAULTS.colorwayBleedAnisotropy);
+  const [colorwayBleedRotation, setColorwayBleedRotation] = useState(WEAVING_URL_DEFAULTS.colorwayBleedRotation);
+  const [colorwayBleedCrossFiber, setColorwayBleedCrossFiber] = useState(WEAVING_URL_DEFAULTS.colorwayBleedCrossFiber);
+  const [colorwayBleedDraftCoupled, setColorwayBleedDraftCoupled] = useState(WEAVING_URL_DEFAULTS.colorwayBleedDraftCoupled);
+  /** Bitmask: which palettes 0–4 are in the all-colorways pool (default 31 = all). */
+  const [colorwayIncludeMask, setColorwayIncludeMask] = useState(WEAVING_URL_DEFAULTS.colorwayIncludeMask);
+  /** Per-param play: rAF drives sweeps/cycles while each flag is true (only when “Use all 5 colorways” is on). */
+  const [colorwayAnimPlaying, setColorwayAnimPlaying] = useState(() => ({ ...COLORWAY_ANIM_INITIAL }));
+  const colorwayAnimPlayingRef = useRef(colorwayAnimPlaying);
+  colorwayAnimPlayingRef.current = colorwayAnimPlaying;
+  const useAllColorwaysRef = useRef(useAllColorways);
+  useAllColorwaysRef.current = useAllColorways;
+  /** Latest colorway values for capturing origins when a play toggle turns on. */
+  const colorwayStateRef = useRef({});
+  colorwayStateRef.current = {
+    seed: colorwaySeed,
+    noiseScale: colorwayNoiseScale,
+    noiseMode: colorwayNoiseMode,
+    includeMask: colorwayIncludeMask,
+    octaves: colorwayNoiseOctaves,
+    persistence: colorwayNoisePersistence,
+    lacunarity: colorwayNoiseLacunarity,
+    bias: colorwayNoiseBias,
+    bleedAnisotropy: colorwayBleedAnisotropy,
+    bleedRotation: colorwayBleedRotation,
+    bleedCrossFiber: colorwayBleedCrossFiber,
+    bleedDraftCoupled: colorwayBleedDraftCoupled,
+  };
+  /** Per-key `{ startMs, origin }` while that param’s play is on (origin = slider value at play). */
+  const colorwayAnimMetaRef = useRef({});
+  const prevColorwayPlayingRef = useRef({ ...COLORWAY_ANIM_INITIAL });
+
+  useLayoutEffect(() => {
+    const prev = prevColorwayPlayingRef.current;
+    const next = colorwayAnimPlaying;
+    const s = colorwayStateRef.current;
+    for (const k of Object.keys(COLORWAY_ANIM_INITIAL)) {
+      if (next[k] && !prev[k]) {
+        colorwayAnimMetaRef.current[k] = { startMs: performance.now(), origin: s[k] };
+      }
+      if (!next[k]) delete colorwayAnimMetaRef.current[k];
+    }
+    prevColorwayPlayingRef.current = { ...next };
+  }, [colorwayAnimPlaying]);
   /** Copy format: 'png' or 'webp'; copyScale: 1, 2, 4, or 8× display size. */
   const [copyFormat, setCopyFormat] = useState(WEAVING_URL_DEFAULTS.copyFormat);
   const [copyScale, setCopyScale] = useState(WEAVING_URL_DEFAULTS.copyScale);
@@ -528,6 +661,16 @@ export default function App() {
     if (q.useAllColorways != null) setUseAllColorways(!!q.useAllColorways);
     if (q.colorwaySeed != null) setColorwaySeed(q.colorwaySeed);
     if (q.colorwayNoiseScale != null) setColorwayNoiseScale(q.colorwayNoiseScale);
+    if (q.colorwayNoiseMode != null) setColorwayNoiseMode(Math.round(q.colorwayNoiseMode));
+    if (q.colorwayNoiseOctaves != null) setColorwayNoiseOctaves(Math.round(q.colorwayNoiseOctaves));
+    if (q.colorwayNoisePersistence != null) setColorwayNoisePersistence(q.colorwayNoisePersistence);
+    if (q.colorwayNoiseLacunarity != null) setColorwayNoiseLacunarity(q.colorwayNoiseLacunarity);
+    if (q.colorwayNoiseBias != null) setColorwayNoiseBias(q.colorwayNoiseBias);
+    if (q.colorwayBleedAnisotropy != null) setColorwayBleedAnisotropy(q.colorwayBleedAnisotropy);
+    if (q.colorwayBleedRotation != null) setColorwayBleedRotation(snapColorwayBleedRotation(q.colorwayBleedRotation));
+    if (q.colorwayBleedCrossFiber != null) setColorwayBleedCrossFiber(q.colorwayBleedCrossFiber);
+    if (q.colorwayBleedDraftCoupled != null) setColorwayBleedDraftCoupled(!!q.colorwayBleedDraftCoupled);
+    if (q.colorwayIncludeMask != null) setColorwayIncludeMask(Math.round(q.colorwayIncludeMask));
     if (q.shimmer != null) setShimmer(!!q.shimmer);
     if (q.shimmerSpeed != null) setShimmerSpeed(Math.min(16, Math.max(1, Number(q.shimmerSpeed))));
     if (q.shimmerWidth != null) setShimmerWidth(q.shimmerWidth);
@@ -586,7 +729,7 @@ export default function App() {
       const search = buildUrlState({
         view, weaveHalftoneOn, menuHidden, presetIndex, pattern, palette, bgShade, warpShade, weftShade, gridSize,
         warpGradient, weftGradient, gradSteps, rectAspect, cornerRadius, canvasAspect, patternFit, copyFormat, copyScale,
-        useAllColorways, colorwaySeed, colorwayNoiseScale, shimmer, shimmerSpeed, shimmerWidth, shimmerIntensity, shimmerPosition, shimmerRotation, shimmerNoise, shimmerNoiseSeed, shimmerNoiseMin, shimmerNoiseMax, shimmerBlendMode,
+        useAllColorways, colorwaySeed, colorwayNoiseScale, colorwayNoiseMode, colorwayNoiseOctaves, colorwayNoisePersistence, colorwayNoiseLacunarity, colorwayNoiseBias, colorwayBleedAnisotropy, colorwayBleedRotation, colorwayBleedCrossFiber, colorwayBleedDraftCoupled, colorwayIncludeMask, shimmer, shimmerSpeed, shimmerWidth, shimmerIntensity, shimmerPosition, shimmerRotation, shimmerNoise, shimmerNoiseSeed, shimmerNoiseMin, shimmerNoiseMax, shimmerBlendMode,
         halftonePresetIndex, halftoneSize, halftoneSoftness, halftoneGridNoise, halftoneContrast, halftoneType,
         halftoneColorBack, halftoneColorC, halftoneColorM, halftoneColorY, halftoneColorK, halftoneFloodC, halftoneGainC, halftoneGainY,
         comboGridSize, comboPalette, comboBgShade, comboRectColorSource, comboQuantizeSteps, comboQuantizeMode, comboQuantizeGamma, comboQuantizeDither, comboPatternIndex, comboPatternWarpShade, comboPatternWeftShade, comboLumaSizeMix, comboLumaSizeInvert, comboLumaSizeFloor, comboCellGeometryMode, comboStitchLumaMax, comboRectRadius, comboRectAspect, comboRectRatio,
@@ -597,24 +740,81 @@ export default function App() {
       }
     }, 400);
     return () => { clearTimeout(urlSyncTimeoutRef.current); };
-  }, [view, weaveHalftoneOn, menuHidden, presetIndex, pattern, palette, bgShade, warpShade, weftShade, gridSize, warpGradient, weftGradient, gradSteps, rectAspect, cornerRadius, canvasAspect, patternFit, copyFormat, copyScale, useAllColorways, colorwaySeed, colorwayNoiseScale, shimmer, shimmerSpeed, shimmerWidth, shimmerIntensity, shimmerPosition, shimmerRotation, shimmerNoise, shimmerNoiseSeed, shimmerNoiseMin, shimmerNoiseMax, shimmerBlendMode, halftonePresetIndex, halftoneSize, halftoneSoftness, halftoneGridNoise, halftoneContrast, halftoneType, halftoneColorBack, halftoneColorC, halftoneColorM, halftoneColorY, halftoneColorK, halftoneFloodC, halftoneGainC, halftoneGainY, comboGridSize, comboPalette, comboBgShade, comboRectColorSource, comboQuantizeSteps, comboQuantizeMode, comboQuantizeGamma, comboQuantizeDither, comboPatternIndex, comboPatternWarpShade, comboPatternWeftShade, comboLumaSizeMix, comboLumaSizeInvert, comboLumaSizeFloor, comboCellGeometryMode, comboStitchLumaMax, comboRectRadius, comboRectAspect, comboRectRatio]);
+  }, [view, weaveHalftoneOn, menuHidden, presetIndex, pattern, palette, bgShade, warpShade, weftShade, gridSize, warpGradient, weftGradient, gradSteps, rectAspect, cornerRadius, canvasAspect, patternFit, copyFormat, copyScale, useAllColorways, colorwaySeed, colorwayNoiseScale, colorwayNoiseMode, colorwayNoiseOctaves, colorwayNoisePersistence, colorwayNoiseLacunarity, colorwayNoiseBias, colorwayBleedAnisotropy, colorwayBleedRotation, colorwayBleedCrossFiber, colorwayBleedDraftCoupled, colorwayIncludeMask, shimmer, shimmerSpeed, shimmerWidth, shimmerIntensity, shimmerPosition, shimmerRotation, shimmerNoise, shimmerNoiseSeed, shimmerNoiseMin, shimmerNoiseMax, shimmerBlendMode, halftonePresetIndex, halftoneSize, halftoneSoftness, halftoneGridNoise, halftoneContrast, halftoneType, halftoneColorBack, halftoneColorC, halftoneColorM, halftoneColorY, halftoneColorK, halftoneFloodC, halftoneGainC, halftoneGainY, comboGridSize, comboPalette, comboBgShade, comboRectColorSource, comboQuantizeSteps, comboQuantizeMode, comboQuantizeGamma, comboQuantizeDither, comboPatternIndex, comboPatternWarpShade, comboPatternWeftShade, comboLumaSizeMix, comboLumaSizeInvert, comboLumaSizeFloor, comboCellGeometryMode, comboStitchLumaMax, comboRectRadius, comboRectAspect, comboRectRatio]);
 
-  /** Animate colorway seed 0→100 over 20m and loop while colorwaySeedPlaying is true. */
-  const COLORWAY_ANIM_DURATION_MS = 1200000; // 20 min (20× slower than 60s)
+  /** Auto-animate colorway params from captured slider origins; each loop repeats (see `colorwayAnimMetaRef`). */
   useEffect(() => {
-    if (!colorwaySeedPlaying) return;
-    colorwayAnimStartRef.current = performance.now();
+    if (!useAllColorways) return;
+    if (!Object.values(colorwayAnimPlaying).some(Boolean)) return;
+    let frame;
     const tick = () => {
-      const elapsed = performance.now() - colorwayAnimStartRef.current;
-      const seed = (elapsed % COLORWAY_ANIM_DURATION_MS) / (COLORWAY_ANIM_DURATION_MS / 100); // 0→100 in 60s, then repeat
-      setColorwaySeed(seed);
-      colorwayAnimFrameRef.current = requestAnimationFrame(tick);
+      const p = colorwayAnimPlayingRef.current;
+      if (!useAllColorwaysRef.current || !Object.values(p).some(Boolean)) return;
+      const now = performance.now();
+      const meta = colorwayAnimMetaRef.current;
+
+      if (p.seed && meta.seed) {
+        const t = now - meta.seed.startMs;
+        const T = COLORWAY_SEED_LOOP_MS;
+        const u = (t % T) / T;
+        const o = Number(meta.seed.origin);
+        setColorwaySeed(((o + u * 100) % 100 + 100) % 100);
+      }
+      if (p.noiseScale && meta.noiseScale) {
+        const t = now - meta.noiseScale.startMs;
+        setColorwayNoiseScale(colorwayOscFromOrigin(t, 48000, 0.05, 2.5, meta.noiseScale.origin));
+      }
+      if (p.noiseMode && meta.noiseMode) {
+        const t = now - meta.noiseMode.startMs;
+        const o = Math.max(0, Math.min(2, Math.round(Number(meta.noiseMode.origin))));
+        setColorwayNoiseMode((o + Math.floor(t / 5000)) % 3);
+      }
+      if (p.includeMask && meta.includeMask) {
+        const t = now - meta.includeMask.startMs;
+        const startStep = colorwayIncludeMaskToStep(meta.includeMask.origin);
+        setColorwayIncludeMask(colorwayIncludeStepToMask(startStep + Math.floor(t / 1200)));
+      }
+      if (p.octaves && meta.octaves) {
+        const t = now - meta.octaves.startMs;
+        const o = Math.max(1, Math.min(4, Math.round(Number(meta.octaves.origin))));
+        setColorwayNoiseOctaves((((o - 1 + Math.floor(t / 2000)) % 4) + 4) % 4 + 1);
+      }
+      if (p.persistence && meta.persistence) {
+        const t = now - meta.persistence.startMs;
+        setColorwayNoisePersistence(colorwayOscFromOrigin(t, 50000, 0.15, 0.95, meta.persistence.origin));
+      }
+      if (p.lacunarity && meta.lacunarity) {
+        const t = now - meta.lacunarity.startMs;
+        setColorwayNoiseLacunarity(colorwayOscFromOrigin(t, 56000, 1.05, 4, meta.lacunarity.origin));
+      }
+      if (p.bias && meta.bias) {
+        const t = now - meta.bias.startMs;
+        setColorwayNoiseBias(colorwayOscFromOrigin(t, 44000, 0.25, 4, meta.bias.origin));
+      }
+      if (p.bleedAnisotropy && meta.bleedAnisotropy) {
+        const t = now - meta.bleedAnisotropy.startMs;
+        setColorwayBleedAnisotropy(colorwayOscFromOrigin(t, 64000, 0.35, 12, meta.bleedAnisotropy.origin));
+      }
+      if (p.bleedRotation && meta.bleedRotation) {
+        const t = now - meta.bleedRotation.startMs;
+        setColorwayBleedRotation(snapColorwayBleedRotation(colorwayOscFromOrigin(t, 70000, 0, 1, meta.bleedRotation.origin)));
+      }
+      if (p.bleedCrossFiber && meta.bleedCrossFiber) {
+        const t = now - meta.bleedCrossFiber.startMs;
+        setColorwayBleedCrossFiber(colorwayOscFromOrigin(t, 40000, 0, 1, meta.bleedCrossFiber.origin));
+      }
+      if (p.bleedDraftCoupled && meta.bleedDraftCoupled) {
+        const t = now - meta.bleedDraftCoupled.startMs;
+        const o = meta.bleedDraftCoupled.origin ? 1 : 0;
+        setColorwayBleedDraftCoupled(((o + Math.floor(t / 3000)) & 1) === 1);
+      }
+      frame = requestAnimationFrame(tick);
     };
-    colorwayAnimFrameRef.current = requestAnimationFrame(tick);
+    frame = requestAnimationFrame(tick);
     return () => {
-      if (colorwayAnimFrameRef.current != null) cancelAnimationFrame(colorwayAnimFrameRef.current);
+      if (frame != null) cancelAnimationFrame(frame);
     };
-  }, [colorwaySeedPlaying]);
+  }, [useAllColorways, colorwayAnimPlaying]);
 
   /** Shimmer phase 0–1 from time; matches shader period (gridSize * (aspect*|cos| + |sin|)). */
   const computeShimmerPhase = useCallback((time) => {
@@ -878,7 +1078,17 @@ export default function App() {
     setUseAllColorways(WEAVING_URL_DEFAULTS.useAllColorways);
     setColorwaySeed(WEAVING_URL_DEFAULTS.colorwaySeed);
     setColorwayNoiseScale(WEAVING_URL_DEFAULTS.colorwayNoiseScale);
-    setColorwaySeedPlaying(false);
+    setColorwayNoiseMode(WEAVING_URL_DEFAULTS.colorwayNoiseMode);
+    setColorwayNoiseOctaves(WEAVING_URL_DEFAULTS.colorwayNoiseOctaves);
+    setColorwayNoisePersistence(WEAVING_URL_DEFAULTS.colorwayNoisePersistence);
+    setColorwayNoiseLacunarity(WEAVING_URL_DEFAULTS.colorwayNoiseLacunarity);
+    setColorwayNoiseBias(WEAVING_URL_DEFAULTS.colorwayNoiseBias);
+    setColorwayBleedAnisotropy(WEAVING_URL_DEFAULTS.colorwayBleedAnisotropy);
+    setColorwayBleedRotation(WEAVING_URL_DEFAULTS.colorwayBleedRotation);
+    setColorwayBleedCrossFiber(WEAVING_URL_DEFAULTS.colorwayBleedCrossFiber);
+    setColorwayBleedDraftCoupled(WEAVING_URL_DEFAULTS.colorwayBleedDraftCoupled);
+    setColorwayIncludeMask(WEAVING_URL_DEFAULTS.colorwayIncludeMask);
+    setColorwayAnimPlaying({ ...COLORWAY_ANIM_INITIAL });
     setCopyFormat(WEAVING_URL_DEFAULTS.copyFormat);
     setCopyScale(WEAVING_URL_DEFAULTS.copyScale);
     setExportScale(WEAVING_URL_DEFAULTS.exportScale);
@@ -968,6 +1178,7 @@ export default function App() {
     setUseAllColorways(Math.random() < 0.5);
     setColorwaySeed(randInt(0, 100));
     setColorwayNoiseScale(Number((0.25 + Math.random() * 2.75).toFixed(2)));
+    setColorwayAnimPlaying({ ...COLORWAY_ANIM_INITIAL });
   }, [randomizeRectAspect, randomizeCornerRadius]);
 
   /** Keyboard shortcuts when focus is not in input/select/textarea. Mod+C = copy; Mod+1..9 = preset 0–(n−1); Mod+Shift+R or F5 = reload. */
@@ -1015,37 +1226,40 @@ export default function App() {
     { value: 1, label: 'Left', icon: 'arrow_back' },
   ];
 
-  /** Main bar only: same `patternFit` / `?display=` for Weave, Print mosaic, and Mosaic (AppV2). */
+  /** Main bar: Fit|Fill in one segment control, right-aligned (`flex-1` spacer before it; same `?display=` everywhere). */
   const navViewportFitFill = (
-    <div className="flex shrink-0 items-center" title="Canvas in stage">
-      <SegmentedControl>
-        <div className="flex h-full">
-          <SegmentedControlButton
-            active={patternFit === 'fit'}
-            aria-pressed={patternFit === 'fit'}
-            aria-label="Fit canvas in view"
-            onClick={() => setPatternFit('fit')}
-          >
-            Fit
-          </SegmentedControlButton>
-          <SegmentedControlButton
-            active={patternFit === 'fill'}
-            aria-pressed={patternFit === 'fill'}
-            aria-label="Fill canvas to available space"
-            onClick={() => setPatternFit('fill')}
-          >
-            Fill
-          </SegmentedControlButton>
-        </div>
-      </SegmentedControl>
-    </div>
+    <>
+      <div className="min-w-0 flex-1 basis-0" aria-hidden />
+      <div className="flex shrink-0 items-center" title="Canvas in stage">
+        <SegmentedControl>
+          <div className="flex h-full">
+            <SegmentedControlButton
+              active={patternFit === 'fit'}
+              aria-pressed={patternFit === 'fit'}
+              aria-label="Fit canvas in view"
+              onClick={() => setPatternFit('fit')}
+            >
+              Fit
+            </SegmentedControlButton>
+            <SegmentedControlButton
+              active={patternFit === 'fill'}
+              aria-pressed={patternFit === 'fill'}
+              aria-label="Fill canvas to available space"
+              onClick={() => setPatternFit('fill')}
+            >
+              Fill
+            </SegmentedControlButton>
+          </div>
+        </SegmentedControl>
+      </div>
+    </>
   );
 
   if (view === 'imageRects') {
     return (
       <div className="flex min-h-0 flex-col bg-surface" style={{ height: '100dvh' }}>
-        <nav className="flex w-full min-h-9 shrink-0 flex-wrap items-center gap-3 border-b border-border-subtle bg-surface-elevated px-3 py-2" aria-label="App mode">
-          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-3">
+        <nav className="flex w-full min-h-9 shrink-0 flex-nowrap items-center gap-3 overflow-x-auto border-b border-border-subtle bg-surface-elevated px-3 py-2" aria-label="App mode">
+          <div className="flex min-w-0 flex-wrap items-center gap-3">
             <h1 className={`shrink-0 text-left ${typeBase} font-semibold tracking-[-0.01em] text-text`}>ENS Warp&Weft</h1>
             <button
               type="button"
@@ -1076,8 +1290,8 @@ export default function App() {
 
   return (
     <div className="flex min-h-0 flex-col bg-surface" style={{ height: '100dvh' }}>
-      <nav className="flex w-full min-h-9 shrink-0 flex-wrap items-center gap-3 border-b border-border-subtle bg-surface-elevated px-3 py-2" aria-label="App mode">
-        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-3">
+      <nav className="flex w-full min-h-9 shrink-0 flex-nowrap items-center gap-3 overflow-x-auto border-b border-border-subtle bg-surface-elevated px-3 py-2" aria-label="App mode">
+        <div className="flex min-w-0 flex-wrap items-center gap-3">
           <h1 className={`shrink-0 text-left ${typeBase} font-semibold tracking-[-0.01em] text-text`}>ENS Warp&Weft</h1>
           <button
             type="button"
@@ -1098,11 +1312,12 @@ export default function App() {
         {navViewportFitFill}
       </nav>
       <div className="relative flex min-h-0 flex-1 flex-row overflow-hidden bg-surface">
+        {/* In-flow sidebar: min-h-0 + h-full so flex items can shrink below content height; overflow-y-auto then scrolls extra controls instead of clipping. */}
         {/* When menuHidden: fixed overlay (show on hover). When menu open: in-flow, no absolute positioning. */}
         <motion.aside
           className={menuHidden
             ? 'fixed left-0 top-9 z-10 flex h-[calc(100dvh-2.25rem)] w-[288px] flex-col gap-1.5 overflow-y-auto overflow-x-auto border-r border-border-subtle bg-surface px-3 py-3'
-            : 'flex w-[288px] shrink-0 flex-col gap-1.5 overflow-y-auto overflow-x-auto border-r border-border-subtle bg-surface px-3 py-3'}
+            : 'flex h-full min-h-0 w-[288px] shrink-0 flex-col gap-1.5 overflow-y-auto overflow-x-auto overscroll-y-contain border-r border-border-subtle bg-surface px-3 py-3'}
           initial={false}
           animate={{ opacity: menuHidden ? 0 : 1 }}
           whileHover={menuHidden ? { opacity: 1 } : undefined}
@@ -1159,7 +1374,7 @@ export default function App() {
                   </IconButton>
                   {(copyScale !== WEAVING_URL_DEFAULTS.copyScale || copyFormat !== WEAVING_URL_DEFAULTS.copyFormat) && (
                     <IconButton
-                      size="sm"
+                      size="resetSm"
                       title="Reset copy scale and format"
                       aria-label="Reset copy scale and format"
                       onClick={() => {
@@ -1167,7 +1382,7 @@ export default function App() {
                         setCopyFormat(WEAVING_URL_DEFAULTS.copyFormat);
                       }}
                     >
-                      <Icon name="restart_alt" className={iconSm} />
+                      <Icon name="restart_alt" className={iconResetGlyph} />
                     </IconButton>
                   )}
                   {copyFeedback && (
@@ -1200,12 +1415,12 @@ export default function App() {
                   </IconButton>
                   {exportScale !== WEAVING_URL_DEFAULTS.exportScale && (
                     <IconButton
-                      size="sm"
+                      size="resetSm"
                       title="Reset export scale"
                       aria-label="Reset export scale"
                       onClick={() => setExportScale(WEAVING_URL_DEFAULTS.exportScale)}
                     >
-                      <Icon name="restart_alt" className={iconSm} />
+                      <Icon name="restart_alt" className={iconResetGlyph} />
                     </IconButton>
                   )}
                   {exportFeedback && (
@@ -1301,8 +1516,8 @@ export default function App() {
                         <button key={i} type="button" className={`${paletteSwatchSm} ${comboPalette === i ? 'border-accent' : 'border-border-subtle'}`} style={{ backgroundColor: c }} onClick={() => setComboPalette(i)} aria-label={PALETTE_NAMES[i]} />
                       ))}
                       {comboPalette !== COMBO_DEFAULTS.palette && (
-                        <IconButton size="sm" onClick={() => setComboPalette(COMBO_DEFAULTS.palette)} title="Reset palette" aria-label="Reset combo palette to default">
-                          <Icon name="restart_alt" className={iconSm} />
+                        <IconButton size="resetSm" onClick={() => setComboPalette(COMBO_DEFAULTS.palette)} title="Reset palette" aria-label="Reset combo palette to default">
+                          <Icon name="restart_alt" className={iconResetGlyph} />
                         </IconButton>
                       )}
                     </div>
@@ -1435,8 +1650,8 @@ export default function App() {
                         />
                       ))}
                       {palette !== WEAVING_URL_DEFAULTS.palette && (
-                        <IconButton size="sm" onClick={() => { setPalette(WEAVING_URL_DEFAULTS.palette); setPresetIndex(null); }} title="Reset palette" aria-label="Reset palette to default">
-                          <Icon name="restart_alt" className={iconSm} />
+                        <IconButton size="resetSm" onClick={() => { setPalette(WEAVING_URL_DEFAULTS.palette); setPresetIndex(null); }} title="Reset palette" aria-label="Reset palette to default">
+                          <Icon name="restart_alt" className={iconResetGlyph} />
                         </IconButton>
                       )}
                     </div>
@@ -1697,8 +1912,8 @@ export default function App() {
                       Shimmer
                     </button>
                     {shimmer !== WEAVING_URL_DEFAULTS.shimmer && (
-                      <IconButton size="sm" onClick={() => setShimmer(WEAVING_URL_DEFAULTS.shimmer)} title="Reset shimmer toggle" aria-label="Reset shimmer toggle to default">
-                        <Icon name="restart_alt" className={iconSm} />
+                      <IconButton size="resetSm" onClick={() => setShimmer(WEAVING_URL_DEFAULTS.shimmer)} title="Reset shimmer toggle" aria-label="Reset shimmer toggle to default">
+                        <Icon name="restart_alt" className={iconResetGlyph} />
                       </IconButton>
                     )}
                     {shimmer && (
@@ -1713,7 +1928,7 @@ export default function App() {
                             setShimmerPlaying((p) => !p);
                           }}
                         >
-                          <Icon name={shimmerPlaying ? 'pause' : 'play_arrow'} className={iconSm} />
+                          <Icon name={shimmerPlaying ? 'pause' : 'play_arrow'} className={iconPlayGlyph} />
                         </button>
                         <AppSelect
                           id="shimmer-blend"
@@ -1877,56 +2092,320 @@ export default function App() {
                       type="button"
                       className={`${toggleBtn} ${useAllColorways ? toggleBtnActive : ''}`}
                       aria-pressed={useAllColorways}
-                      aria-label="Use all 5 colorways (randomized per cell)"
+                      aria-label="Use all 5 colorways (hash, smooth noise, or dye bleed)"
                       onClick={() => setUseAllColorways((u) => !u)}
                     >
                       Use all 5 colorways
                     </button>
                     {useAllColorways !== WEAVING_URL_DEFAULTS.useAllColorways && (
-                      <IconButton size="sm" onClick={() => setUseAllColorways(WEAVING_URL_DEFAULTS.useAllColorways)} title="Reset all-colorways toggle" aria-label="Reset all colorways toggle to default">
-                        <Icon name="restart_alt" className={iconSm} />
+                      <IconButton size="resetSm" onClick={() => setUseAllColorways(WEAVING_URL_DEFAULTS.useAllColorways)} title="Reset all-colorways toggle" aria-label="Reset all colorways toggle to default">
+                        <Icon name="restart_alt" className={iconResetGlyph} />
                       </IconButton>
                     )}
                     {useAllColorways && (
                       <>
-                        <div className="flex flex-col gap-1.5 w-full">
-                          <Label.Root className={typeLabel} htmlFor="colorway-noise-scale">Noise scale</Label.Root>
+                        <div className="flex w-full flex-col gap-1.5">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className={typeLabel}>Include palettes</span>
+                            <ColorwayAnimPlayBtn
+                              active={colorwayAnimPlaying.includeMask}
+                              onToggle={() => setColorwayAnimPlaying((x) => ({ ...x, includeMask: !x.includeMask }))}
+                              labelPlay="Play: cycle each palette alone then all five"
+                              labelPause="Pause include-palette animation"
+                            />
+                          </div>
+                          <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Palettes in the colorway pool">
+                            {PALETTE_SWATCH_COLORS.map((color, i) => {
+                              const on = (colorwayIncludeMask & (1 << i)) !== 0;
+                              return (
+                                <button
+                                  key={i}
+                                  type="button"
+                                  className={`${paletteSwatchSm} shrink-0 border-2 transition-[opacity,filter] ${on ? 'border-accent opacity-100' : 'border-border-subtle opacity-40 grayscale'}`}
+                                  style={{ backgroundColor: color }}
+                                  title={`${on ? 'Remove' : 'Add'} ${PALETTE_NAMES[i]}`}
+                                  aria-label={`${PALETTE_NAMES[i]}: ${on ? 'included in pool' : 'excluded'}`}
+                                  aria-pressed={on}
+                                  onClick={() => {
+                                    setColorwayIncludeMask((prev) => {
+                                      const bit = 1 << i;
+                                      const included = (prev & bit) !== 0;
+                                      let n = 0;
+                                      for (let j = 0; j < 5; j += 1) if (prev & (1 << j)) n += 1;
+                                      if (included && n <= 1) return prev;
+                                      return included ? prev & ~bit : prev | bit;
+                                    });
+                                  }}
+                                />
+                              );
+                            })}
+                            {colorwayIncludeMask !== WEAVING_URL_DEFAULTS.colorwayIncludeMask && (
+                              <IconButton size="resetSm" onClick={() => setColorwayIncludeMask(WEAVING_URL_DEFAULTS.colorwayIncludeMask)} title="Include all palettes" aria-label="Reset included palettes to all five">
+                                <Icon name="restart_alt" className={iconResetGlyph} />
+                              </IconButton>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex w-full flex-col gap-1.5">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className={typeLabel}>Distribution</span>
+                            <ColorwayAnimPlayBtn
+                              active={colorwayAnimPlaying.noiseMode}
+                              onToggle={() => setColorwayAnimPlaying((x) => ({ ...x, noiseMode: !x.noiseMode }))}
+                              labelPlay="Play: cycle Random, Smooth, Bleed"
+                              labelPause="Pause distribution animation"
+                            />
+                          </div>
+                          <SegmentedControl>
+                            <div className="flex h-full">
+                              <SegmentedControlButton
+                                active={colorwayNoiseMode === 0}
+                                aria-pressed={colorwayNoiseMode === 0}
+                                aria-label="Random per cell (hash)"
+                                onClick={() => setColorwayNoiseMode(0)}
+                              >
+                                Random
+                              </SegmentedControlButton>
+                              <SegmentedControlButton
+                                active={colorwayNoiseMode === 1}
+                                aria-pressed={colorwayNoiseMode === 1}
+                                aria-label="Smooth Perlin noise"
+                                onClick={() => setColorwayNoiseMode(1)}
+                              >
+                                Smooth
+                              </SegmentedControlButton>
+                              <SegmentedControlButton
+                                active={colorwayNoiseMode === 2}
+                                aria-pressed={colorwayNoiseMode === 2}
+                                aria-label="Dye bleed along threads"
+                                onClick={() => setColorwayNoiseMode(2)}
+                              >
+                                Bleed
+                              </SegmentedControlButton>
+                            </div>
+                          </SegmentedControl>
+                        </div>
+                        <div className="flex w-full flex-col gap-1.5">
+                          <div className="flex items-center justify-between gap-2">
+                            <Label.Root className={typeLabel} htmlFor="colorway-noise-scale">Noise scale</Label.Root>
+                            <ColorwayAnimPlayBtn
+                              active={colorwayAnimPlaying.noiseScale}
+                              onToggle={() => setColorwayAnimPlaying((x) => ({ ...x, noiseScale: !x.noiseScale }))}
+                              labelPlay="Play: oscillate noise scale"
+                              labelPause="Pause noise scale animation"
+                            />
+                          </div>
                           <SliderWithInput
                             id="colorway-noise-scale"
                             value={colorwayNoiseScale}
                             onValueChange={setColorwayNoiseScale}
-                            min={0.25}
-                            max={3}
-                            step={0.05}
+                            min={0.05}
+                            max={2.5}
+                            step={0.01}
                             format={(n) => n.toFixed(2)}
-                            aria-label="Colorway noise scale (spatial variation)"
+                            aria-label="Colorway spatial scale"
                             defaultValue={WEAVING_URL_DEFAULTS.colorwayNoiseScale}
                             onReset={() => setColorwayNoiseScale(WEAVING_URL_DEFAULTS.colorwayNoiseScale)}
                           />
                         </div>
-                        <Label.Root className="sr-only" htmlFor="colorway-seed">Colorway seed</Label.Root>
-                        <SliderWithInput
-                          id="colorway-seed"
-                          value={colorwaySeed}
-                          onValueChange={setColorwaySeed}
-                          min={0}
-                          max={100}
-                          step={0.1}
-                          format={(n) => (n === 0 || n >= 99.9 ? n.toFixed(0) : n.toFixed(1))}
-                          aria-label="Colorway seed"
-                          defaultValue={WEAVING_URL_DEFAULTS.colorwaySeed}
-                          onReset={() => setColorwaySeed(WEAVING_URL_DEFAULTS.colorwaySeed)}
-                        />
-                        <span className={`shrink-0 min-w-16 ${typeValue}`} aria-hidden>Seed: {typeof colorwaySeed === 'number' && Number.isInteger(colorwaySeed) ? colorwaySeed : colorwaySeed.toFixed(1)}</span>
-                        <button
-                          type="button"
-                          className={`${toggleBtnIcon} ${colorwaySeedPlaying ? toggleBtnActive : ''}`}
-                          aria-label={colorwaySeedPlaying ? 'Pause colorway seed animation' : 'Play colorway seed animation (0→100 in 20m, loop)'}
-                          aria-pressed={colorwaySeedPlaying}
-                          onClick={() => setColorwaySeedPlaying((p) => !p)}
-                        >
-                          <Icon name={colorwaySeedPlaying ? 'pause' : 'play_arrow'} className={iconSm} />
-                        </button>
+                        <div className="flex flex-wrap items-end gap-1.5">
+                          <div className="min-w-0 flex-1 basis-[min(100%,14rem)]">
+                            <Label.Root className="sr-only" htmlFor="colorway-seed">Colorway seed</Label.Root>
+                            <SliderWithInput
+                              id="colorway-seed"
+                              value={colorwaySeed}
+                              onValueChange={setColorwaySeed}
+                              min={0}
+                              max={100}
+                              step={0.1}
+                              format={(n) => (n === 0 || n >= 99.9 ? n.toFixed(0) : n.toFixed(1))}
+                              aria-label="Colorway seed"
+                              defaultValue={WEAVING_URL_DEFAULTS.colorwaySeed}
+                              onReset={() => setColorwaySeed(WEAVING_URL_DEFAULTS.colorwaySeed)}
+                            />
+                          </div>
+                          <span className="shrink-0 min-w-14 pb-0.5 text-[9px] tabular-nums text-text" aria-hidden>Seed: {typeof colorwaySeed === 'number' && Number.isInteger(colorwaySeed) ? colorwaySeed : colorwaySeed.toFixed(1)}</span>
+                          <ColorwayAnimPlayBtn
+                            active={colorwayAnimPlaying.seed}
+                            onToggle={() => setColorwayAnimPlaying((x) => ({ ...x, seed: !x.seed }))}
+                            labelPlay="Play: sweep seed 0→100 over 20 minutes, loop"
+                            labelPause="Pause colorway seed animation"
+                          />
+                        </div>
+                        {colorwayNoiseMode === 1 && (
+                          <div className="flex w-full flex-col gap-2 border-t border-border-subtle pt-2">
+                            <div className="flex flex-col gap-1">
+                              <div className="flex items-center justify-between gap-2">
+                                <Label.Root className={typeLabel} htmlFor="colorway-octaves">Octaves</Label.Root>
+                                <ColorwayAnimPlayBtn
+                                  active={colorwayAnimPlaying.octaves}
+                                  onToggle={() => setColorwayAnimPlaying((x) => ({ ...x, octaves: !x.octaves }))}
+                                  labelPlay="Play: cycle octaves 1–4"
+                                  labelPause="Pause octaves animation"
+                                />
+                              </div>
+                              <SliderWithInput id="colorway-octaves" value={colorwayNoiseOctaves} onValueChange={(v) => setColorwayNoiseOctaves(Math.round(v))} min={1} max={4} step={1} format={(n) => String(Math.round(n))} aria-label="FBM octaves" defaultValue={WEAVING_URL_DEFAULTS.colorwayNoiseOctaves} onReset={() => setColorwayNoiseOctaves(WEAVING_URL_DEFAULTS.colorwayNoiseOctaves)} />
+                            </div>
+                            <div className="flex flex-col gap-1">
+                              <div className="flex items-center justify-between gap-2">
+                                <Label.Root className={typeLabel} htmlFor="colorway-persistence">Persistence</Label.Root>
+                                <ColorwayAnimPlayBtn
+                                  active={colorwayAnimPlaying.persistence}
+                                  onToggle={() => setColorwayAnimPlaying((x) => ({ ...x, persistence: !x.persistence }))}
+                                  labelPlay="Play: oscillate persistence"
+                                  labelPause="Pause persistence animation"
+                                />
+                              </div>
+                              <SliderWithInput id="colorway-persistence" value={colorwayNoisePersistence} onValueChange={setColorwayNoisePersistence} min={0.15} max={0.95} step={0.05} format={(n) => n.toFixed(2)} aria-label="FBM persistence" defaultValue={WEAVING_URL_DEFAULTS.colorwayNoisePersistence} onReset={() => setColorwayNoisePersistence(WEAVING_URL_DEFAULTS.colorwayNoisePersistence)} />
+                            </div>
+                            <div className="flex flex-col gap-1">
+                              <div className="flex items-center justify-between gap-2">
+                                <Label.Root className={typeLabel} htmlFor="colorway-lacunarity">Lacunarity</Label.Root>
+                                <ColorwayAnimPlayBtn
+                                  active={colorwayAnimPlaying.lacunarity}
+                                  onToggle={() => setColorwayAnimPlaying((x) => ({ ...x, lacunarity: !x.lacunarity }))}
+                                  labelPlay="Play: oscillate lacunarity"
+                                  labelPause="Pause lacunarity animation"
+                                />
+                              </div>
+                              <SliderWithInput id="colorway-lacunarity" value={colorwayNoiseLacunarity} onValueChange={setColorwayNoiseLacunarity} min={1.05} max={4} step={0.05} format={(n) => n.toFixed(2)} aria-label="FBM lacunarity" defaultValue={WEAVING_URL_DEFAULTS.colorwayNoiseLacunarity} onReset={() => setColorwayNoiseLacunarity(WEAVING_URL_DEFAULTS.colorwayNoiseLacunarity)} />
+                            </div>
+                            <div className="flex flex-col gap-1">
+                              <div className="flex items-center justify-between gap-2">
+                                <Label.Root className={typeLabel} htmlFor="colorway-bias">Bias</Label.Root>
+                                <ColorwayAnimPlayBtn
+                                  active={colorwayAnimPlaying.bias}
+                                  onToggle={() => setColorwayAnimPlaying((x) => ({ ...x, bias: !x.bias }))}
+                                  labelPlay="Play: oscillate bias"
+                                  labelPause="Pause bias animation"
+                                />
+                              </div>
+                              <SliderWithInput id="colorway-bias" value={colorwayNoiseBias} onValueChange={setColorwayNoiseBias} min={0.25} max={4} step={0.05} format={(n) => n.toFixed(2)} aria-label="Quantize curve (1 = linear)" defaultValue={WEAVING_URL_DEFAULTS.colorwayNoiseBias} onReset={() => setColorwayNoiseBias(WEAVING_URL_DEFAULTS.colorwayNoiseBias)} />
+                            </div>
+                          </div>
+                        )}
+                        {colorwayNoiseMode === 2 && (
+                          <div className="flex w-full flex-col gap-2 border-t border-border-subtle pt-2">
+                            <div className="flex flex-col gap-1">
+                              <div className="flex items-center justify-between gap-2">
+                                <Label.Root className={typeLabel} htmlFor="bleed-anisotropy">Run length</Label.Root>
+                                <ColorwayAnimPlayBtn
+                                  active={colorwayAnimPlaying.bleedAnisotropy}
+                                  onToggle={() => setColorwayAnimPlaying((x) => ({ ...x, bleedAnisotropy: !x.bleedAnisotropy }))}
+                                  labelPlay="Play: oscillate run length"
+                                  labelPause="Pause run length animation"
+                                />
+                              </div>
+                              <SliderWithInput id="bleed-anisotropy" value={colorwayBleedAnisotropy} onValueChange={setColorwayBleedAnisotropy} min={0.35} max={12} step={0.05} format={(n) => n.toFixed(2)} aria-label="Dye streak anisotropy" defaultValue={WEAVING_URL_DEFAULTS.colorwayBleedAnisotropy} onReset={() => setColorwayBleedAnisotropy(WEAVING_URL_DEFAULTS.colorwayBleedAnisotropy)} />
+                            </div>
+                            <div className="flex flex-col gap-1">
+                              <div className="flex items-center justify-between gap-2">
+                                <Label.Root className={typeLabel} htmlFor="bleed-rotation">Streak angle</Label.Root>
+                                <ColorwayAnimPlayBtn
+                                  active={colorwayAnimPlaying.bleedRotation}
+                                  onToggle={() => setColorwayAnimPlaying((x) => ({ ...x, bleedRotation: !x.bleedRotation }))}
+                                  labelPlay="Play: sweep streak angle (snapped to 5°)"
+                                  labelPause="Pause streak angle animation"
+                                />
+                              </div>
+                              <SliderWithInput
+                                id="bleed-rotation"
+                                value={colorwayBleedRotation}
+                                onValueChange={setColorwayBleedRotation}
+                                snapValues={COLORWAY_BLEED_ANGLE_TURNS}
+                                min={0}
+                                max={1}
+                                step={5 / 360}
+                                format={(n) => `${Math.round(snapColorwayBleedRotation(n) * 360)}°`}
+                                parse={(s) => {
+                                  const deg = Number(String(s).replace(/°/g, '').trim());
+                                  if (!Number.isFinite(deg)) return null;
+                                  return snapColorwayBleedRotation(deg / 360);
+                                }}
+                                aria-label="Streak angle (5° steps)"
+                                defaultValue={WEAVING_URL_DEFAULTS.colorwayBleedRotation}
+                                onReset={() => setColorwayBleedRotation(WEAVING_URL_DEFAULTS.colorwayBleedRotation)}
+                              />
+                            </div>
+                            <div className="flex flex-col gap-1">
+                              <div className="flex items-center justify-between gap-2">
+                                <Label.Root className={typeLabel} htmlFor="bleed-cross">Cross-fiber</Label.Root>
+                                <ColorwayAnimPlayBtn
+                                  active={colorwayAnimPlaying.bleedCrossFiber}
+                                  onToggle={() => setColorwayAnimPlaying((x) => ({ ...x, bleedCrossFiber: !x.bleedCrossFiber }))}
+                                  labelPlay="Play: oscillate cross-fiber mix"
+                                  labelPause="Pause cross-fiber animation"
+                                />
+                              </div>
+                              <SliderWithInput id="bleed-cross" value={colorwayBleedCrossFiber} onValueChange={setColorwayBleedCrossFiber} min={0} max={1} step={0.05} format={(n) => n.toFixed(2)} aria-label="Mix isotropic noise" defaultValue={WEAVING_URL_DEFAULTS.colorwayBleedCrossFiber} onReset={() => setColorwayBleedCrossFiber(WEAVING_URL_DEFAULTS.colorwayBleedCrossFiber)} />
+                            </div>
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <button
+                                type="button"
+                                className={`${toggleBtn} ${colorwayBleedDraftCoupled ? toggleBtnActive : ''}`}
+                                aria-pressed={colorwayBleedDraftCoupled}
+                                aria-label="Tie streaks to warp vs weft"
+                                onClick={() => setColorwayBleedDraftCoupled((v) => !v)}
+                              >
+                                Draft-coupled
+                              </button>
+                              <ColorwayAnimPlayBtn
+                                active={colorwayAnimPlaying.bleedDraftCoupled}
+                                onToggle={() => setColorwayAnimPlaying((x) => ({ ...x, bleedDraftCoupled: !x.bleedDraftCoupled }))}
+                                labelPlay="Play: toggle draft-coupled on a timer"
+                                labelPause="Pause draft-coupled animation"
+                              />
+                            </div>
+                            <div className="flex flex-col gap-1">
+                              <div className="flex items-center justify-between gap-2">
+                                <Label.Root className={typeLabel} htmlFor="bleed-octaves">Octaves</Label.Root>
+                                <ColorwayAnimPlayBtn
+                                  active={colorwayAnimPlaying.octaves}
+                                  onToggle={() => setColorwayAnimPlaying((x) => ({ ...x, octaves: !x.octaves }))}
+                                  labelPlay="Play: cycle octaves 1–4"
+                                  labelPause="Pause octaves animation"
+                                />
+                              </div>
+                              <SliderWithInput id="bleed-octaves" value={colorwayNoiseOctaves} onValueChange={(v) => setColorwayNoiseOctaves(Math.round(v))} min={1} max={4} step={1} format={(n) => String(Math.round(n))} aria-label="FBM octaves (bleed)" defaultValue={WEAVING_URL_DEFAULTS.colorwayNoiseOctaves} onReset={() => setColorwayNoiseOctaves(WEAVING_URL_DEFAULTS.colorwayNoiseOctaves)} />
+                            </div>
+                            <div className="flex flex-col gap-1">
+                              <div className="flex items-center justify-between gap-2">
+                                <Label.Root className={typeLabel} htmlFor="bleed-persistence">Persistence</Label.Root>
+                                <ColorwayAnimPlayBtn
+                                  active={colorwayAnimPlaying.persistence}
+                                  onToggle={() => setColorwayAnimPlaying((x) => ({ ...x, persistence: !x.persistence }))}
+                                  labelPlay="Play: oscillate persistence"
+                                  labelPause="Pause persistence animation"
+                                />
+                              </div>
+                              <SliderWithInput id="bleed-persistence" value={colorwayNoisePersistence} onValueChange={setColorwayNoisePersistence} min={0.15} max={0.95} step={0.05} format={(n) => n.toFixed(2)} aria-label="FBM persistence (bleed)" defaultValue={WEAVING_URL_DEFAULTS.colorwayNoisePersistence} onReset={() => setColorwayNoisePersistence(WEAVING_URL_DEFAULTS.colorwayNoisePersistence)} />
+                            </div>
+                            <div className="flex flex-col gap-1">
+                              <div className="flex items-center justify-between gap-2">
+                                <Label.Root className={typeLabel} htmlFor="bleed-lacunarity">Lacunarity</Label.Root>
+                                <ColorwayAnimPlayBtn
+                                  active={colorwayAnimPlaying.lacunarity}
+                                  onToggle={() => setColorwayAnimPlaying((x) => ({ ...x, lacunarity: !x.lacunarity }))}
+                                  labelPlay="Play: oscillate lacunarity"
+                                  labelPause="Pause lacunarity animation"
+                                />
+                              </div>
+                              <SliderWithInput id="bleed-lacunarity" value={colorwayNoiseLacunarity} onValueChange={setColorwayNoiseLacunarity} min={1.05} max={4} step={0.05} format={(n) => n.toFixed(2)} aria-label="FBM lacunarity (bleed)" defaultValue={WEAVING_URL_DEFAULTS.colorwayNoiseLacunarity} onReset={() => setColorwayNoiseLacunarity(WEAVING_URL_DEFAULTS.colorwayNoiseLacunarity)} />
+                            </div>
+                            <div className="flex flex-col gap-1">
+                              <div className="flex items-center justify-between gap-2">
+                                <Label.Root className={typeLabel} htmlFor="bleed-bias">Bias</Label.Root>
+                                <ColorwayAnimPlayBtn
+                                  active={colorwayAnimPlaying.bias}
+                                  onToggle={() => setColorwayAnimPlaying((x) => ({ ...x, bias: !x.bias }))}
+                                  labelPlay="Play: oscillate bias"
+                                  labelPause="Pause bias animation"
+                                />
+                              </div>
+                              <SliderWithInput id="bleed-bias" value={colorwayNoiseBias} onValueChange={setColorwayNoiseBias} min={0.25} max={4} step={0.05} format={(n) => n.toFixed(2)} aria-label="Quantize curve (bleed)" defaultValue={WEAVING_URL_DEFAULTS.colorwayNoiseBias} onReset={() => setColorwayNoiseBias(WEAVING_URL_DEFAULTS.colorwayNoiseBias)} />
+                            </div>
+                          </div>
+                        )}
                       </>
                     )}
                   </div>
@@ -2024,59 +2503,58 @@ export default function App() {
           <main
             className={
               (view === 'weaving' && weaveHalftoneOn) || view === 'imageRectsHalftone'
-                ? 'flex min-h-0 flex-1 flex-col items-stretch overflow-auto p-4'
-                : patternFit === 'fill'
-                  ? 'flex min-h-0 flex-1 flex-col overflow-hidden p-4'
-                  : 'flex min-h-0 flex-1 items-center justify-center overflow-auto p-4'
+                ? 'flex min-h-0 flex-1 flex-col items-stretch overflow-hidden p-4'
+                : 'flex min-h-0 flex-1 flex-col overflow-hidden p-4'
             }
           >
             {view === 'weaving' && !weaveHalftoneOn && (
-              <div
-                className={
-                  patternFit === 'fill'
-                    ? 'flex min-h-0 min-w-0 flex-1 flex-col items-stretch justify-stretch'
-                    : 'flex shrink-0 items-center justify-center'
-                }
-                style={patternFit === 'fit' ? { width: '150%', height: '150%' } : undefined}
-              >
-                <ShaderCanvas
-                  patternFit={patternFit}
-                  patternIndex={pattern}
-                  palette={palette}
-                  bgShade={bgShade}
-                  warpShade={warpShade}
-                  weftShade={weftShade}
-                  gridSize={gridSize}
-                  warpGradient={warpGradient}
-                  weftGradient={weftGradient}
-                  gradSteps={gradSteps}
-                  rectAspect={rectAspect}
-                  cornerRadius={cornerRadius}
-                  canvasAspect={canvasAspect}
-                  shimmer={shimmer}
-                  shimmerSpeed={shimmerSpeed}
-                  shimmerWidth={shimmerWidth}
-                  shimmerIntensity={shimmerIntensity}
-                  shimmerPosition={shimmerPosition}
-                  shimmerRotation={shimmerRotation}
-                  shimmerNoise={shimmerNoise}
-                  shimmerNoiseSeed={shimmerNoiseSeed}
-                  shimmerNoiseMin={shimmerNoiseMin}
-                  shimmerNoiseMax={shimmerNoiseMax}
-                  shimmerBlendMode={shimmerBlendMode}
-                  useAllColorways={useAllColorways}
-                  colorwaySeed={colorwaySeed}
-                  colorwayNoiseScale={colorwayNoiseScale}
-                  shimmerPlaying={shimmerPlaying}
-                  shimmerPausedAtTime={shimmerPausedAtTime}
-                  shimmerPhase={shimmerPhase}
-                  onShimmerTime={onShimmerTime}
-                  patterns={PATTERNS}
-                  onFpsChange={setFps}
-                  onCanvasRef={(el) => { canvasRef.current = el; }}
-                  onCaptureReady={(api) => { weavingCaptureRef.current = api; }}
-                />
-              </div>
+              <ShaderCanvas
+                patternFit={patternFit}
+                patternIndex={pattern}
+                palette={palette}
+                bgShade={bgShade}
+                warpShade={warpShade}
+                weftShade={weftShade}
+                gridSize={gridSize}
+                warpGradient={warpGradient}
+                weftGradient={weftGradient}
+                gradSteps={gradSteps}
+                rectAspect={rectAspect}
+                cornerRadius={cornerRadius}
+                canvasAspect={canvasAspect}
+                shimmer={shimmer}
+                shimmerSpeed={shimmerSpeed}
+                shimmerWidth={shimmerWidth}
+                shimmerIntensity={shimmerIntensity}
+                shimmerPosition={shimmerPosition}
+                shimmerRotation={shimmerRotation}
+                shimmerNoise={shimmerNoise}
+                shimmerNoiseSeed={shimmerNoiseSeed}
+                shimmerNoiseMin={shimmerNoiseMin}
+                shimmerNoiseMax={shimmerNoiseMax}
+                shimmerBlendMode={shimmerBlendMode}
+                useAllColorways={useAllColorways}
+                colorwaySeed={colorwaySeed}
+                colorwayNoiseScale={colorwayNoiseScale}
+                colorwayNoiseMode={colorwayNoiseMode}
+                colorwayNoiseOctaves={colorwayNoiseOctaves}
+                colorwayNoisePersistence={colorwayNoisePersistence}
+                colorwayNoiseLacunarity={colorwayNoiseLacunarity}
+                colorwayNoiseBias={colorwayNoiseBias}
+                colorwayBleedAnisotropy={colorwayBleedAnisotropy}
+                colorwayBleedRotation={colorwayBleedRotation}
+                colorwayBleedCrossFiber={colorwayBleedCrossFiber}
+                colorwayBleedDraftCoupled={colorwayBleedDraftCoupled}
+                colorwayIncludeMask={colorwayIncludeMask}
+                shimmerPlaying={shimmerPlaying}
+                shimmerPausedAtTime={shimmerPausedAtTime}
+                shimmerPhase={shimmerPhase}
+                onShimmerTime={onShimmerTime}
+                patterns={PATTERNS}
+                onFpsChange={setFps}
+                onCanvasRef={(el) => { canvasRef.current = el; }}
+                onCaptureReady={(api) => { weavingCaptureRef.current = api; }}
+              />
             )}
             {view === 'imageRectsHalftone' && (
               <Suspense fallback={<div className="flex flex-1 items-center justify-center text-text-secondary">Loading…</div>}>
@@ -2160,6 +2638,17 @@ export default function App() {
                     shimmerBlendMode={shimmerBlendMode}
                     useAllColorways={useAllColorways}
                     colorwaySeed={colorwaySeed}
+                    colorwayNoiseScale={colorwayNoiseScale}
+                    colorwayNoiseMode={colorwayNoiseMode}
+                    colorwayNoiseOctaves={colorwayNoiseOctaves}
+                    colorwayNoisePersistence={colorwayNoisePersistence}
+                    colorwayNoiseLacunarity={colorwayNoiseLacunarity}
+                    colorwayNoiseBias={colorwayNoiseBias}
+                    colorwayBleedAnisotropy={colorwayBleedAnisotropy}
+                    colorwayBleedRotation={colorwayBleedRotation}
+                    colorwayBleedCrossFiber={colorwayBleedCrossFiber}
+                    colorwayBleedDraftCoupled={colorwayBleedDraftCoupled}
+                    colorwayIncludeMask={colorwayIncludeMask}
                     size={halftoneSize}
                     softness={halftoneSoftness}
                     gridNoise={halftoneGridNoise}

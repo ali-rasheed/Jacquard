@@ -3,7 +3,7 @@
  * @param {{ value: number | string, onValueChange: (v: number | string) => void, options: Array<{ value: number | string, label: string, icon?: string }>, title?: string, ariaLabel?: string, defaultValue?: number | string, onReset?: () => void }} props
  */
 import { Icon } from './Icon';
-import { directionSwitch, directionSwitchBtn, iconLg } from '../../uiConstants';
+import { directionSwitch, directionSwitchBtn, iconLg, iconResetGlyphLg } from '../../uiConstants';
 import { IconButton } from './IconButton';
 
 export function DirectionSwitch({ value, onValueChange, options, title, ariaLabel, defaultValue, onReset }) {
@@ -26,8 +26,8 @@ export function DirectionSwitch({ value, onValueChange, options, title, ariaLabe
         ))}
       </div>
       {isDirty && onReset && (
-        <IconButton size="sm" onClick={onReset} title={`Reset ${title ?? 'direction'} to default`} aria-label={`Reset ${title ?? 'direction'} to default`}>
-          <Icon name="restart_alt" className={iconLg} />
+        <IconButton size="resetSm" onClick={onReset} title={`Reset ${title ?? 'direction'} to default`} aria-label={`Reset ${title ?? 'direction'} to default`}>
+          <Icon name="restart_alt" className={iconResetGlyphLg} />
         </IconButton>
       )}
     </div>

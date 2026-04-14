@@ -67,12 +67,13 @@ function uploadSourceToTexture(gl, texture, source) {
  * so the UI can match aspect ratio and resolution (e.g. canvas/capture dimensions).
  * Image is cached by source so changing grid/palette etc. does not reload it.
  * Quantize extras (mode/gamma/dither) map to u_quantize* in fragmentImageRects.glsl.
+ * Stitch-in: u_stitchReveal* — animate mosaic visibility from blank (see fragment header).
  */
 /**
  * mediaTextureKind: staticImage = one upload after load; video = HTMLVideoElement, upload while playing;
  * gif = HTMLImageElement (animated GIF), upload every frame so frames advance.
  */
-export function useImageRectsSandbox(vertexSource, fragmentSource, imageSource, gridSize, palette, bgShade, rectColorSource, quantizeSteps, quantizeMode, quantizeGamma, quantizeDither, rectShade, shadeFrom, patternWarpShade, patternWeftShade, patternIndex, patterns, rectRadius, rectAspect, rectRatio, lumaSizeMix, lumaSizeInvert, lumaSizeFloor, cellGeometryMode, stitchLumaMax, nonStitchShowsBg, onFpsChange, onImageSize, onCaptureReady, mediaTextureKind = 'staticImage') {
+export function useImageRectsSandbox(vertexSource, fragmentSource, imageSource, gridSize, palette, bgShade, rectColorSource, quantizeSteps, quantizeMode, quantizeGamma, quantizeDither, rectShade, shadeFrom, patternWarpShade, patternWeftShade, patternIndex, patterns, rectRadius, rectAspect, rectRatio, lumaSizeMix, lumaSizeInvert, lumaSizeFloor, cellGeometryMode, stitchLumaMax, nonStitchShowsBg, stitchRevealMode, stitchRevealProgress, stitchRevealSeed, stitchRevealScale, stitchRevealSoftness, stitchRevealBleedAnisotropy, stitchRevealBleedRotation, stitchRevealBleedCrossFiber, stitchRevealBleedDraftCoupled, onFpsChange, onImageSize, onCaptureReady, mediaTextureKind = 'staticImage') {
   const canvasRef = useRef(null);
   const containerRef = useRef(null);
   const onFpsChangeRef = useRef(onFpsChange);
@@ -181,6 +182,15 @@ export function useImageRectsSandbox(vertexSource, fragmentSource, imageSource, 
       gl.uniform1f(uniformLocs.cellGeometryMode, cellGeometryMode ?? 0);
       gl.uniform1f(uniformLocs.stitchLumaMax, stitchLumaMax ?? 0.42);
       gl.uniform1f(uniformLocs.nonStitchShowsBg, nonStitchShowsBg ?? 0);
+      gl.uniform1f(uniformLocs.stitchRevealMode, stitchRevealMode ?? 0);
+      gl.uniform1f(uniformLocs.stitchRevealProgress, stitchRevealProgress ?? 1);
+      gl.uniform1f(uniformLocs.stitchRevealSeed, stitchRevealSeed ?? 0);
+      gl.uniform1f(uniformLocs.stitchRevealScale, stitchRevealScale ?? 0.12);
+      gl.uniform1f(uniformLocs.stitchRevealSoftness, stitchRevealSoftness ?? 0.06);
+      gl.uniform1f(uniformLocs.stitchRevealBleedAnisotropy, stitchRevealBleedAnisotropy ?? 3);
+      gl.uniform1f(uniformLocs.stitchRevealBleedRotation, stitchRevealBleedRotation ?? 0);
+      gl.uniform1f(uniformLocs.stitchRevealBleedCrossFiber, stitchRevealBleedCrossFiber ?? 0.2);
+      gl.uniform1f(uniformLocs.stitchRevealBleedDraftCoupled, stitchRevealBleedDraftCoupled ?? 0);
       const pat = list[Math.min(Math.max(0, Math.floor(patternIndex)), list.length - 1)] ?? list[0];
       gl.uniform1f(uniformLocs.patternIndex, Math.floor(patternIndex));
       gl.uniform1f(uniformLocs.tileW, pat?.tileW ?? 8);
@@ -189,6 +199,8 @@ export function useImageRectsSandbox(vertexSource, fragmentSource, imageSource, 
       gl.clearColor(0, 0, 0, 0);
       gl.clear(gl.COLOR_BUFFER_BIT);
       gl.drawArrays(gl.TRIANGLES, 0, 6);
+      /* Ensure GPU work completes before VideoFrame / MediaRecorder samples the canvas (avoids garbage frames). */
+      gl.finish();
 
       frameCount++;
       const now = Date.now();
@@ -236,6 +248,15 @@ export function useImageRectsSandbox(vertexSource, fragmentSource, imageSource, 
         cellGeometryMode: gl.getUniformLocation(program, 'u_cellGeometryMode'),
         stitchLumaMax: gl.getUniformLocation(program, 'u_stitchLumaMax'),
         nonStitchShowsBg: gl.getUniformLocation(program, 'u_nonStitchShowsBg'),
+        stitchRevealMode: gl.getUniformLocation(program, 'u_stitchRevealMode'),
+        stitchRevealProgress: gl.getUniformLocation(program, 'u_stitchRevealProgress'),
+        stitchRevealSeed: gl.getUniformLocation(program, 'u_stitchRevealSeed'),
+        stitchRevealScale: gl.getUniformLocation(program, 'u_stitchRevealScale'),
+        stitchRevealSoftness: gl.getUniformLocation(program, 'u_stitchRevealSoftness'),
+        stitchRevealBleedAnisotropy: gl.getUniformLocation(program, 'u_stitchRevealBleedAnisotropy'),
+        stitchRevealBleedRotation: gl.getUniformLocation(program, 'u_stitchRevealBleedRotation'),
+        stitchRevealBleedCrossFiber: gl.getUniformLocation(program, 'u_stitchRevealBleedCrossFiber'),
+        stitchRevealBleedDraftCoupled: gl.getUniformLocation(program, 'u_stitchRevealBleedDraftCoupled'),
       };
 
       imageTexture = createPlaceholderTexture(gl);
@@ -411,7 +432,7 @@ export function useImageRectsSandbox(vertexSource, fragmentSource, imageSource, 
       if (patternTexture) gl.deleteTexture(patternTexture);
       if (program) gl.deleteProgram(program);
     };
-  }, [vertexSource, fragmentSource, imageSource, gridSize, palette, bgShade, rectColorSource, quantizeSteps, quantizeMode, quantizeGamma, quantizeDither, rectShade, shadeFrom, patternWarpShade, patternWeftShade, patternIndex, patterns, rectRadius, rectAspect, rectRatio, lumaSizeMix, lumaSizeInvert, lumaSizeFloor, cellGeometryMode, stitchLumaMax, nonStitchShowsBg, mediaTextureKind]);
+  }, [vertexSource, fragmentSource, imageSource, gridSize, palette, bgShade, rectColorSource, quantizeSteps, quantizeMode, quantizeGamma, quantizeDither, rectShade, shadeFrom, patternWarpShade, patternWeftShade, patternIndex, patterns, rectRadius, rectAspect, rectRatio, lumaSizeMix, lumaSizeInvert, lumaSizeFloor, cellGeometryMode, stitchLumaMax, nonStitchShowsBg, stitchRevealMode, stitchRevealProgress, stitchRevealSeed, stitchRevealScale, stitchRevealSoftness, stitchRevealBleedAnisotropy, stitchRevealBleedRotation, stitchRevealBleedCrossFiber, stitchRevealBleedDraftCoupled, mediaTextureKind]);
 
   useEffect(() => {
     const cleanup = run();

@@ -5,17 +5,35 @@
  * MP4:  WebCodecs VideoEncoder + mp4-muxer (Chrome/Edge 94+, Safari 16.4+).
  *       mp4-muxer is lazy-imported on first MP4 record to keep the bundle lean.
  *
+ * WebGL: callers should call gl.finish() after draw (see useImageRectsSandbox / useShaderSandbox)
+ * so VideoFrame and captureStream see completed frames.
+ *
  * Usage:
  *   const rec = useCanvasRecorder('shaderbox');
  *   <button onClick={() => rec.startRecording(canvasEl)}>Record</button>
+ *   <button onClick={() => rec.startRecording(canvasEl, { reason: 'auto' })}>Auto</button>
  *   <button onClick={rec.stopRecording}>Stop</button>
  */
 /* global VideoEncoder, VideoFrame */
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 
 const FPS = 30;
 const BITRATE = 5_000_000;
 const KEYFRAME_INTERVAL_S = 2;
+/** Frequent chunks + final blob on stop; avoids sparse data on short clips. */
+const WEBM_TIMESLICE_MS = 250;
+
+function pickWebMMimeType() {
+  const candidates = [
+    'video/webm;codecs=vp9',
+    'video/webm;codecs=vp8',
+    'video/webm',
+  ];
+  for (const c of candidates) {
+    if (typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported(c)) return c;
+  }
+  return '';
+}
 
 export const supportsMP4 = typeof VideoEncoder !== 'undefined';
 
@@ -26,9 +44,12 @@ export function useCanvasRecorder(filePrefix = 'shaderbox') {
   /** When set, show a Download link — required on many browsers after async encode. */
   const [pendingDownload, setPendingDownload] = useState(null);
   const [recordError, setRecordError] = useState(null);
+  /** Mosaic auto-record vs user-started. */
+  const [recordingReason, setRecordingReason] = useState(null);
 
   const webmRef = useRef(null);
   const mp4Ref = useRef(null);
+  const stopRecordingRef = useRef(async () => {});
 
   /* ── WebM (MediaRecorder) ─────────────────────────────── */
   const startWebm = useCallback(
@@ -42,25 +63,42 @@ export function useCanvasRecorder(filePrefix = 'shaderbox') {
         setRecordError('Recording: canvas has zero size — wait for the view to render.');
         return;
       }
+      const mimeType = pickWebMMimeType();
+      if (!mimeType) {
+        setRecordError('Recording: no supported WebM codec in this browser.');
+        return;
+      }
       const stream = canvas.captureStream(FPS);
-      const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9')
-        ? 'video/webm;codecs=vp9'
-        : 'video/webm';
-      const recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: BITRATE });
+      let recorder;
+      try {
+        recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: BITRATE });
+      } catch (e) {
+        setRecordError(`Recording: MediaRecorder failed — ${e?.message ?? 'unknown'}`);
+        return;
+      }
       const chunks = [];
       recorder.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
+      recorder.onerror = (e) => {
+        console.error('useCanvasRecorder: MediaRecorder error', e);
+        setRecordError('Recording: encoder error — try WebM or reload the page.');
+        setIsRecording(false);
+        setRecordingReason(null);
+      };
       recorder.onstop = () => {
         const blob = new Blob(chunks, { type: mimeType });
         const filename = `${filePrefix}-${Date.now()}.webm`;
+        stream.getTracks().forEach((t) => { try { t.stop(); } catch { /* ignore */ } });
         if (!blob.size) {
-          setRecordError('Recording: no video data — record for a bit longer or try another format.');
+          setRecordError('Recording: no video data — record a bit longer or try MP4.');
           setIsRecording(false);
+          setRecordingReason(null);
           return;
         }
         setPendingDownload({ blob, filename, mimeType });
         setIsRecording(false);
+        setRecordingReason(null);
       };
-      recorder.start(1000);
+      recorder.start(WEBM_TIMESLICE_MS);
       webmRef.current = recorder;
       setIsRecording(true);
     },
@@ -126,6 +164,7 @@ export function useCanvasRecorder(filePrefix = 'shaderbox') {
             cancelAnimationFrame(mp4Ref.current?.raf);
             mp4Ref.current = null;
             setIsRecording(false);
+            setRecordingReason(null);
             return;
           }
         }
@@ -140,12 +179,17 @@ export function useCanvasRecorder(filePrefix = 'shaderbox') {
 
   /* ── Public API ───────────────────────────────────────── */
   const startRecording = useCallback(
-    (canvas) => {
+    (canvas, options = {}) => {
+      const reason = options.reason === 'auto' ? 'auto' : 'manual';
       setRecordError(null);
+      if (webmRef.current != null || mp4Ref.current != null) {
+        return;
+      }
       if (!canvas) {
         setRecordError('Recording: no canvas — open a view with a canvas first.');
         return;
       }
+      setRecordingReason(reason);
       if (recordFormat === 'mp4') startMp4(canvas);
       else startWebm(canvas);
     },
@@ -186,12 +230,22 @@ export function useCanvasRecorder(filePrefix = 'shaderbox') {
       } finally {
         setIsProcessing(false);
         setIsRecording(false);
+        setRecordingReason(null);
       }
-    } else if (webmRef.current?.state === 'recording') {
-      webmRef.current.stop();
+    } else if (webmRef.current) {
+      const rec = webmRef.current;
+      if (rec.state === 'recording') {
+        rec.stop();
+      }
       webmRef.current = null;
     }
   }, [recordFormat, filePrefix]);
+
+  stopRecordingRef.current = stopRecording;
+
+  useEffect(() => () => {
+    void stopRecordingRef.current();
+  }, []);
 
   return {
     isRecording,
@@ -204,5 +258,6 @@ export function useCanvasRecorder(filePrefix = 'shaderbox') {
     clearPendingDownload,
     recordError,
     clearRecordError,
+    recordingReason,
   };
 }

@@ -48,11 +48,23 @@ uniform float u_shimmerNoiseMin;
 uniform float u_shimmerNoiseMax;
 uniform float u_shimmerBlendMode;  // 0=Add, 1=Mul, 2=Screen, 3=Overlay, 4=SoftLight, 5=HardLight, 6=ColorDodge, 7=ColorBurn, 8=LinearBurn, 9=Difference, 10=Exclusion
 
-// All 4 colorways: 0 = single u_palette, 1 = per-cell palette from u_colorwaySeed hash (mod 4).
-// u_colorwayNoiseScale: scale applied to cellID before hash (1 = default; >1 = finer variation, <1 = coarser).
+// All colorways: u_useAllColorways + u_colorwayNoiseMode — 0 = hash (legacy), 1 = smooth Perlin+FBM, 2 = dye bleed (anisotropic FBM).
+// u_colorwayNoiseScale: spatial scale on cellID (hash and noise).
 uniform float u_useAllColorways;
 uniform float u_colorwaySeed;
 uniform float u_colorwayNoiseScale;
+uniform float u_colorwayNoiseMode;       // 0 hash, 1 smooth, 2 dye bleed
+uniform float u_colorwayNoiseOctaves;    // 1–4
+uniform float u_colorwayNoisePersistence;
+uniform float u_colorwayNoiseLacunarity;
+uniform float u_colorwayNoiseBias;       // pow exponent on 0..1 before quantize (1 = linear)
+uniform float u_colorwayBleedAnisotropy; // >=1 stretch one axis (bleed along thread)
+uniform float u_colorwayBleedRotation;   // 0–1 → full turn (mode 2, non–draft-coupled)
+uniform float u_colorwayBleedCrossFiber; // 0–1 mix isotropic FBM
+uniform float u_colorwayBleedDraftCoupled; // 1 = streak along warp vs weft from isWeft; 0 = rotation+anisotropy only
+// Which palettes 0–4 participate in “all colorways” (1=include). All ones = same as legacy mod-5.
+uniform vec4 u_colorwayInclude0123;
+uniform float u_colorwayInclude4;
 
 // Reveal animation: time when current wave started (resets on pattern change)
 uniform float u_revealStartTime;
@@ -155,7 +167,7 @@ vec4 getPaletteColor(float palette, float shade) {
         if (s == 0) return vec4(0.012, 0.188, 0.063, 1.0);   // 950
         if (s == 1) return vec4(0.0, 0.486, 0.137, 1.0);      // 500
         if (s == 2) return vec4(0.843, 0.914, 0.890, 1.0);   // 100
-        return vec4(0.51, 0.816, 0.561, 1.0);                 // 400
+        return vec4(0.4549, 0.6745, 0.4902, 1.0);             // 300 #74AC7D (slot = UI “400”)
     }
     // Quartz (neutral ramp: 900, 500, 100, 400 — Figma quartz/300 between 100 and 400)
     if (s == 0) return vec4(0.098039, 0.098039, 0.098039, 1.0);   // 900
@@ -164,9 +176,79 @@ vec4 getPaletteColor(float palette, float shade) {
     return vec4(0.45098, 0.45098, 0.45098, 1.0);                  // 400
 }
 
-// Hash for deterministic per-cell palette when u_useAllColorways is on.
+// Hash for deterministic per-cell palette when u_useAllColorways is on (mode 0).
 float hash(vec2 p) {
   return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+}
+
+// vec2 hash for gradient noise (modes 1–2); separate from float hash to avoid correlation artifacts.
+vec2 colorwayHash22(vec2 p) {
+  vec3 p3 = fract(vec3(p.xyx) * vec3(0.1031, 0.1030, 0.0973));
+  p3 += dot(p3, p3.yzx + 33.33);
+  return fract((p3.xx + p3.yz) * p3.zy);
+}
+
+// 2D gradient noise → ~0..1 for FBM stacking.
+float colorwayPerlin01(vec2 p) {
+  vec2 i = floor(p);
+  vec2 f = fract(p);
+  vec2 u = f * f * (3.0 - 2.0 * f);
+  vec2 g00 = colorwayHash22(i + vec2(0.0, 0.0)) * 2.0 - 1.0;
+  vec2 g10 = colorwayHash22(i + vec2(1.0, 0.0)) * 2.0 - 1.0;
+  vec2 g01 = colorwayHash22(i + vec2(0.0, 1.0)) * 2.0 - 1.0;
+  vec2 g11 = colorwayHash22(i + vec2(1.0, 1.0)) * 2.0 - 1.0;
+  float n00 = dot(g00, f - vec2(0.0, 0.0));
+  float n10 = dot(g10, f - vec2(1.0, 0.0));
+  float n01 = dot(g01, f - vec2(0.0, 1.0));
+  float n11 = dot(g11, f - vec2(1.0, 1.0));
+  float nx = mix(n00, n10, u.x);
+  float ny = mix(n01, n11, u.x);
+  float n = mix(nx, ny, u.y);
+  return clamp(n * 0.65 + 0.5, 0.0, 1.0);
+}
+
+// Fractal Brownian motion; octaves 1–4 (fixed loop count for WebGL1 portability).
+float colorwayFbm(vec2 p) {
+  float per = clamp(u_colorwayNoisePersistence, 0.15, 0.95);
+  float lac = clamp(u_colorwayNoiseLacunarity, 1.05, 4.0);
+  float oct = clamp(floor(u_colorwayNoiseOctaves + 0.01), 1.0, 4.0);
+  float sum = 0.0;
+  float amp = 0.5;
+  float norm = 0.0;
+  float freq = 1.0;
+  for (int i = 0; i < 4; i++) {
+    float fi = float(i);
+    float w = step(fi + 0.5, oct);
+    sum += w * amp * colorwayPerlin01(p * freq);
+    norm += w * amp;
+    amp *= per;
+    freq *= lac;
+  }
+  return sum / max(norm, 1e-4);
+}
+
+// Included palette count; if zero, fall back to main u_palette.
+float colorwayIncludeCount() {
+  return u_colorwayInclude0123.x + u_colorwayInclude0123.y + u_colorwayInclude0123.z + u_colorwayInclude0123.w + u_colorwayInclude4;
+}
+
+// Map u01 in [0,1) uniformly to the k-th included palette (order 0…4). Matches legacy floor(u01*5) when all five on.
+float colorwayPickFromU(float u01) {
+  float n = colorwayIncludeCount();
+  if (n < 0.5) return u_palette;
+  float kk = floor(clamp(u01, 0.0, 1.0 - 1e-5) * n);
+  if (u_colorwayInclude0123.x > 0.5) { if (kk < 0.5) return 0.0; kk -= 1.0; }
+  if (u_colorwayInclude0123.y > 0.5) { if (kk < 0.5) return 1.0; kk -= 1.0; }
+  if (u_colorwayInclude0123.z > 0.5) { if (kk < 0.5) return 2.0; kk -= 1.0; }
+  if (u_colorwayInclude0123.w > 0.5) { if (kk < 0.5) return 3.0; kk -= 1.0; }
+  if (u_colorwayInclude4 > 0.5) { if (kk < 0.5) return 4.0; }
+  return u_palette;
+}
+
+float colorwayQuantize(float tRaw) {
+  float b = max(0.08, min(4.0, u_colorwayNoiseBias));
+  float t = pow(clamp(tRaw, 0.0, 1.0), b);
+  return colorwayPickFromU(t);
 }
 
 // 2-stop gradient: t in [0,1], direction flips t, range maps to startPos..endPos.
@@ -232,7 +314,37 @@ void main() {
     vec4 weftColor;
     if (u_useAllColorways > 0.5) {
       float scale = max(0.001, u_colorwayNoiseScale);
-      float cellPalette = mod(floor(hash(cellID * scale + vec2(u_colorwaySeed, 0.0)) * 5.0), 5.0);
+      vec2 seedOff = vec2(u_colorwaySeed * 0.103511, u_colorwaySeed * 0.097369);
+      float cellPalette;
+      float mode = u_colorwayNoiseMode;
+      if (mode < 0.5) {
+        // Mode 0: hash; with all five included, matches legacy mod(floor(h*5),5).
+        cellPalette = colorwayPickFromU(hash(cellID * scale + vec2(u_colorwaySeed, 0.0)));
+      } else if (mode < 1.5) {
+        // Mode 1: isotropic smooth noise + FBM.
+        vec2 p = cellID.xy * scale + seedOff;
+        cellPalette = colorwayQuantize(colorwayFbm(p));
+      } else {
+        // Mode 2: dye bleed — elongated runs + optional draft coupling + cross-fiber mix.
+        float ani = max(0.35, min(12.0, u_colorwayBleedAnisotropy));
+        float ang = u_colorwayBleedRotation * 6.28318530718;
+        float co = cos(ang);
+        float si = sin(ang);
+        vec2 rc = vec2(co * cellID.x - si * cellID.y, si * cellID.x + co * cellID.y);
+        vec2 pRot = vec2(rc.x * ani, rc.y / ani) * scale + seedOff;
+        float tStrip = colorwayFbm(pRot);
+        vec2 pH = vec2(cellID.x * ani, cellID.y / ani) * scale + seedOff;
+        vec2 pV = vec2(cellID.x / ani, cellID.y * ani) * scale + seedOff;
+        float tH = colorwayFbm(pH);
+        float tV = colorwayFbm(pV);
+        float tMix = mix(tH, tV, isWeft);
+        float tDraft = u_colorwayBleedDraftCoupled > 0.5 ? tMix : tStrip;
+        vec2 pIso = cellID.xy * scale + seedOff + vec2(17.13, 23.71);
+        float tIso = colorwayFbm(pIso);
+        float xf = clamp(u_colorwayBleedCrossFiber, 0.0, 1.0);
+        float tBleed = mix(tDraft, tIso, xf);
+        cellPalette = colorwayQuantize(tBleed);
+      }
       warpColor = getPaletteColor(cellPalette, u_warpShade);
       weftColor = getPaletteColor(cellPalette, u_weftShade);
     } else {

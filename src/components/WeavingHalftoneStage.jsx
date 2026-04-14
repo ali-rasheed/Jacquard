@@ -43,6 +43,17 @@ export function WeavingHalftoneStage({
   shimmerBlendMode,
   useAllColorways,
   colorwaySeed,
+  colorwayNoiseScale = 1,
+  colorwayNoiseMode = 0,
+  colorwayNoiseOctaves = 3,
+  colorwayNoisePersistence = 0.5,
+  colorwayNoiseLacunarity = 2,
+  colorwayNoiseBias = 1,
+  colorwayBleedAnisotropy = 3,
+  colorwayBleedRotation = 0,
+  colorwayBleedCrossFiber = 0.2,
+  colorwayBleedDraftCoupled = false,
+  colorwayIncludeMask = 31,
   // Halftone params
   size,
   softness,
@@ -102,6 +113,17 @@ export function WeavingHalftoneStage({
     canvasAspect,
     useAllColorways,
     colorwaySeed,
+    colorwayNoiseScale,
+    colorwayNoiseMode,
+    colorwayNoiseOctaves,
+    colorwayNoisePersistence,
+    colorwayNoiseLacunarity,
+    colorwayNoiseBias,
+    colorwayBleedAnisotropy,
+    colorwayBleedRotation,
+    colorwayBleedCrossFiber,
+    colorwayBleedDraftCoupled,
+    colorwayIncludeMask,
     shimmer,
     shimmerSpeed,
     shimmerWidth,
@@ -201,7 +223,7 @@ export function WeavingHalftoneStage({
         }}
       >
         <ShaderCanvas
-          patternFit={patternFit}
+          layout="embedded"
           patternIndex={patternIndex}
           palette={palette}
           bgShade={bgShade}
@@ -231,6 +253,17 @@ export function WeavingHalftoneStage({
           shimmerBlendMode={shimmerBlendMode}
           useAllColorways={useAllColorways}
           colorwaySeed={colorwaySeed}
+          colorwayNoiseScale={colorwayNoiseScale}
+          colorwayNoiseMode={colorwayNoiseMode}
+          colorwayNoiseOctaves={colorwayNoiseOctaves}
+          colorwayNoisePersistence={colorwayNoisePersistence}
+          colorwayNoiseLacunarity={colorwayNoiseLacunarity}
+          colorwayNoiseBias={colorwayNoiseBias}
+          colorwayBleedAnisotropy={colorwayBleedAnisotropy}
+          colorwayBleedRotation={colorwayBleedRotation}
+          colorwayBleedCrossFiber={colorwayBleedCrossFiber}
+          colorwayBleedDraftCoupled={colorwayBleedDraftCoupled}
+          colorwayIncludeMask={colorwayIncludeMask}
           patterns={patterns ?? []}
           onCanvasRef={handleCanvasRef}
         />

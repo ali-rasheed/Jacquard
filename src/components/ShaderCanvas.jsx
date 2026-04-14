@@ -5,13 +5,22 @@
  */
 import { memo } from 'react';
 import { useShaderSandbox } from '../hooks/useShaderSandbox';
+import { useAspectViewportBox } from '../hooks/useAspectViewportBox';
 import fragmentSource from '../shaders/fragment.glsl?raw';
 import vertexSource from '../shaders/vertex.glsl?raw';
 import { RECT_ASPECT_DEFAULT } from '../constants';
 import { fpsPill } from '../uiConstants';
 
-/** patternFit: 'fill' = container grows to fill view (cover); 'fit' = container shrinks to fit (contain). */
-function ShaderCanvasInner({ patternIndex, palette, bgShade, warpShade, weftShade, gridSize, warpGradient, weftGradient, gradSteps, rectAspect, cornerRadius = 0.18, canvasAspect = 1, patternFit = 'fit', shimmer = false, shimmerSpeed = 2, shimmerWidth = 2, shimmerIntensity = 0.25, shimmerPosition = 0, shimmerRotation = 0.125, shimmerNoise = 0.3, shimmerNoiseSeed = 0, shimmerNoiseMin = 0.5, shimmerNoiseMax = 1.5, shimmerBlendMode = 0, useAllColorways = false, colorwaySeed = 0, colorwayNoiseScale = 1, shimmerPlaying = true, shimmerPausedAtTime = 0, shimmerPhase = 0, onShimmerTime, patterns, onFpsChange, onCanvasRef, onCaptureReady }) {
+/**
+ * patternFit (layout=stage): 'fill' = cover; 'fit' = contain.
+ * layout=embedded: fixed parent box (e.g. offscreen capture) — fills width/height, no viewport math.
+ */
+function ShaderCanvasInner({ patternIndex, palette, bgShade, warpShade, weftShade, gridSize, warpGradient, weftGradient, gradSteps, rectAspect, cornerRadius = 0.18, canvasAspect = 1, patternFit = 'fit', layout = 'stage', shimmer = false, shimmerSpeed = 2, shimmerWidth = 2, shimmerIntensity = 0.25, shimmerPosition = 0, shimmerRotation = 0.125, shimmerNoise = 0.3, shimmerNoiseSeed = 0, shimmerNoiseMin = 0.5, shimmerNoiseMax = 1.5, shimmerBlendMode = 0, useAllColorways = false, colorwaySeed = 0, colorwayNoiseScale = 1, colorwayNoiseMode = 0, colorwayNoiseOctaves = 3, colorwayNoisePersistence = 0.5, colorwayNoiseLacunarity = 2, colorwayNoiseBias = 1, colorwayBleedAnisotropy = 3, colorwayBleedRotation = 0, colorwayBleedCrossFiber = 0.2, colorwayBleedDraftCoupled = false, colorwayIncludeMask = 31, shimmerPlaying = true, shimmerPausedAtTime = 0, shimmerPhase = 0, onShimmerTime, patterns, onFpsChange, onCanvasRef, onCaptureReady }) {
+  const viewportMode = patternFit === 'fill' ? 'cover' : 'contain';
+  const ar = canvasAspect > 0 && Number.isFinite(canvasAspect) ? canvasAspect : 1;
+  const stageLayout = layout === 'stage';
+  const { outerRef, width: boxW, height: boxH } = useAspectViewportBox(viewportMode, ar, stageLayout);
+
   const { canvasRef, containerRef, error, fps } = useShaderSandbox(
     vertexSource,
     fragmentSource,
@@ -40,6 +49,16 @@ function ShaderCanvasInner({ patternIndex, palette, bgShade, warpShade, weftShad
     useAllColorways ? 1 : 0,
     colorwaySeed ?? 0,
     colorwayNoiseScale ?? 1,
+    colorwayNoiseMode ?? 0,
+    colorwayNoiseOctaves ?? 3,
+    colorwayNoisePersistence ?? 0.5,
+    colorwayNoiseLacunarity ?? 2,
+    colorwayNoiseBias ?? 1,
+    colorwayBleedAnisotropy ?? 3,
+    colorwayBleedRotation ?? 0,
+    colorwayBleedCrossFiber ?? 0.2,
+    colorwayBleedDraftCoupled ? 1 : 0,
+    colorwayIncludeMask ?? 31,
     shimmerPlaying ?? true,
     shimmerPausedAtTime ?? 0,
     shimmerPhase ?? 0,
@@ -49,14 +68,9 @@ function ShaderCanvasInner({ patternIndex, palette, bgShade, warpShade, weftShad
     onCaptureReady
   );
 
-  const fill = patternFit === 'fill';
-  return (
-    <div
-      ref={containerRef}
-      className={`relative flex min-h-[200px] min-w-[200px] flex-col overflow-hidden rounded-md border border-border-subtle bg-surface-secondary w-full max-w-full ${fill ? 'flex-1 min-h-0 min-w-0' : 'flex-initial'}`}
-      style={{ aspectRatio: canvasAspect }}
-    >
-      <canvas ref={(el) => { canvasRef.current = el; onCanvasRef?.(el); }} className="block flex-1 bg-surface" />
+  const canvasBlock = (
+    <>
+      <canvas ref={(el) => { canvasRef.current = el; onCanvasRef?.(el); }} className="block min-h-0 flex-1 bg-surface" />
       <div className={fpsPill}>
         {fps || '--'} fps
       </div>
@@ -65,6 +79,33 @@ function ShaderCanvasInner({ patternIndex, palette, bgShade, warpShade, weftShad
           {error}
         </div>
       ) : null}
+    </>
+  );
+
+  if (!stageLayout) {
+    return (
+      <div
+        ref={containerRef}
+        className="relative flex h-full w-full min-h-0 flex-col overflow-hidden rounded-md border border-border-subtle bg-surface-secondary"
+      >
+        {canvasBlock}
+      </div>
+    );
+  }
+
+  return (
+    <div
+      ref={outerRef}
+      className="relative flex h-full min-h-0 min-w-0 w-full flex-1 self-stretch items-center justify-center overflow-hidden"
+    >
+      <div
+        className="relative flex shrink-0 flex-col overflow-hidden rounded-md border border-border-subtle bg-surface-secondary"
+        style={{ width: boxW, height: boxH }}
+      >
+        <div ref={containerRef} className="relative flex h-full min-h-0 w-full flex-1 flex-col">
+          {canvasBlock}
+        </div>
+      </div>
     </div>
   );
 }

@@ -5,7 +5,7 @@
  */
 import { useState, useCallback, useEffect } from 'react';
 import * as Slider from '@radix-ui/react-slider';
-import { inputNumber } from '../uiConstants';
+import { inputNumber, iconResetGlyphMd } from '../uiConstants';
 import { IconButton, Icon } from './ui';
 
 function clamp(value, min, max) {
@@ -134,8 +134,8 @@ function SingleSliderWithInput({
         aria-label={ariaLabel ? `${ariaLabel} value` : undefined}
       />
       {isDirty && onReset && (
-        <IconButton size="sm" onClick={onReset} title="Reset to default" aria-label="Reset to default">
-          <Icon name="restart_alt" className="h-4 w-4" />
+        <IconButton size="resetSm" onClick={onReset} title="Reset to default" aria-label="Reset to default">
+          <Icon name="restart_alt" className={iconResetGlyphMd} />
         </IconButton>
       )}
     </div>
@@ -285,8 +285,8 @@ function RangeSliderWithInput({
         />
       </div>
       {isDirty && onReset && (
-        <IconButton size="sm" onClick={onReset} title="Reset range to default" aria-label="Reset range to default">
-          <Icon name="restart_alt" className="h-4 w-4" />
+        <IconButton size="resetSm" onClick={onReset} title="Reset range to default" aria-label="Reset range to default">
+          <Icon name="restart_alt" className={iconResetGlyphMd} />
         </IconButton>
       )}
     </div>

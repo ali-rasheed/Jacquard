@@ -7,7 +7,7 @@ import * as Select from '@radix-ui/react-select';
 import * as Label from '@radix-ui/react-label';
 import { Icon } from './Icon';
 import { IconButton } from './IconButton';
-import { selectTrigger, selectContent, selectItem, iconMd, iconLg } from '../../uiConstants';
+import { selectTrigger, selectContent, selectItem, iconMd, iconLg, iconResetGlyphMd } from '../../uiConstants';
 
 export function AppSelect({ value, onValueChange, options, placeholder, title, id: idProp, labelText, defaultValue, onReset }) {
   const selected = options.find((o) => String(o.value) === String(value));
@@ -52,8 +52,8 @@ export function AppSelect({ value, onValueChange, options, placeholder, title, i
           </Select.Portal>
         </Select.Root>
         {isDirty && onReset && (
-          <IconButton size="sm" onClick={onReset} title={`Reset ${title ?? placeholder ?? 'select'} to default`} aria-label={`Reset ${title ?? placeholder ?? 'select'} to default`}>
-            <Icon name="restart_alt" className={iconMd} />
+          <IconButton size="resetSm" onClick={onReset} title={`Reset ${title ?? placeholder ?? 'select'} to default`} aria-label={`Reset ${title ?? placeholder ?? 'select'} to default`}>
+            <Icon name="restart_alt" className={iconResetGlyphMd} />
           </IconButton>
         )}
       </div>

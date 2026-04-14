@@ -23,6 +23,8 @@ import {
   iconSm,
   iconMd,
   iconXs,
+  iconResetGlyph,
+  iconResetGlyphMd,
   btnGhost,
   pill,
   sidebarGroup,
@@ -54,6 +56,13 @@ const QUANTIZE_MODE_OPTIONS = [
 const CELL_GEOMETRY_OPTIONS = [
   { value: 0, label: 'Weave' },
   { value: 1, label: 'Dark stitches' },
+];
+
+/** Animate colored stitches from background-only: isotropic FBM order vs dye-bleed streaks. */
+const STITCH_REVEAL_MODE_OPTIONS = [
+  { value: 0, label: 'Off' },
+  { value: 1, label: 'Noise' },
+  { value: 2, label: 'Bleed' },
 ];
 
 /** Map picked file to WebGL upload strategy (V6 video/GIF). */
@@ -137,6 +146,41 @@ function parseUrlStateV2(search) {
     const n = Number(glt);
     if (Number.isFinite(n)) out.stitchLumaMax = Math.max(0, Math.min(1, n / 100));
   }
+  num('srm', 'stitchRevealMode', 0, 2);
+  const srd = params.get('srd');
+  if (srd != null) {
+    const n = Number(srd);
+    if (Number.isFinite(n)) out.stitchRevealDurationSec = Math.max(0.25, Math.min(30, n / 100));
+  }
+  const srs = params.get('srs');
+  if (srs != null) {
+    const n = Number(srs);
+    if (Number.isFinite(n)) out.stitchRevealSeed = Math.max(0, Math.min(999999, n));
+  }
+  const srsc = params.get('srsc');
+  if (srsc != null) {
+    const n = Number(srsc);
+    if (Number.isFinite(n)) out.stitchRevealScale = Math.max(0.02, Math.min(0.8, n / 1000));
+  }
+  const srso = params.get('srso');
+  if (srso != null) {
+    const n = Number(srso);
+    if (Number.isFinite(n)) out.stitchRevealSoftness = Math.max(0.01, Math.min(0.35, n / 1000));
+  }
+  num('srba', 'stitchRevealBleedAnisotropy', 0, 12);
+  const srbr = params.get('srbr');
+  if (srbr != null) {
+    const n = Number(srbr);
+    if (Number.isFinite(n)) out.stitchRevealBleedRotation = Math.max(0, Math.min(1, n / 1000));
+  }
+  const srbc = params.get('srbc');
+  if (srbc != null) {
+    const n = Number(srbc);
+    if (Number.isFinite(n)) out.stitchRevealBleedCrossFiber = Math.max(0, Math.min(1, n / 1000));
+  }
+  const srbd = params.get('srbd');
+  if (srbd === '1') out.stitchRevealBleedDraftCoupled = 1;
+  if (srbd === '0') out.stitchRevealBleedDraftCoupled = 0;
   return out;
 }
 
@@ -169,6 +213,15 @@ function buildUrlStateV2(state) {
   if (state.menuHidden === false) p.set('menu', '1');
   if (state.mosaicBgGaps === true) p.set('gap', '1');
   if (state.patternFit != null && state.patternFit !== def.patternFit) p.set('display', state.patternFit);
+  if (state.stitchRevealMode !== def.stitchRevealMode) p.set('srm', String(state.stitchRevealMode));
+  if (state.stitchRevealDurationSec !== def.stitchRevealDurationSec) p.set('srd', String(Math.round(state.stitchRevealDurationSec * 100)));
+  if (state.stitchRevealSeed !== def.stitchRevealSeed) p.set('srs', String(Math.round(state.stitchRevealSeed)));
+  if (state.stitchRevealScale !== def.stitchRevealScale) p.set('srsc', String(Math.round(state.stitchRevealScale * 1000)));
+  if (state.stitchRevealSoftness !== def.stitchRevealSoftness) p.set('srso', String(Math.round(state.stitchRevealSoftness * 1000)));
+  if (state.stitchRevealBleedAnisotropy !== def.stitchRevealBleedAnisotropy) p.set('srba', String(Math.round(state.stitchRevealBleedAnisotropy)));
+  if (state.stitchRevealBleedRotation !== def.stitchRevealBleedRotation) p.set('srbr', String(Math.round(state.stitchRevealBleedRotation * 1000)));
+  if (state.stitchRevealBleedCrossFiber !== def.stitchRevealBleedCrossFiber) p.set('srbc', String(Math.round(state.stitchRevealBleedCrossFiber * 1000)));
+  if (state.stitchRevealBleedDraftCoupled !== def.stitchRevealBleedDraftCoupled) p.set('srbd', state.stitchRevealBleedDraftCoupled ? '1' : '0');
   const s = p.toString();
   return s.length <= URL_STATE_MAX_LEN ? s : '';
 }
@@ -201,6 +254,17 @@ export default function AppV2({
   const patternFit = patternFitExternal ? patternFitProp : patternFitInternal;
   const setPatternFit = patternFitExternal ? onPatternFitChange : setPatternFitInternal;
   const [stitchLumaMax, setStitchLumaMax] = useState(IMAGE_RECTS_URL_DEFAULTS.stitchLumaMax);
+  const [stitchRevealMode, setStitchRevealMode] = useState(IMAGE_RECTS_URL_DEFAULTS.stitchRevealMode);
+  const [stitchRevealDurationSec, setStitchRevealDurationSec] = useState(IMAGE_RECTS_URL_DEFAULTS.stitchRevealDurationSec);
+  const [stitchRevealSeed, setStitchRevealSeed] = useState(IMAGE_RECTS_URL_DEFAULTS.stitchRevealSeed);
+  const [stitchRevealScale, setStitchRevealScale] = useState(IMAGE_RECTS_URL_DEFAULTS.stitchRevealScale);
+  const [stitchRevealSoftness, setStitchRevealSoftness] = useState(IMAGE_RECTS_URL_DEFAULTS.stitchRevealSoftness);
+  const [stitchRevealBleedAnisotropy, setStitchRevealBleedAnisotropy] = useState(IMAGE_RECTS_URL_DEFAULTS.stitchRevealBleedAnisotropy);
+  const [stitchRevealBleedRotation, setStitchRevealBleedRotation] = useState(IMAGE_RECTS_URL_DEFAULTS.stitchRevealBleedRotation);
+  const [stitchRevealBleedCrossFiber, setStitchRevealBleedCrossFiber] = useState(IMAGE_RECTS_URL_DEFAULTS.stitchRevealBleedCrossFiber);
+  const [stitchRevealBleedDraftCoupled, setStitchRevealBleedDraftCoupled] = useState(IMAGE_RECTS_URL_DEFAULTS.stitchRevealBleedDraftCoupled);
+  const [stitchRevealProgress, setStitchRevealProgress] = useState(1);
+  const [stitchRevealPlayToken, setStitchRevealPlayToken] = useState(0);
   const [quantizeSteps, setQuantizeSteps] = useState(IMAGE_RECTS_URL_DEFAULTS.quantizeSteps); // 0 = off, 2–32 = steps
   const [quantizeMode, setQuantizeMode] = useState(IMAGE_RECTS_URL_DEFAULTS.quantizeMode);
   const [quantizeGamma, setQuantizeGamma] = useState(IMAGE_RECTS_URL_DEFAULTS.quantizeGamma);
@@ -296,7 +360,7 @@ export default function AppV2({
     else handleCopyWebp();
   }, [copyFormat, handleCopy2xPng, handleCopyWebp]);
 
-  /** Video recording (WebM or MP4). */
+  /** Video recording (WebM or MP4). Mosaic: auto-starts when media becomes video (per tab — own hook instance). */
   const {
     isRecording,
     isProcessing,
@@ -308,11 +372,62 @@ export default function AppV2({
     clearPendingDownload,
     recordError,
     clearRecordError,
+    recordingReason,
   } = useCanvasRecorder('shaderbox-image-rects');
 
   const startRecording = useCallback(() => {
     recStart(canvasRef.current);
   }, [recStart]);
+
+  const replayStitchReveal = useCallback(() => {
+    setStitchRevealPlayToken((t) => t + 1);
+  }, []);
+
+  /** Ramp stitch-in progress 0→1 when Noise/Bleed is on (replay, new media, or mode change). */
+  useEffect(() => {
+    if (stitchRevealMode === 0) {
+      setStitchRevealProgress(1);
+      return;
+    }
+    setStitchRevealProgress(0);
+    const durationMs = Math.max(0.05, stitchRevealDurationSec) * 1000;
+    const start = performance.now();
+    let rafId = 0;
+    const tick = (now) => {
+      const t = Math.min(1, (now - start) / durationMs);
+      setStitchRevealProgress(t);
+      if (t < 1) rafId = requestAnimationFrame(tick);
+    };
+    rafId = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafId);
+  }, [stitchRevealMode, stitchRevealPlayToken, imageSource, stitchRevealDurationSec]);
+
+  const prevMediaKindRef = useRef(mediaTextureKind);
+  /** When switching from image/GIF to video (new file or inferred kind), start recording; stop when leaving video mode. */
+  useEffect(() => {
+    const prev = prevMediaKindRef.current;
+    prevMediaKindRef.current = mediaTextureKind;
+    if (mediaTextureKind !== 'video' || !imageSource) return;
+    if (prev === 'video') return;
+    let cancelled = false;
+    const id = requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (cancelled) return;
+        const c = canvasRef.current;
+        if (c?.width && c?.height) recStart(c, { reason: 'auto' });
+      });
+    });
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(id);
+    };
+  }, [mediaTextureKind, imageSource, recStart]);
+
+  useEffect(() => {
+    if (mediaTextureKind === 'video') return;
+    if (!isRecording) return;
+    void stopRecording();
+  }, [mediaTextureKind, isRecording, stopRecording]);
 
   const handleReload = useCallback(() => {
     window.location.reload();
@@ -342,6 +457,15 @@ export default function AppV2({
     setRectRatio(Number(rand(0.3, 1).toFixed(2)));
     setCellGeometryMode(randInt(0, 1));
     setStitchLumaMax(Number(rand(0.15, 0.75).toFixed(2)));
+    setStitchRevealMode(randInt(0, 2));
+    setStitchRevealDurationSec(Number(rand(1, 5).toFixed(1)));
+    setStitchRevealSeed(Math.floor(Math.random() * 999999));
+    setStitchRevealScale(Number(rand(0.05, 0.35).toFixed(2)));
+    setStitchRevealSoftness(Number(rand(0.03, 0.14).toFixed(2)));
+    setStitchRevealBleedAnisotropy(Number(rand(1.5, 8).toFixed(1)));
+    setStitchRevealBleedRotation(Number(rand(0, 1).toFixed(2)));
+    setStitchRevealBleedCrossFiber(Number(rand(0, 0.6).toFixed(2)));
+    setStitchRevealBleedDraftCoupled(randInt(0, 1));
   }, []);
 
   /** Reset all Image Rects controls to defaults. */
@@ -369,6 +493,15 @@ export default function AppV2({
     setRectRatio(IMAGE_RECTS_URL_DEFAULTS.rectRatio);
     setCopyFormat(IMAGE_RECTS_URL_DEFAULTS.copyFormat);
     setCopyScale(IMAGE_RECTS_URL_DEFAULTS.copyScale);
+    setStitchRevealMode(IMAGE_RECTS_URL_DEFAULTS.stitchRevealMode);
+    setStitchRevealDurationSec(IMAGE_RECTS_URL_DEFAULTS.stitchRevealDurationSec);
+    setStitchRevealSeed(IMAGE_RECTS_URL_DEFAULTS.stitchRevealSeed);
+    setStitchRevealScale(IMAGE_RECTS_URL_DEFAULTS.stitchRevealScale);
+    setStitchRevealSoftness(IMAGE_RECTS_URL_DEFAULTS.stitchRevealSoftness);
+    setStitchRevealBleedAnisotropy(IMAGE_RECTS_URL_DEFAULTS.stitchRevealBleedAnisotropy);
+    setStitchRevealBleedRotation(IMAGE_RECTS_URL_DEFAULTS.stitchRevealBleedRotation);
+    setStitchRevealBleedCrossFiber(IMAGE_RECTS_URL_DEFAULTS.stitchRevealBleedCrossFiber);
+    setStitchRevealBleedDraftCoupled(IMAGE_RECTS_URL_DEFAULTS.stitchRevealBleedDraftCoupled);
     setMediaTextureKind('staticImage');
     setImageSource((prev) => {
       if (prev) URL.revokeObjectURL(prev);
@@ -404,6 +537,15 @@ export default function AppV2({
     if (q.copyFormat != null) setCopyFormat(q.copyFormat);
     if (q.copyScale != null) setCopyScale(q.copyScale);
     if (q.mosaicBgGaps != null) setMosaicBgGaps(!!q.mosaicBgGaps);
+    if (q.stitchRevealMode != null) setStitchRevealMode(q.stitchRevealMode);
+    if (q.stitchRevealDurationSec != null) setStitchRevealDurationSec(q.stitchRevealDurationSec);
+    if (q.stitchRevealSeed != null) setStitchRevealSeed(q.stitchRevealSeed);
+    if (q.stitchRevealScale != null) setStitchRevealScale(q.stitchRevealScale);
+    if (q.stitchRevealSoftness != null) setStitchRevealSoftness(q.stitchRevealSoftness);
+    if (q.stitchRevealBleedAnisotropy != null) setStitchRevealBleedAnisotropy(q.stitchRevealBleedAnisotropy);
+    if (q.stitchRevealBleedRotation != null) setStitchRevealBleedRotation(q.stitchRevealBleedRotation);
+    if (q.stitchRevealBleedCrossFiber != null) setStitchRevealBleedCrossFiber(q.stitchRevealBleedCrossFiber);
+    if (q.stitchRevealBleedDraftCoupled != null) setStitchRevealBleedDraftCoupled(q.stitchRevealBleedDraftCoupled);
     if (q.patternFit != null) {
       if (typeof onPatternFitChange === 'function') onPatternFitChange(q.patternFit);
       else setPatternFitInternal(q.patternFit);
@@ -419,6 +561,8 @@ export default function AppV2({
         gridSize, palette, bgShade, rectColorSource, quantizeSteps, quantizeMode, quantizeGamma, quantizeDither, patternIndex,
         patternWarpShade, patternWeftShade, lumaSizeMix, lumaSizeInvert, lumaSizeFloor, cellGeometryMode, stitchLumaMax,
         rectRadius, rectAspect, rectRatio, copyFormat, copyScale, menuHidden, mosaicBgGaps, patternFit,
+        stitchRevealMode, stitchRevealDurationSec, stitchRevealSeed, stitchRevealScale, stitchRevealSoftness,
+        stitchRevealBleedAnisotropy, stitchRevealBleedRotation, stitchRevealBleedCrossFiber, stitchRevealBleedDraftCoupled,
       });
       const url = search ? `${window.location.pathname}?${search}` : window.location.pathname;
       if (window.location.pathname + (window.location.search || '') !== url) {
@@ -426,7 +570,7 @@ export default function AppV2({
       }
     }, 400);
     return () => { clearTimeout(urlSyncTimeoutRef.current); };
-  }, [gridSize, palette, bgShade, rectColorSource, quantizeSteps, quantizeMode, quantizeGamma, quantizeDither, patternIndex, patternWarpShade, patternWeftShade, lumaSizeMix, lumaSizeInvert, lumaSizeFloor, cellGeometryMode, stitchLumaMax, rectRadius, rectAspect, rectRatio, copyFormat, copyScale, menuHidden, mosaicBgGaps, patternFit]);
+  }, [gridSize, palette, bgShade, rectColorSource, quantizeSteps, quantizeMode, quantizeGamma, quantizeDither, patternIndex, patternWarpShade, patternWeftShade, lumaSizeMix, lumaSizeInvert, lumaSizeFloor, cellGeometryMode, stitchLumaMax, rectRadius, rectAspect, rectRatio, copyFormat, copyScale, menuHidden, mosaicBgGaps, patternFit, stitchRevealMode, stitchRevealDurationSec, stitchRevealSeed, stitchRevealScale, stitchRevealSoftness, stitchRevealBleedAnisotropy, stitchRevealBleedRotation, stitchRevealBleedCrossFiber, stitchRevealBleedDraftCoupled]);
 
   /** Keyboard shortcuts: Mod+C copy, Mod+Shift+R / F5 reload (no presets in v2). */
   useEffect(() => {
@@ -470,9 +614,10 @@ export default function AppV2({
     };
   }, [imageSource]);
 
+  /** In-flow: min-h-0 + h-full bounds the column so tall control stacks scroll inside the sidebar (flex default min-height:auto would grow past the shell). */
   const sidebarClass = menuHidden
     ? 'fixed left-0 top-0 z-10 flex h-full w-72 flex-col gap-3 overflow-y-auto overflow-x-auto border-r border-border-subtle bg-surface px-3 py-3'
-    : 'flex w-72 shrink-0 flex-col gap-3 overflow-y-auto overflow-x-auto border-r border-border-subtle bg-surface px-3 py-3';
+    : 'flex h-full min-h-0 w-72 shrink-0 flex-col gap-3 overflow-y-auto overflow-x-auto overscroll-y-contain border-r border-border-subtle bg-surface px-3 py-3';
 
   return (
     <div className="flex h-full min-h-0 flex-row overflow-hidden bg-surface">
@@ -528,7 +673,7 @@ export default function AppV2({
                 <span>Randomize</span>
               </button>
               <button type="button" className={btnGhost} onClick={handleReset} aria-label="Reset parameters to defaults" title="Reset Mosaic parameters to defaults">
-                <Icon name="restart_alt" className={iconMd} />
+                <Icon name="restart_alt" className={iconResetGlyphMd} />
                 <span>Reset</span>
               </button>
               <SegmentedControl>
@@ -564,7 +709,7 @@ export default function AppV2({
                 </IconButton>
                 {(copyScale !== IMAGE_RECTS_URL_DEFAULTS.copyScale || copyFormat !== IMAGE_RECTS_URL_DEFAULTS.copyFormat) && (
                   <IconButton
-                    size="sm"
+                    size="resetSm"
                     title="Reset copy scale and format"
                     aria-label="Reset copy scale and format"
                     onClick={() => {
@@ -572,7 +717,7 @@ export default function AppV2({
                       setCopyFormat(IMAGE_RECTS_URL_DEFAULTS.copyFormat);
                     }}
                   >
-                    <Icon name="restart_alt" className={iconSm} />
+                    <Icon name="restart_alt" className={iconResetGlyph} />
                   </IconButton>
                 )}
               </SegmentedControl>
@@ -592,7 +737,7 @@ export default function AppV2({
                     </SegmentedControlButton>
                   ))}
                 </div>
-                <IconButton size="sm" variant={isRecording || isProcessing ? 'danger' : 'default'} title={isProcessing ? 'Processing…' : isRecording ? `Stop and download ${recordFormat.toUpperCase()}` : `Record canvas as ${recordFormat.toUpperCase()}`} aria-label={isProcessing ? 'Processing video' : isRecording ? 'Stop recording' : 'Start recording'} onClick={isRecording ? stopRecording : startRecording} disabled={isProcessing}>
+                <IconButton size="sm" variant={isRecording || isProcessing ? 'danger' : 'default'} title={isProcessing ? 'Processing…' : isRecording ? `${recordingReason === 'auto' ? 'Auto-recording video — ' : ''}Stop and download ${recordFormat.toUpperCase()}` : `Record canvas as ${recordFormat.toUpperCase()}`} aria-label={isProcessing ? 'Processing video' : isRecording ? 'Stop recording' : 'Start recording'} onClick={isRecording ? stopRecording : startRecording} disabled={isProcessing}>
                   <Icon name={isProcessing ? 'hourglass_empty' : isRecording ? 'stop' : 'videocam'} className={iconSm} />
                 </IconButton>
               </SegmentedControl>
@@ -643,8 +788,8 @@ export default function AppV2({
                   />
                 ))}
                 {palette !== IMAGE_RECTS_URL_DEFAULTS.palette && (
-                  <IconButton size="sm" onClick={() => setPalette(IMAGE_RECTS_URL_DEFAULTS.palette)} title="Reset palette" aria-label="Reset palette to default">
-                    <Icon name="restart_alt" className={iconSm} />
+                  <IconButton size="resetSm" onClick={() => setPalette(IMAGE_RECTS_URL_DEFAULTS.palette)} title="Reset palette" aria-label="Reset palette to default">
+                    <Icon name="restart_alt" className={iconResetGlyph} />
                   </IconButton>
                 )}
               </div>
@@ -827,6 +972,155 @@ export default function AppV2({
                   </div>
                 )}
               </div>
+              <div className="flex flex-col gap-1.5 border-t border-border-subtle pt-2">
+                <span className={`${typeLabel} text-text-muted`}>Stitch-in (from blank)</span>
+                <AppSelect
+                  id="stitch-reveal-mode-v2"
+                  labelText="Reveal order"
+                  value={stitchRevealMode}
+                  onValueChange={(v) => setStitchRevealMode(Number(v))}
+                  defaultValue={IMAGE_RECTS_URL_DEFAULTS.stitchRevealMode}
+                  onReset={() => setStitchRevealMode(IMAGE_RECTS_URL_DEFAULTS.stitchRevealMode)}
+                  options={STITCH_REVEAL_MODE_OPTIONS}
+                  title="Off: full mosaic immediately. Noise: FBM order. Bleed: streaks along fibers (like weave dye bleed)."
+                  placeholder="Stitch-in"
+                />
+                {stitchRevealMode > 0 && (
+                  <>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Label.Root className="sr-only" htmlFor="stitch-reveal-dur-v2">Reveal duration</Label.Root>
+                      <SliderWithInput
+                        id="stitch-reveal-dur-v2"
+                        value={stitchRevealDurationSec}
+                        onValueChange={setStitchRevealDurationSec}
+                        defaultValue={IMAGE_RECTS_URL_DEFAULTS.stitchRevealDurationSec}
+                        onReset={() => setStitchRevealDurationSec(IMAGE_RECTS_URL_DEFAULTS.stitchRevealDurationSec)}
+                        min={0.25}
+                        max={12}
+                        step={0.25}
+                        format={(n) => `${n.toFixed(2)}s`}
+                        aria-label="Stitch-in duration in seconds"
+                      />
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button type="button" className={btnGhost} onClick={replayStitchReveal} aria-label="Replay stitch-in animation" title="Replay from blank">
+                        <Icon name="replay" className={iconMd} />
+                        <span>Replay</span>
+                      </button>
+                      <button
+                        type="button"
+                        className={btnGhost}
+                        onClick={() => {
+                          setStitchRevealSeed(Math.floor(Math.random() * 999999));
+                          replayStitchReveal();
+                        }}
+                        aria-label="New random seed and replay"
+                        title="New seed"
+                      >
+                        <Icon name="shuffle" className={iconMd} />
+                        <span>New seed</span>
+                      </button>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <GroupIcon name="blur_on" title="Spatial scale for reveal pattern" />
+                      <Label.Root className="sr-only" htmlFor="stitch-reveal-scale-v2">Reveal pattern scale</Label.Root>
+                      <SliderWithInput
+                        id="stitch-reveal-scale-v2"
+                        value={stitchRevealScale}
+                        onValueChange={setStitchRevealScale}
+                        defaultValue={IMAGE_RECTS_URL_DEFAULTS.stitchRevealScale}
+                        onReset={() => setStitchRevealScale(IMAGE_RECTS_URL_DEFAULTS.stitchRevealScale)}
+                        min={0.02}
+                        max={0.5}
+                        step={0.01}
+                        format={(n) => n.toFixed(2)}
+                        aria-label="Noise / bleed pattern scale on the grid"
+                      />
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <GroupIcon name="gradient" title="Edge softness between revealed and not yet" />
+                      <Label.Root className="sr-only" htmlFor="stitch-reveal-soft-v2">Reveal softness</Label.Root>
+                      <SliderWithInput
+                        id="stitch-reveal-soft-v2"
+                        value={stitchRevealSoftness}
+                        onValueChange={setStitchRevealSoftness}
+                        defaultValue={IMAGE_RECTS_URL_DEFAULTS.stitchRevealSoftness}
+                        onReset={() => setStitchRevealSoftness(IMAGE_RECTS_URL_DEFAULTS.stitchRevealSoftness)}
+                        min={0.01}
+                        max={0.25}
+                        step={0.005}
+                        format={(n) => n.toFixed(3)}
+                        aria-label="Softness of the stitch-in ramp per cell"
+                      />
+                    </div>
+                    {stitchRevealMode === 2 && (
+                      <>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <GroupIcon name="texture" title="Bleed streak length" />
+                          <Label.Root className="sr-only" htmlFor="stitch-reveal-bleed-ani-v2">Bleed anisotropy</Label.Root>
+                          <SliderWithInput
+                            id="stitch-reveal-bleed-ani-v2"
+                            value={stitchRevealBleedAnisotropy}
+                            onValueChange={setStitchRevealBleedAnisotropy}
+                            defaultValue={IMAGE_RECTS_URL_DEFAULTS.stitchRevealBleedAnisotropy}
+                            onReset={() => setStitchRevealBleedAnisotropy(IMAGE_RECTS_URL_DEFAULTS.stitchRevealBleedAnisotropy)}
+                            min={0.5}
+                            max={12}
+                            step={0.25}
+                            format={(n) => n.toFixed(2)}
+                            aria-label="Bleed streak anisotropy"
+                          />
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <GroupIcon name="rotate_right" title="Bleed direction" />
+                          <Label.Root className="sr-only" htmlFor="stitch-reveal-bleed-rot-v2">Bleed rotation</Label.Root>
+                          <SliderWithInput
+                            id="stitch-reveal-bleed-rot-v2"
+                            value={stitchRevealBleedRotation}
+                            onValueChange={setStitchRevealBleedRotation}
+                            defaultValue={IMAGE_RECTS_URL_DEFAULTS.stitchRevealBleedRotation}
+                            onReset={() => setStitchRevealBleedRotation(IMAGE_RECTS_URL_DEFAULTS.stitchRevealBleedRotation)}
+                            min={0}
+                            max={1}
+                            step={0.005}
+                            format={(n) => n.toFixed(2)}
+                            aria-label="Rotation of bleed streaks (turns)"
+                          />
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <GroupIcon name="blur_linear" title="Mix isotropic noise into bleed" />
+                          <Label.Root className="sr-only" htmlFor="stitch-reveal-bleed-xf-v2">Cross-fiber mix</Label.Root>
+                          <SliderWithInput
+                            id="stitch-reveal-bleed-xf-v2"
+                            value={stitchRevealBleedCrossFiber}
+                            onValueChange={setStitchRevealBleedCrossFiber}
+                            defaultValue={IMAGE_RECTS_URL_DEFAULTS.stitchRevealBleedCrossFiber}
+                            onReset={() => setStitchRevealBleedCrossFiber(IMAGE_RECTS_URL_DEFAULTS.stitchRevealBleedCrossFiber)}
+                            min={0}
+                            max={1}
+                            step={0.02}
+                            format={(n) => n.toFixed(2)}
+                            aria-label="Cross-fiber noise mix for bleed"
+                          />
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <button
+                            type="button"
+                            className={`${toggleBtn} ${stitchRevealBleedDraftCoupled ? toggleBtnActive : ''}`}
+                            aria-pressed={!!stitchRevealBleedDraftCoupled}
+                            aria-label="Draft-coupled bleed: streaks follow warp vs weft"
+                            title="When on, horizontal vs vertical streak blend follows the weave draft"
+                            onClick={() => setStitchRevealBleedDraftCoupled((v) => (v ? 0 : 1))}
+                          >
+                            <Icon name="view_quilt" className={iconSm} />
+                            <span className={typeLabel}>Draft-coupled bleed</span>
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </>
+                )}
+              </div>
               <div className="flex flex-wrap items-center gap-2 border-t border-border-subtle pt-2">
                 <button
                   type="button"
@@ -873,21 +1167,7 @@ export default function AppV2({
       </motion.aside>
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-        <main
-          className={
-            patternFit === 'fill'
-              ? 'flex min-h-0 flex-1 flex-col overflow-hidden p-4'
-              : 'flex min-h-0 flex-1 items-center justify-center overflow-auto p-4'
-          }
-        >
-          <div
-            className={
-              patternFit === 'fill'
-                ? 'flex min-h-0 min-w-0 flex-1 flex-col items-stretch justify-stretch'
-                : 'flex shrink-0 items-center justify-center'
-            }
-            style={patternFit === 'fit' ? { width: '150%', height: '150%' } : undefined}
-          >
+        <main className="flex min-h-0 flex-1 flex-col overflow-hidden p-4">
           <ImageRectsCanvas
             imageSource={imageSource}
             mediaTextureKind={mediaTextureKind}
@@ -914,12 +1194,20 @@ export default function AppV2({
             cellGeometryMode={cellGeometryMode}
             stitchLumaMax={stitchLumaMax}
             nonStitchShowsBg={mosaicBgGaps}
+            stitchRevealMode={stitchRevealMode}
+            stitchRevealProgress={stitchRevealProgress}
+            stitchRevealSeed={stitchRevealSeed}
+            stitchRevealScale={stitchRevealScale}
+            stitchRevealSoftness={stitchRevealSoftness}
+            stitchRevealBleedAnisotropy={stitchRevealBleedAnisotropy}
+            stitchRevealBleedRotation={stitchRevealBleedRotation}
+            stitchRevealBleedCrossFiber={stitchRevealBleedCrossFiber}
+            stitchRevealBleedDraftCoupled={stitchRevealBleedDraftCoupled}
             patternFit={patternFit}
             onFpsChange={setFps}
             onCanvasRef={(el) => { canvasRef.current = el; }}
             onCaptureReady={(api) => { imageRectsCaptureRef.current = api; }}
           />
-          </div>
         </main>
 
         <footer className="relative h-[100px] shrink-0 overflow-hidden border-t border-border-subtle bg-surface-elevated">
@@ -939,6 +1227,11 @@ export default function AppV2({
             ) : null}
             {cellGeometryMode === 1 ? (
               <span className={pill}>Stitches ≤ {stitchLumaMax.toFixed(2)}</span>
+            ) : null}
+            {stitchRevealMode > 0 ? (
+              <span className={pill}>
+                Stitch-in: {STITCH_REVEAL_MODE_OPTIONS.find((o) => o.value === stitchRevealMode)?.label ?? '—'} · {stitchRevealProgress >= 0.999 ? 'done' : `${Math.round(stitchRevealProgress * 100)}%`}
+              </span>
             ) : null}
             <span className={pill}>Quantize: {quantizeSteps === 0 ? 'off' : `${quantizeSteps} · ${QUANTIZE_MODE_OPTIONS[quantizeMode]?.label ?? 'RGB'}`}</span>
             {quantizeSteps >= 2 ? (

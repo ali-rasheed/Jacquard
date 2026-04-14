@@ -32,6 +32,11 @@ export const iconXs = 'text-[10px]';
 export const iconSm = 'text-[14px]';
 export const iconMd = 'text-[16px]';
 export const iconLg = 'text-[18px]';
+/** Glyphs inside compact play/reset controls (75% of iconSm / iconMd / iconLg). */
+export const iconPlayGlyph = 'text-[10.5px] leading-none';
+export const iconResetGlyph = 'text-[10.5px] leading-none';
+export const iconResetGlyphMd = 'text-[12px] leading-none';
+export const iconResetGlyphLg = 'text-[13.5px] leading-none';
 
 export const btnGhost =
   `inline-flex h-7 items-center gap-1.5 rounded-md border border-border-subtle bg-transparent px-2.5 py-1 ${typeControl} text-text-secondary outline-none transition-colors hover:border-border hover:bg-surface-hover hover:text-text focus:border-accent focus:outline-none`;
@@ -82,6 +87,11 @@ export const iconButtonSm =
   'flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-border-subtle bg-surface-elevated text-text-secondary transition-colors hover:border-accent hover:bg-accent/10 hover:text-accent focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/20';
 export const iconButtonMd =
   'flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border-subtle bg-surface-elevated text-text-secondary transition-colors hover:border-accent hover:bg-accent/10 hover:text-accent focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/20';
+/** Reset/redo icon hits — 75% of sm/md (18px / 21px). */
+export const iconButtonResetSm =
+  'flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full border border-border-subtle bg-surface-elevated text-text-secondary transition-colors hover:border-accent hover:bg-accent/10 hover:text-accent focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/20';
+export const iconButtonResetMd =
+  'flex h-[21px] w-[21px] shrink-0 items-center justify-center rounded-md border border-border-subtle bg-surface-elevated text-text-secondary transition-colors hover:border-accent hover:bg-accent/10 hover:text-accent focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/20';
 export const iconButtonDanger =
   'flex h-6 w-6 shrink-0 items-center justify-center rounded-full border transition-colors border-error bg-error/15 text-error focus:outline-none focus:ring-1 focus:ring-accent/20';
 
@@ -96,7 +106,7 @@ export const toggleBtn =
   `flex h-7 min-w-16 items-center justify-center rounded-md border px-2.5 ${typeControl} transition-colors border-border-subtle bg-surface-input text-text-secondary hover:bg-surface-hover hover:text-text`;
 export const toggleBtnActive = 'border-accent bg-accent/15 text-accent';
 export const toggleBtnIcon =
-  `flex h-7 w-7 items-center justify-center rounded-md border ${typeControl} transition-colors border-border-subtle bg-surface-input text-text-secondary hover:bg-surface-hover hover:text-text`;
+  `flex h-[21px] w-[21px] items-center justify-center rounded-md border ${typeControl} transition-colors border-border-subtle bg-surface-input text-text-secondary hover:bg-surface-hover hover:text-text`;
 
 /** Direction switch (e.g. gradient direction 0/1). */
 export const directionSwitch = 'inline-flex h-7 shrink-0 rounded-md border border-border-subtle bg-surface-input overflow-hidden';

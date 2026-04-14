@@ -25,6 +25,18 @@ export const WEAVING_URL_DEFAULTS = {
   useAllColorways: false,
   colorwaySeed: 0,
   colorwayNoiseScale: 1,
+  /** 0 = hash, 1 = smooth Perlin+FBM, 2 = dye bleed. */
+  colorwayNoiseMode: 0,
+  colorwayNoiseOctaves: 3,
+  colorwayNoisePersistence: 0.5,
+  colorwayNoiseLacunarity: 2,
+  colorwayNoiseBias: 1,
+  colorwayBleedAnisotropy: 3,
+  colorwayBleedRotation: 0,
+  colorwayBleedCrossFiber: 0.2,
+  colorwayBleedDraftCoupled: false,
+  /** Bitmask 0–31: bit i = include palette i in all-colorways pool (default all five). */
+  colorwayIncludeMask: 31,
   shimmer: false,
   shimmerSpeed: 2,
   shimmerWidth: 2,
@@ -73,6 +85,17 @@ export const IMAGE_RECTS_URL_DEFAULTS = {
   mosaicBgGaps: false,
   /** Mosaic canvas: 'fit' = contain in stage, 'fill' = grow to fill main area. */
   patternFit: 'fit',
+  /** 0 = off, 1 = noise (FBM), 2 = dye-bleed stitch-in from blank. */
+  stitchRevealMode: 0,
+  /** Seconds for one full 0→1 reveal when mode is noise or bleed. */
+  stitchRevealDurationSec: 2.5,
+  stitchRevealSeed: 0,
+  stitchRevealScale: 0.12,
+  stitchRevealSoftness: 0.06,
+  stitchRevealBleedAnisotropy: 3,
+  stitchRevealBleedRotation: 0,
+  stitchRevealBleedCrossFiber: 0.2,
+  stitchRevealBleedDraftCoupled: 0,
 };
 
 export const HALFTONE_DEFAULTS = {

@@ -59,6 +59,17 @@ function getUniformLocs(gl, program) {
     useAllColorways: gl.getUniformLocation(program, 'u_useAllColorways'),
     colorwaySeed: gl.getUniformLocation(program, 'u_colorwaySeed'),
     colorwayNoiseScale: gl.getUniformLocation(program, 'u_colorwayNoiseScale'),
+    colorwayNoiseMode: gl.getUniformLocation(program, 'u_colorwayNoiseMode'),
+    colorwayNoiseOctaves: gl.getUniformLocation(program, 'u_colorwayNoiseOctaves'),
+    colorwayNoisePersistence: gl.getUniformLocation(program, 'u_colorwayNoisePersistence'),
+    colorwayNoiseLacunarity: gl.getUniformLocation(program, 'u_colorwayNoiseLacunarity'),
+    colorwayNoiseBias: gl.getUniformLocation(program, 'u_colorwayNoiseBias'),
+    colorwayBleedAnisotropy: gl.getUniformLocation(program, 'u_colorwayBleedAnisotropy'),
+    colorwayBleedRotation: gl.getUniformLocation(program, 'u_colorwayBleedRotation'),
+    colorwayBleedCrossFiber: gl.getUniformLocation(program, 'u_colorwayBleedCrossFiber'),
+    colorwayBleedDraftCoupled: gl.getUniformLocation(program, 'u_colorwayBleedDraftCoupled'),
+    colorwayInclude0123: gl.getUniformLocation(program, 'u_colorwayInclude0123'),
+    colorwayInclude4: gl.getUniformLocation(program, 'u_colorwayInclude4'),
   };
 }
 
@@ -97,7 +108,7 @@ const PALETTE_RGBA = [
   [[0.247, 0.114, 0.035, 1], [0.596, 0.302, 0.106, 1], [0.973, 0.969, 0.886, 1], [0.855, 0.725, 0.525, 1], [0, 0, 0, 0]],
   [[0.322, 0.024, 0.141, 1], [0.941, 0.216, 0.576, 1], [0.984, 0.922, 0.941, 1], [0.988, 0.706, 0.812, 1], [0, 0, 0, 0]],
   [[0.008, 0.161, 0.231, 1], [0.0, 0.502, 0.737, 1], [0.902, 0.953, 0.973, 1], [0.455, 0.725, 0.875, 1], [0, 0, 0, 0]],
-  [[0.012, 0.188, 0.063, 1], [0.0, 0.486, 0.137, 1], [0.843, 0.914, 0.89, 1], [0.51, 0.816, 0.561, 1], [0, 0, 0, 0]],
+  [[0.012, 0.188, 0.063, 1], [0.0, 0.486, 0.137, 1], [0.843, 0.914, 0.89, 1], [0.4549, 0.6745, 0.4902, 1], [0, 0, 0, 0]],
   [[0.098039, 0.098039, 0.098039, 1], [0.34902, 0.341176, 0.333333, 1], [0.933333, 0.929412, 0.929412, 1], [0.45098, 0.45098, 0.45098, 1], [0, 0, 0, 0]],
 ];
 
@@ -107,7 +118,7 @@ function getPaletteColor(paletteIndex, shadeIndex) {
   return PALETTE_RGBA[p][s];
 }
 
-export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, palette, bgShade, warpShade, weftShade, gridSize, warpGradient, weftGradient, gradSteps, rectAspect, cornerRadius, shimmer, shimmerSpeed, shimmerWidth, shimmerIntensity, shimmerPosition, shimmerRotation, shimmerNoise, shimmerNoiseSeed, shimmerNoiseMin, shimmerNoiseMax, shimmerBlendMode, useAllColorways, colorwaySeed, colorwayNoiseScale, shimmerPlaying, shimmerPausedAtTime, shimmerPhase, onShimmerTime, patterns, onFpsChange, onCaptureReady) {
+export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, palette, bgShade, warpShade, weftShade, gridSize, warpGradient, weftGradient, gradSteps, rectAspect, cornerRadius, shimmer, shimmerSpeed, shimmerWidth, shimmerIntensity, shimmerPosition, shimmerRotation, shimmerNoise, shimmerNoiseSeed, shimmerNoiseMin, shimmerNoiseMax, shimmerBlendMode, useAllColorways, colorwaySeed, colorwayNoiseScale, colorwayNoiseMode, colorwayNoiseOctaves, colorwayNoisePersistence, colorwayNoiseLacunarity, colorwayNoiseBias, colorwayBleedAnisotropy, colorwayBleedRotation, colorwayBleedCrossFiber, colorwayBleedDraftCoupled, colorwayIncludeMask, shimmerPlaying, shimmerPausedAtTime, shimmerPhase, onShimmerTime, patterns, onFpsChange, onCaptureReady) {
   const canvasRef = useRef(null);
   const containerRef = useRef(null);
   const vertexSourceRef = useRef(vertexSource);
@@ -157,6 +168,16 @@ export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, pal
   const useAllColorwaysRef = useRef(useAllColorways);
   const colorwaySeedRef = useRef(colorwaySeed);
   const colorwayNoiseScaleRef = useRef(colorwayNoiseScale);
+  const colorwayNoiseModeRef = useRef(colorwayNoiseMode);
+  const colorwayNoiseOctavesRef = useRef(colorwayNoiseOctaves);
+  const colorwayNoisePersistenceRef = useRef(colorwayNoisePersistence);
+  const colorwayNoiseLacunarityRef = useRef(colorwayNoiseLacunarity);
+  const colorwayNoiseBiasRef = useRef(colorwayNoiseBias);
+  const colorwayBleedAnisotropyRef = useRef(colorwayBleedAnisotropy);
+  const colorwayBleedRotationRef = useRef(colorwayBleedRotation);
+  const colorwayBleedCrossFiberRef = useRef(colorwayBleedCrossFiber);
+  const colorwayBleedDraftCoupledRef = useRef(colorwayBleedDraftCoupled);
+  const colorwayIncludeMaskRef = useRef(colorwayIncludeMask);
   patternIndexRef.current = patternIndex;
   paletteRef.current = palette;
   bgShadeRef.current = bgShade;
@@ -180,6 +201,17 @@ export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, pal
   useAllColorwaysRef.current = useAllColorways ?? 0;
   colorwaySeedRef.current = colorwaySeed ?? 0;
   colorwayNoiseScaleRef.current = colorwayNoiseScale ?? 1;
+  colorwayNoiseModeRef.current = colorwayNoiseMode ?? 0;
+  colorwayNoiseOctavesRef.current = colorwayNoiseOctaves ?? 3;
+  colorwayNoisePersistenceRef.current = colorwayNoisePersistence ?? 0.5;
+  colorwayNoiseLacunarityRef.current = colorwayNoiseLacunarity ?? 2;
+  colorwayNoiseBiasRef.current = colorwayNoiseBias ?? 1;
+  colorwayBleedAnisotropyRef.current = colorwayBleedAnisotropy ?? 3;
+  colorwayBleedRotationRef.current = colorwayBleedRotation ?? 0;
+  colorwayBleedCrossFiberRef.current = colorwayBleedCrossFiber ?? 0.2;
+  colorwayBleedDraftCoupledRef.current = Number(colorwayBleedDraftCoupled) > 0 ? 1 : 0;
+  const vMask = Number(colorwayIncludeMask);
+  colorwayIncludeMaskRef.current = Number.isFinite(vMask) ? Math.max(0, Math.min(31, Math.floor(vMask))) : 31;
   shimmerPlayingRef.current = shimmerPlaying ?? true;
   shimmerPausedAtTimeRef.current = shimmerPausedAtTime ?? 0;
   shimmerPhaseRef.current = shimmerPhase ?? 0;
@@ -305,10 +337,32 @@ export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, pal
       if (uniformLocs.useAllColorways != null) gl.uniform1f(uniformLocs.useAllColorways, useAllColorwaysRef.current);
       if (uniformLocs.colorwaySeed != null) gl.uniform1f(uniformLocs.colorwaySeed, colorwaySeedRef.current);
       if (uniformLocs.colorwayNoiseScale != null) gl.uniform1f(uniformLocs.colorwayNoiseScale, colorwayNoiseScaleRef.current);
+      if (uniformLocs.colorwayNoiseMode != null) gl.uniform1f(uniformLocs.colorwayNoiseMode, colorwayNoiseModeRef.current);
+      if (uniformLocs.colorwayNoiseOctaves != null) gl.uniform1f(uniformLocs.colorwayNoiseOctaves, colorwayNoiseOctavesRef.current);
+      if (uniformLocs.colorwayNoisePersistence != null) gl.uniform1f(uniformLocs.colorwayNoisePersistence, colorwayNoisePersistenceRef.current);
+      if (uniformLocs.colorwayNoiseLacunarity != null) gl.uniform1f(uniformLocs.colorwayNoiseLacunarity, colorwayNoiseLacunarityRef.current);
+      if (uniformLocs.colorwayNoiseBias != null) gl.uniform1f(uniformLocs.colorwayNoiseBias, colorwayNoiseBiasRef.current);
+      if (uniformLocs.colorwayBleedAnisotropy != null) gl.uniform1f(uniformLocs.colorwayBleedAnisotropy, colorwayBleedAnisotropyRef.current);
+      if (uniformLocs.colorwayBleedRotation != null) gl.uniform1f(uniformLocs.colorwayBleedRotation, colorwayBleedRotationRef.current);
+      if (uniformLocs.colorwayBleedCrossFiber != null) gl.uniform1f(uniformLocs.colorwayBleedCrossFiber, colorwayBleedCrossFiberRef.current);
+      if (uniformLocs.colorwayBleedDraftCoupled != null) gl.uniform1f(uniformLocs.colorwayBleedDraftCoupled, colorwayBleedDraftCoupledRef.current);
+      const cm = colorwayIncludeMaskRef.current;
+      if (uniformLocs.colorwayInclude0123 != null) {
+        gl.uniform4f(
+          uniformLocs.colorwayInclude0123,
+          cm & 1 ? 1 : 0,
+          cm & 2 ? 1 : 0,
+          cm & 4 ? 1 : 0,
+          cm & 8 ? 1 : 0
+        );
+      }
+      if (uniformLocs.colorwayInclude4 != null) gl.uniform1f(uniformLocs.colorwayInclude4, cm & 16 ? 1 : 0);
 
       gl.clearColor(0, 0, 0, 0);
       gl.clear(gl.COLOR_BUFFER_BIT);
       gl.drawArrays(gl.TRIANGLES, 0, 6);
+      /* Ensure GPU work completes before VideoFrame / MediaRecorder samples the canvas (avoids garbage frames). */
+      gl.finish();
 
       frameCount++;
       const now = Date.now();
