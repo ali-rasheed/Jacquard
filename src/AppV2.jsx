@@ -704,14 +704,16 @@ export default function AppV2({
                     </SegmentedControlButton>
                   ))}
                 </div>
+              </SegmentedControl>
+              <div className="inline-flex shrink-0 items-center gap-1" role="group" aria-label="Copy actions">
                 <IconButton size="sm" title={`Copy canvas at ${copyScale}× as ${copyFormat.toUpperCase()}`} aria-label={`Copy ${copyFormat.toUpperCase()}`} onClick={handleCopy}>
                   <Icon name="content_copy" className={iconSm} />
                 </IconButton>
                 {(copyScale !== IMAGE_RECTS_URL_DEFAULTS.copyScale || copyFormat !== IMAGE_RECTS_URL_DEFAULTS.copyFormat) && (
                   <IconButton
                     size="resetSm"
-                    title="Reset copy scale and format"
-                    aria-label="Reset copy scale and format"
+                    title="Reset copy scale and format to defaults"
+                    aria-label="Reset copy scale and format to defaults"
                     onClick={() => {
                       setCopyScale(IMAGE_RECTS_URL_DEFAULTS.copyScale);
                       setCopyFormat(IMAGE_RECTS_URL_DEFAULTS.copyFormat);
@@ -720,7 +722,7 @@ export default function AppV2({
                     <Icon name="restart_alt" className={iconResetGlyph} />
                   </IconButton>
                 )}
-              </SegmentedControl>
+              </div>
               <SegmentedControl>
                 <div className="flex h-full">
                   {(supportsMP4 ? ['mp4', 'webm'] : ['webm']).map((fmt) => (
@@ -737,10 +739,12 @@ export default function AppV2({
                     </SegmentedControlButton>
                   ))}
                 </div>
+              </SegmentedControl>
+              <div className="inline-flex shrink-0 items-center gap-1" role="group" aria-label="Recording control">
                 <IconButton size="sm" variant={isRecording || isProcessing ? 'danger' : 'default'} title={isProcessing ? 'Processing…' : isRecording ? `${recordingReason === 'auto' ? 'Auto-recording video — ' : ''}Stop and download ${recordFormat.toUpperCase()}` : `Record canvas as ${recordFormat.toUpperCase()}`} aria-label={isProcessing ? 'Processing video' : isRecording ? 'Stop recording' : 'Start recording'} onClick={isRecording ? stopRecording : startRecording} disabled={isProcessing}>
                   <Icon name={isProcessing ? 'hourglass_empty' : isRecording ? 'stop' : 'videocam'} className={iconSm} />
                 </IconButton>
-              </SegmentedControl>
+              </div>
               <label className={btnGhost + ' cursor-pointer'}>
                 <Icon name="upload_file" className={iconMd} />
                 <span>Pick media</span>

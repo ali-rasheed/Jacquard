@@ -7,6 +7,7 @@ import { useRef, useState, useEffect, useCallback } from 'react';
 import { HalftoneCmyk } from '@paper-design/shaders-react';
 import { ShaderCanvas } from './ShaderCanvas';
 import { RECT_ASPECT_DEFAULT } from '../constants';
+import { WEAVING_URL_DEFAULTS } from '../urlDefaults';
 
 const CAPTURE_THROTTLE_MS = 120; // ~8 fps when shimmer is animating
 const WEB_GL_ATTRS = { preserveDrawingBuffer: true };
@@ -43,17 +44,18 @@ export function WeavingHalftoneStage({
   shimmerBlendMode,
   useAllColorways,
   colorwaySeed,
-  colorwayNoiseScale = 1,
-  colorwayNoiseMode = 0,
-  colorwayNoiseOctaves = 3,
-  colorwayNoisePersistence = 0.5,
-  colorwayNoiseLacunarity = 2,
-  colorwayNoiseBias = 1,
-  colorwayBleedAnisotropy = 3,
-  colorwayBleedRotation = 0,
-  colorwayBleedCrossFiber = 0.2,
-  colorwayBleedDraftCoupled = false,
-  colorwayIncludeMask = 31,
+  colorwayNoiseScale = WEAVING_URL_DEFAULTS.colorwayNoiseScale,
+  colorwayNoiseMode = WEAVING_URL_DEFAULTS.colorwayNoiseMode,
+  colorwayNoiseOctaves = WEAVING_URL_DEFAULTS.colorwayNoiseOctaves,
+  colorwayNoisePersistence = WEAVING_URL_DEFAULTS.colorwayNoisePersistence,
+  colorwayNoiseLacunarity = WEAVING_URL_DEFAULTS.colorwayNoiseLacunarity,
+  colorwayNoiseBias = WEAVING_URL_DEFAULTS.colorwayNoiseBias,
+  colorwayNoiseZ = WEAVING_URL_DEFAULTS.colorwayNoiseZ,
+  colorwayBleedAnisotropy = WEAVING_URL_DEFAULTS.colorwayBleedAnisotropy,
+  colorwayBleedRotation = WEAVING_URL_DEFAULTS.colorwayBleedRotation,
+  colorwayBleedCrossFiber = WEAVING_URL_DEFAULTS.colorwayBleedCrossFiber,
+  colorwayBleedDraftCoupled = WEAVING_URL_DEFAULTS.colorwayBleedDraftCoupled,
+  colorwayIncludeMask = WEAVING_URL_DEFAULTS.colorwayIncludeMask,
   // Halftone params
   size,
   softness,
@@ -119,6 +121,7 @@ export function WeavingHalftoneStage({
     colorwayNoisePersistence,
     colorwayNoiseLacunarity,
     colorwayNoiseBias,
+    colorwayNoiseZ,
     colorwayBleedAnisotropy,
     colorwayBleedRotation,
     colorwayBleedCrossFiber,
@@ -259,6 +262,7 @@ export function WeavingHalftoneStage({
           colorwayNoisePersistence={colorwayNoisePersistence}
           colorwayNoiseLacunarity={colorwayNoiseLacunarity}
           colorwayNoiseBias={colorwayNoiseBias}
+          colorwayNoiseZ={colorwayNoiseZ}
           colorwayBleedAnisotropy={colorwayBleedAnisotropy}
           colorwayBleedRotation={colorwayBleedRotation}
           colorwayBleedCrossFiber={colorwayBleedCrossFiber}

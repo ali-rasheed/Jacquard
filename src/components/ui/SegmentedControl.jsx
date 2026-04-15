@@ -1,6 +1,7 @@
 /**
  * Wrapper and button for scale/format toggles (copy scale, export scale, record format).
  * SegmentedControlButton uses segmentedControlBtn + segmentedControlBtnActive; set format for uppercase labels (PNG/WebP).
+ * The shell uses overflow-hidden for outer rounding — do not nest circular IconButtons inside; place them in a sibling flex group.
  */
 import {
   segmentedControl,

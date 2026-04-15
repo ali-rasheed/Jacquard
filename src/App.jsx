@@ -152,6 +152,7 @@ const COLORWAY_ANIM_INITIAL = {
   persistence: false,
   lacunarity: false,
   bias: false,
+  noiseZ: false,
   bleedAnisotropy: false,
   bleedRotation: false,
   bleedCrossFiber: false,
@@ -223,6 +224,7 @@ function parseUrlState(search) {
   num('cnp', 'colorwayNoisePersistence', 0.15, 0.95);
   num('cnl', 'colorwayNoiseLacunarity', 1.05, 4);
   num('cnbb', 'colorwayNoiseBias', 0.25, 4);
+  num('cnz', 'colorwayNoiseZ', -500, 500);
   num('cba', 'colorwayBleedAnisotropy', 0.35, 12);
   num('cbr', 'colorwayBleedRotation', 0, 1);
   num('cbx', 'colorwayBleedCrossFiber', 0, 1);
@@ -369,6 +371,7 @@ function buildUrlState(state) {
   if (state.colorwayNoisePersistence !== def.colorwayNoisePersistence) p.set('cnp', String(Number(state.colorwayNoisePersistence.toFixed(2))));
   if (state.colorwayNoiseLacunarity !== def.colorwayNoiseLacunarity) p.set('cnl', String(Number(state.colorwayNoiseLacunarity.toFixed(2))));
   if (state.colorwayNoiseBias !== def.colorwayNoiseBias) p.set('cnbb', String(Number(state.colorwayNoiseBias.toFixed(2))));
+  if (state.colorwayNoiseZ !== def.colorwayNoiseZ) p.set('cnz', String(Number(state.colorwayNoiseZ.toFixed(2))));
   if (state.colorwayBleedAnisotropy !== def.colorwayBleedAnisotropy) p.set('cba', String(Number(state.colorwayBleedAnisotropy.toFixed(2))));
   if (state.colorwayBleedRotation !== def.colorwayBleedRotation) p.set('cbr', String(Number(state.colorwayBleedRotation.toFixed(3))));
   if (state.colorwayBleedCrossFiber !== def.colorwayBleedCrossFiber) p.set('cbx', String(Number(state.colorwayBleedCrossFiber.toFixed(2))));
@@ -477,6 +480,7 @@ export default function App() {
   const [colorwayNoisePersistence, setColorwayNoisePersistence] = useState(WEAVING_URL_DEFAULTS.colorwayNoisePersistence);
   const [colorwayNoiseLacunarity, setColorwayNoiseLacunarity] = useState(WEAVING_URL_DEFAULTS.colorwayNoiseLacunarity);
   const [colorwayNoiseBias, setColorwayNoiseBias] = useState(WEAVING_URL_DEFAULTS.colorwayNoiseBias);
+  const [colorwayNoiseZ, setColorwayNoiseZ] = useState(WEAVING_URL_DEFAULTS.colorwayNoiseZ);
   const [colorwayBleedAnisotropy, setColorwayBleedAnisotropy] = useState(WEAVING_URL_DEFAULTS.colorwayBleedAnisotropy);
   const [colorwayBleedRotation, setColorwayBleedRotation] = useState(WEAVING_URL_DEFAULTS.colorwayBleedRotation);
   const [colorwayBleedCrossFiber, setColorwayBleedCrossFiber] = useState(WEAVING_URL_DEFAULTS.colorwayBleedCrossFiber);
@@ -500,6 +504,7 @@ export default function App() {
     persistence: colorwayNoisePersistence,
     lacunarity: colorwayNoiseLacunarity,
     bias: colorwayNoiseBias,
+    noiseZ: colorwayNoiseZ,
     bleedAnisotropy: colorwayBleedAnisotropy,
     bleedRotation: colorwayBleedRotation,
     bleedCrossFiber: colorwayBleedCrossFiber,
@@ -666,6 +671,7 @@ export default function App() {
     if (q.colorwayNoisePersistence != null) setColorwayNoisePersistence(q.colorwayNoisePersistence);
     if (q.colorwayNoiseLacunarity != null) setColorwayNoiseLacunarity(q.colorwayNoiseLacunarity);
     if (q.colorwayNoiseBias != null) setColorwayNoiseBias(q.colorwayNoiseBias);
+    if (q.colorwayNoiseZ != null) setColorwayNoiseZ(q.colorwayNoiseZ);
     if (q.colorwayBleedAnisotropy != null) setColorwayBleedAnisotropy(q.colorwayBleedAnisotropy);
     if (q.colorwayBleedRotation != null) setColorwayBleedRotation(snapColorwayBleedRotation(q.colorwayBleedRotation));
     if (q.colorwayBleedCrossFiber != null) setColorwayBleedCrossFiber(q.colorwayBleedCrossFiber);
@@ -729,7 +735,7 @@ export default function App() {
       const search = buildUrlState({
         view, weaveHalftoneOn, menuHidden, presetIndex, pattern, palette, bgShade, warpShade, weftShade, gridSize,
         warpGradient, weftGradient, gradSteps, rectAspect, cornerRadius, canvasAspect, patternFit, copyFormat, copyScale,
-        useAllColorways, colorwaySeed, colorwayNoiseScale, colorwayNoiseMode, colorwayNoiseOctaves, colorwayNoisePersistence, colorwayNoiseLacunarity, colorwayNoiseBias, colorwayBleedAnisotropy, colorwayBleedRotation, colorwayBleedCrossFiber, colorwayBleedDraftCoupled, colorwayIncludeMask, shimmer, shimmerSpeed, shimmerWidth, shimmerIntensity, shimmerPosition, shimmerRotation, shimmerNoise, shimmerNoiseSeed, shimmerNoiseMin, shimmerNoiseMax, shimmerBlendMode,
+        useAllColorways, colorwaySeed, colorwayNoiseScale, colorwayNoiseMode, colorwayNoiseOctaves, colorwayNoisePersistence, colorwayNoiseLacunarity, colorwayNoiseBias, colorwayNoiseZ, colorwayBleedAnisotropy, colorwayBleedRotation, colorwayBleedCrossFiber, colorwayBleedDraftCoupled, colorwayIncludeMask, shimmer, shimmerSpeed, shimmerWidth, shimmerIntensity, shimmerPosition, shimmerRotation, shimmerNoise, shimmerNoiseSeed, shimmerNoiseMin, shimmerNoiseMax, shimmerBlendMode,
         halftonePresetIndex, halftoneSize, halftoneSoftness, halftoneGridNoise, halftoneContrast, halftoneType,
         halftoneColorBack, halftoneColorC, halftoneColorM, halftoneColorY, halftoneColorK, halftoneFloodC, halftoneGainC, halftoneGainY,
         comboGridSize, comboPalette, comboBgShade, comboRectColorSource, comboQuantizeSteps, comboQuantizeMode, comboQuantizeGamma, comboQuantizeDither, comboPatternIndex, comboPatternWarpShade, comboPatternWeftShade, comboLumaSizeMix, comboLumaSizeInvert, comboLumaSizeFloor, comboCellGeometryMode, comboStitchLumaMax, comboRectRadius, comboRectAspect, comboRectRatio,
@@ -740,7 +746,7 @@ export default function App() {
       }
     }, 400);
     return () => { clearTimeout(urlSyncTimeoutRef.current); };
-  }, [view, weaveHalftoneOn, menuHidden, presetIndex, pattern, palette, bgShade, warpShade, weftShade, gridSize, warpGradient, weftGradient, gradSteps, rectAspect, cornerRadius, canvasAspect, patternFit, copyFormat, copyScale, useAllColorways, colorwaySeed, colorwayNoiseScale, colorwayNoiseMode, colorwayNoiseOctaves, colorwayNoisePersistence, colorwayNoiseLacunarity, colorwayNoiseBias, colorwayBleedAnisotropy, colorwayBleedRotation, colorwayBleedCrossFiber, colorwayBleedDraftCoupled, colorwayIncludeMask, shimmer, shimmerSpeed, shimmerWidth, shimmerIntensity, shimmerPosition, shimmerRotation, shimmerNoise, shimmerNoiseSeed, shimmerNoiseMin, shimmerNoiseMax, shimmerBlendMode, halftonePresetIndex, halftoneSize, halftoneSoftness, halftoneGridNoise, halftoneContrast, halftoneType, halftoneColorBack, halftoneColorC, halftoneColorM, halftoneColorY, halftoneColorK, halftoneFloodC, halftoneGainC, halftoneGainY, comboGridSize, comboPalette, comboBgShade, comboRectColorSource, comboQuantizeSteps, comboQuantizeMode, comboQuantizeGamma, comboQuantizeDither, comboPatternIndex, comboPatternWarpShade, comboPatternWeftShade, comboLumaSizeMix, comboLumaSizeInvert, comboLumaSizeFloor, comboCellGeometryMode, comboStitchLumaMax, comboRectRadius, comboRectAspect, comboRectRatio]);
+  }, [view, weaveHalftoneOn, menuHidden, presetIndex, pattern, palette, bgShade, warpShade, weftShade, gridSize, warpGradient, weftGradient, gradSteps, rectAspect, cornerRadius, canvasAspect, patternFit, copyFormat, copyScale, useAllColorways, colorwaySeed, colorwayNoiseScale, colorwayNoiseMode, colorwayNoiseOctaves, colorwayNoisePersistence, colorwayNoiseLacunarity, colorwayNoiseBias, colorwayNoiseZ, colorwayBleedAnisotropy, colorwayBleedRotation, colorwayBleedCrossFiber, colorwayBleedDraftCoupled, colorwayIncludeMask, shimmer, shimmerSpeed, shimmerWidth, shimmerIntensity, shimmerPosition, shimmerRotation, shimmerNoise, shimmerNoiseSeed, shimmerNoiseMin, shimmerNoiseMax, shimmerBlendMode, halftonePresetIndex, halftoneSize, halftoneSoftness, halftoneGridNoise, halftoneContrast, halftoneType, halftoneColorBack, halftoneColorC, halftoneColorM, halftoneColorY, halftoneColorK, halftoneFloodC, halftoneGainC, halftoneGainY, comboGridSize, comboPalette, comboBgShade, comboRectColorSource, comboQuantizeSteps, comboQuantizeMode, comboQuantizeGamma, comboQuantizeDither, comboPatternIndex, comboPatternWarpShade, comboPatternWeftShade, comboLumaSizeMix, comboLumaSizeInvert, comboLumaSizeFloor, comboCellGeometryMode, comboStitchLumaMax, comboRectRadius, comboRectAspect, comboRectRatio]);
 
   /** Auto-animate colorway params from captured slider origins; each loop repeats (see `colorwayAnimMetaRef`). */
   useEffect(() => {
@@ -790,6 +796,10 @@ export default function App() {
       if (p.bias && meta.bias) {
         const t = now - meta.bias.startMs;
         setColorwayNoiseBias(colorwayOscFromOrigin(t, 44000, 0.25, 4, meta.bias.origin));
+      }
+      if (p.noiseZ && meta.noiseZ) {
+        const t = now - meta.noiseZ.startMs;
+        setColorwayNoiseZ(colorwayOscFromOrigin(t, 54000, -220, 220, meta.noiseZ.origin));
       }
       if (p.bleedAnisotropy && meta.bleedAnisotropy) {
         const t = now - meta.bleedAnisotropy.startMs;
@@ -1083,6 +1093,7 @@ export default function App() {
     setColorwayNoisePersistence(WEAVING_URL_DEFAULTS.colorwayNoisePersistence);
     setColorwayNoiseLacunarity(WEAVING_URL_DEFAULTS.colorwayNoiseLacunarity);
     setColorwayNoiseBias(WEAVING_URL_DEFAULTS.colorwayNoiseBias);
+    setColorwayNoiseZ(WEAVING_URL_DEFAULTS.colorwayNoiseZ);
     setColorwayBleedAnisotropy(WEAVING_URL_DEFAULTS.colorwayBleedAnisotropy);
     setColorwayBleedRotation(WEAVING_URL_DEFAULTS.colorwayBleedRotation);
     setColorwayBleedCrossFiber(WEAVING_URL_DEFAULTS.colorwayBleedCrossFiber);
@@ -1336,169 +1347,193 @@ export default function App() {
                   <Icon name="shuffle" className={iconMd} />
                   <span>Randomize</span>
                 </button>
-                <SegmentedControl>
-                  <div className="flex h-full">
-                    {COPY_SCALES.map((s) => (
-                      <SegmentedControlButton
-                        key={s}
-                        active={copyScale === s}
-                        aria-pressed={copyScale === s}
-                        aria-label={`Copy resolution: ${s}×`}
-                        onClick={() => setCopyScale(s)}
-                      >
-                        {s}×
-                      </SegmentedControlButton>
-                    ))}
-                  </div>
-                  <div className="flex h-full">
-                    {['png', 'webp'].map((fmt) => (
-                      <SegmentedControlButton
-                        key={fmt}
-                        format
-                        active={copyFormat === fmt}
-                        aria-pressed={copyFormat === fmt}
-                        aria-label={`Format: ${fmt}`}
-                        onClick={() => setCopyFormat(fmt)}
-                      >
-                        {fmt}
-                      </SegmentedControlButton>
-                    ))}
-                  </div>
-                  <IconButton
-                    size="sm"
-                    title={`Copy canvas at ${copyScale}× as ${copyFormat.toUpperCase()}`}
-                    aria-label={`Copy ${copyFormat.toUpperCase()}`}
-                    onClick={handleCopy}
-                  >
-                    <Icon name="content_copy" className={iconSm} />
-                  </IconButton>
-                  {(copyScale !== WEAVING_URL_DEFAULTS.copyScale || copyFormat !== WEAVING_URL_DEFAULTS.copyFormat) && (
+              </div>
+              <div className="flex flex-col gap-1 border-t border-border-subtle pt-2">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <SegmentedControl>
+                    <div className="flex h-full">
+                      {COPY_SCALES.map((s) => (
+                        <SegmentedControlButton
+                          key={s}
+                          active={copyScale === s}
+                          aria-pressed={copyScale === s}
+                          aria-label={`Copy resolution: ${s}×`}
+                          onClick={() => setCopyScale(s)}
+                        >
+                          {s}×
+                        </SegmentedControlButton>
+                      ))}
+                    </div>
+                    <div className="flex h-full">
+                      {['png', 'webp'].map((fmt) => (
+                        <SegmentedControlButton
+                          key={fmt}
+                          format
+                          active={copyFormat === fmt}
+                          aria-pressed={copyFormat === fmt}
+                          aria-label={`Format: ${fmt}`}
+                          onClick={() => setCopyFormat(fmt)}
+                        >
+                          {fmt}
+                        </SegmentedControlButton>
+                      ))}
+                    </div>
+                  </SegmentedControl>
+                  <div className="inline-flex shrink-0 items-center gap-1" role="group" aria-label="Copy actions">
                     <IconButton
-                      size="resetSm"
-                      title="Reset copy scale and format"
-                      aria-label="Reset copy scale and format"
-                      onClick={() => {
-                        setCopyScale(WEAVING_URL_DEFAULTS.copyScale);
-                        setCopyFormat(WEAVING_URL_DEFAULTS.copyFormat);
-                      }}
+                      size="sm"
+                      title={`Copy canvas at ${copyScale}× as ${copyFormat.toUpperCase()}`}
+                      aria-label={`Copy ${copyFormat.toUpperCase()}`}
+                      onClick={handleCopy}
                     >
-                      <Icon name="restart_alt" className={iconResetGlyph} />
+                      <Icon name="content_copy" className={iconSm} />
                     </IconButton>
-                  )}
+                    {(copyScale !== WEAVING_URL_DEFAULTS.copyScale || copyFormat !== WEAVING_URL_DEFAULTS.copyFormat) && (
+                      <IconButton
+                        size="resetSm"
+                        title="Reset copy scale and format to defaults"
+                        aria-label="Reset copy scale and format to defaults"
+                        onClick={() => {
+                          setCopyScale(WEAVING_URL_DEFAULTS.copyScale);
+                          setCopyFormat(WEAVING_URL_DEFAULTS.copyFormat);
+                        }}
+                      >
+                        <Icon name="restart_alt" className={iconResetGlyph} />
+                      </IconButton>
+                    )}
+                  </div>
                   {copyFeedback && (
                     <span className={`shrink-0 text-xs ${copyFeedback === 'Copied!' ? 'text-accent' : 'text-error'}`} role="status">
                       {copyFeedback}
                     </span>
                   )}
-                </SegmentedControl>
-                <SegmentedControl>
-                  <div className="flex h-full">
-                    {EXPORT_SCALES.map((s) => (
-                      <SegmentedControlButton
-                        key={s}
-                        active={exportScale === s}
-                        aria-pressed={exportScale === s}
-                        aria-label={`Export at ${s}×`}
-                        onClick={() => setExportScale(s)}
-                      >
-                        {s}×
-                      </SegmentedControlButton>
-                    ))}
-                  </div>
-                  <IconButton
-                    size="sm"
-                    title={`Export PNG at ${exportScale}× (download)`}
-                    aria-label="Export PNG"
-                    onClick={handleExport}
-                  >
-                    <Icon name="file_download" className={iconSm} />
-                  </IconButton>
-                  {exportScale !== WEAVING_URL_DEFAULTS.exportScale && (
+                </div>
+              </div>
+              <div className="flex flex-col gap-1 border-t border-border-subtle pt-2">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <SegmentedControl>
+                    <div className="flex h-full">
+                      {EXPORT_SCALES.map((s) => (
+                        <SegmentedControlButton
+                          key={s}
+                          active={exportScale === s}
+                          aria-pressed={exportScale === s}
+                          aria-label={`Export at ${s}×`}
+                          onClick={() => setExportScale(s)}
+                        >
+                          {s}×
+                        </SegmentedControlButton>
+                      ))}
+                    </div>
+                  </SegmentedControl>
+                  <div className="inline-flex shrink-0 items-center gap-1" role="group" aria-label="PNG download actions">
                     <IconButton
-                      size="resetSm"
-                      title="Reset export scale"
-                      aria-label="Reset export scale"
-                      onClick={() => setExportScale(WEAVING_URL_DEFAULTS.exportScale)}
+                      size="sm"
+                      title={`Export PNG at ${exportScale}× (download)`}
+                      aria-label="Export PNG"
+                      onClick={handleExport}
                     >
-                      <Icon name="restart_alt" className={iconResetGlyph} />
+                      <Icon name="file_download" className={iconSm} />
                     </IconButton>
-                  )}
+                    {exportScale !== WEAVING_URL_DEFAULTS.exportScale && (
+                      <IconButton
+                        size="resetSm"
+                        title="Reset export scale to default"
+                        aria-label="Reset export scale to default"
+                        onClick={() => setExportScale(WEAVING_URL_DEFAULTS.exportScale)}
+                      >
+                        <Icon name="restart_alt" className={iconResetGlyph} />
+                      </IconButton>
+                    )}
+                  </div>
                   {exportFeedback && (
                     <span className={`shrink-0 text-xs ${exportFeedback === 'Exported!' ? 'text-accent' : 'text-error'}`} role="status">
                       {exportFeedback}
                     </span>
                   )}
-                </SegmentedControl>
-                <SegmentedControl>
-                  <div className="flex h-full">
-                    {(supportsMP4 ? ['mp4', 'webm'] : ['webm']).map((fmt) => (
-                      <SegmentedControlButton
-                        key={fmt}
-                        format
-                        active={recordFormat === fmt}
-                        aria-pressed={recordFormat === fmt}
-                        aria-label={`Record format: ${fmt}`}
-                        onClick={() => setRecordFormat(fmt)}
-                        disabled={isRecording}
-                      >
-                        {fmt}
-                      </SegmentedControlButton>
-                    ))}
-                  </div>
-                  <IconButton
-                    size="sm"
-                    variant={isRecording || isProcessing ? 'danger' : 'default'}
-                    title={isProcessing ? 'Processing…' : isRecording ? `Stop and download ${recordFormat.toUpperCase()}` : `Record canvas as ${recordFormat.toUpperCase()}`}
-                    aria-label={isProcessing ? 'Processing video' : isRecording ? 'Stop recording' : 'Start recording'}
-                    onClick={isRecording ? stopRecording : startRecording}
-                    disabled={isProcessing}
-                  >
-                    <Icon name={isProcessing ? 'hourglass_empty' : isRecording ? 'stop' : 'videocam'} className={iconSm} />
-                  </IconButton>
-                </SegmentedControl>
-                {view === 'weaving' && weaveHalftoneOn && (
-                  <>
-                    <label className={`${btnGhost} cursor-pointer`}>
-                      <Icon name="upload_file" className={iconMd} />
-                      <span>Image from desktop</span>
-                      <input
-                        type="file"
-                        accept="image/*"
-                        className="sr-only"
-                        onChange={handleHalftoneCustomImageFile}
-                        aria-label="Pick an image from your computer"
-                      />
-                    </label>
-                    {halftoneCustomImageUrl && (
-                      <button
-                        type="button"
-                        className={btnGhost}
-                        onClick={() => {
-                          if (halftoneCustomImageUrl) URL.revokeObjectURL(halftoneCustomImageUrl);
-                          setHalftoneCustomImageUrl('');
-                        }}
-                        aria-label="Use weaving as source"
-                      >
-                        <Icon name="refresh" className={iconMd} />
-                        <span>Use weaving</span>
-                      </button>
-                    )}
-                  </>
-                )}
-                {view === 'imageRectsHalftone' && (
-                  <label className={`${btnGhost} cursor-pointer`}>
-                    <Icon name="upload_file" className={iconMd} />
-                    <span>Image from desktop</span>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      className="sr-only"
-                      onChange={handleComboImageFile}
-                      aria-label="Pick an image from your computer for Print mosaic"
-                    />
-                  </label>
-                )}
+                </div>
               </div>
+              <div className="flex flex-col gap-1 border-t border-border-subtle pt-2">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <SegmentedControl>
+                    <div className="flex h-full">
+                      {(supportsMP4 ? ['mp4', 'webm'] : ['webm']).map((fmt) => (
+                        <SegmentedControlButton
+                          key={fmt}
+                          format
+                          active={recordFormat === fmt}
+                          aria-pressed={recordFormat === fmt}
+                          aria-label={`Record format: ${fmt}`}
+                          onClick={() => setRecordFormat(fmt)}
+                          disabled={isRecording}
+                        >
+                          {fmt}
+                        </SegmentedControlButton>
+                      ))}
+                    </div>
+                  </SegmentedControl>
+                  <div className="inline-flex shrink-0 items-center gap-1" role="group" aria-label="Recording control">
+                    <IconButton
+                      size="sm"
+                      variant={isRecording || isProcessing ? 'danger' : 'default'}
+                      title={isProcessing ? 'Processing…' : isRecording ? `Stop and download ${recordFormat.toUpperCase()}` : `Record canvas as ${recordFormat.toUpperCase()}`}
+                      aria-label={isProcessing ? 'Processing video' : isRecording ? 'Stop recording' : 'Start recording'}
+                      onClick={isRecording ? stopRecording : startRecording}
+                      disabled={isProcessing}
+                    >
+                      <Icon name={isProcessing ? 'hourglass_empty' : isRecording ? 'stop' : 'videocam'} className={iconSm} />
+                    </IconButton>
+                  </div>
+                </div>
+              </div>
+              {(view === 'weaving' && weaveHalftoneOn) || view === 'imageRectsHalftone' ? (
+                <div className="flex flex-col gap-1 border-t border-border-subtle pt-2">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {view === 'weaving' && weaveHalftoneOn && (
+                      <>
+                        <label className={`${btnGhost} cursor-pointer`}>
+                          <Icon name="upload_file" className={iconMd} />
+                          <span>Image from desktop</span>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            className="sr-only"
+                            onChange={handleHalftoneCustomImageFile}
+                            aria-label="Pick an image from your computer"
+                          />
+                        </label>
+                        {halftoneCustomImageUrl && (
+                          <button
+                            type="button"
+                            className={btnGhost}
+                            onClick={() => {
+                              if (halftoneCustomImageUrl) URL.revokeObjectURL(halftoneCustomImageUrl);
+                              setHalftoneCustomImageUrl('');
+                            }}
+                            aria-label="Use weaving as source"
+                          >
+                            <Icon name="refresh" className={iconMd} />
+                            <span>Use weaving</span>
+                          </button>
+                        )}
+                      </>
+                    )}
+                    {view === 'imageRectsHalftone' && (
+                      <label className={`${btnGhost} cursor-pointer`}>
+                        <Icon name="upload_file" className={iconMd} />
+                        <span>Image from desktop</span>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="sr-only"
+                          onChange={handleComboImageFile}
+                          aria-label="Pick an image from your computer for Print mosaic"
+                        />
+                      </label>
+                    )}
+                  </div>
+                </div>
+              ) : null}
             </div>
             {view === 'imageRectsHalftone' && (
               <>
@@ -2232,6 +2267,29 @@ export default function App() {
                             labelPause="Pause colorway seed animation"
                           />
                         </div>
+                        <div className="flex w-full flex-col gap-1.5">
+                          <div className="flex items-center justify-between gap-2">
+                            <Label.Root className={typeLabel} htmlFor="colorway-noise-z">Noise Z</Label.Root>
+                            <ColorwayAnimPlayBtn
+                              active={colorwayAnimPlaying.noiseZ}
+                              onToggle={() => setColorwayAnimPlaying((x) => ({ ...x, noiseZ: !x.noiseZ }))}
+                              labelPlay="Play: oscillate noise Z translation"
+                              labelPause="Pause noise Z animation"
+                            />
+                          </div>
+                          <SliderWithInput
+                            id="colorway-noise-z"
+                            value={colorwayNoiseZ}
+                            onValueChange={setColorwayNoiseZ}
+                            min={-250}
+                            max={250}
+                            step={0.5}
+                            format={(n) => n.toFixed(1)}
+                            aria-label="Colorway noise Z (third dimension; animates pattern drift)"
+                            defaultValue={WEAVING_URL_DEFAULTS.colorwayNoiseZ}
+                            onReset={() => setColorwayNoiseZ(WEAVING_URL_DEFAULTS.colorwayNoiseZ)}
+                          />
+                        </div>
                         {colorwayNoiseMode === 1 && (
                           <div className="flex w-full flex-col gap-2 border-t border-border-subtle pt-2">
                             <div className="flex flex-col gap-1">
@@ -2541,6 +2599,7 @@ export default function App() {
                 colorwayNoisePersistence={colorwayNoisePersistence}
                 colorwayNoiseLacunarity={colorwayNoiseLacunarity}
                 colorwayNoiseBias={colorwayNoiseBias}
+                colorwayNoiseZ={colorwayNoiseZ}
                 colorwayBleedAnisotropy={colorwayBleedAnisotropy}
                 colorwayBleedRotation={colorwayBleedRotation}
                 colorwayBleedCrossFiber={colorwayBleedCrossFiber}
@@ -2644,6 +2703,7 @@ export default function App() {
                     colorwayNoisePersistence={colorwayNoisePersistence}
                     colorwayNoiseLacunarity={colorwayNoiseLacunarity}
                     colorwayNoiseBias={colorwayNoiseBias}
+                    colorwayNoiseZ={colorwayNoiseZ}
                     colorwayBleedAnisotropy={colorwayBleedAnisotropy}
                     colorwayBleedRotation={colorwayBleedRotation}
                     colorwayBleedCrossFiber={colorwayBleedCrossFiber}

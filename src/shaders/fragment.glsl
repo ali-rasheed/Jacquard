@@ -58,6 +58,7 @@ uniform float u_colorwayNoiseOctaves;    // 1–4
 uniform float u_colorwayNoisePersistence;
 uniform float u_colorwayNoiseLacunarity;
 uniform float u_colorwayNoiseBias;       // pow exponent on 0..1 before quantize (1 = linear)
+uniform float u_colorwayNoiseZ;          // third axis through gradient noise (FBM octaves scale Z); hash mode uses XY slice offset
 uniform float u_colorwayBleedAnisotropy; // >=1 stretch one axis (bleed along thread)
 uniform float u_colorwayBleedRotation;   // 0–1 → full turn (mode 2, non–draft-coupled)
 uniform float u_colorwayBleedCrossFiber; // 0–1 mix isotropic FBM
@@ -181,22 +182,22 @@ float hash(vec2 p) {
   return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
 }
 
-// vec2 hash for gradient noise (modes 1–2); separate from float hash to avoid correlation artifacts.
-vec2 colorwayHash22(vec2 p) {
-  vec3 p3 = fract(vec3(p.xyx) * vec3(0.1031, 0.1030, 0.0973));
+// vec2 hash for gradient noise (modes 1–2); z slides through a 3D lattice (animate u_colorwayNoiseZ).
+vec2 colorwayHash22(vec2 lattice, float z) {
+  vec3 p3 = fract(vec3(lattice.xy, z) * vec3(0.1031, 0.1030, 0.0973));
   p3 += dot(p3, p3.yzx + 33.33);
   return fract((p3.xx + p3.yz) * p3.zy);
 }
 
-// 2D gradient noise → ~0..1 for FBM stacking.
-float colorwayPerlin01(vec2 p) {
+// 2D gradient noise → ~0..1 for FBM stacking (z constant per octave sample; scaled in FBM).
+float colorwayPerlin01(vec2 p, float z) {
   vec2 i = floor(p);
   vec2 f = fract(p);
   vec2 u = f * f * (3.0 - 2.0 * f);
-  vec2 g00 = colorwayHash22(i + vec2(0.0, 0.0)) * 2.0 - 1.0;
-  vec2 g10 = colorwayHash22(i + vec2(1.0, 0.0)) * 2.0 - 1.0;
-  vec2 g01 = colorwayHash22(i + vec2(0.0, 1.0)) * 2.0 - 1.0;
-  vec2 g11 = colorwayHash22(i + vec2(1.0, 1.0)) * 2.0 - 1.0;
+  vec2 g00 = colorwayHash22(i + vec2(0.0, 0.0), z) * 2.0 - 1.0;
+  vec2 g10 = colorwayHash22(i + vec2(1.0, 0.0), z) * 2.0 - 1.0;
+  vec2 g01 = colorwayHash22(i + vec2(0.0, 1.0), z) * 2.0 - 1.0;
+  vec2 g11 = colorwayHash22(i + vec2(1.0, 1.0), z) * 2.0 - 1.0;
   float n00 = dot(g00, f - vec2(0.0, 0.0));
   float n10 = dot(g10, f - vec2(1.0, 0.0));
   float n01 = dot(g01, f - vec2(0.0, 1.0));
@@ -208,7 +209,7 @@ float colorwayPerlin01(vec2 p) {
 }
 
 // Fractal Brownian motion; octaves 1–4 (fixed loop count for WebGL1 portability).
-float colorwayFbm(vec2 p) {
+float colorwayFbm(vec2 p, float z) {
   float per = clamp(u_colorwayNoisePersistence, 0.15, 0.95);
   float lac = clamp(u_colorwayNoiseLacunarity, 1.05, 4.0);
   float oct = clamp(floor(u_colorwayNoiseOctaves + 0.01), 1.0, 4.0);
@@ -219,7 +220,7 @@ float colorwayFbm(vec2 p) {
   for (int i = 0; i < 4; i++) {
     float fi = float(i);
     float w = step(fi + 0.5, oct);
-    sum += w * amp * colorwayPerlin01(p * freq);
+    sum += w * amp * colorwayPerlin01(p * freq, z * freq);
     norm += w * amp;
     amp *= per;
     freq *= lac;
@@ -318,12 +319,13 @@ void main() {
       float cellPalette;
       float mode = u_colorwayNoiseMode;
       if (mode < 0.5) {
-        // Mode 0: hash; with all five included, matches legacy mod(floor(h*5),5).
-        cellPalette = colorwayPickFromU(hash(cellID * scale + vec2(u_colorwaySeed, 0.0)));
+        // Mode 0: hash; z translates the 2D slice (z=0 matches legacy h(cellID*scale + vec2(seed,0))).
+        vec2 zOff = u_colorwayNoiseZ * vec2(0.61803398875, 0.38196601125);
+        cellPalette = colorwayPickFromU(hash(cellID * scale + vec2(u_colorwaySeed, 0.0) + zOff));
       } else if (mode < 1.5) {
         // Mode 1: isotropic smooth noise + FBM.
         vec2 p = cellID.xy * scale + seedOff;
-        cellPalette = colorwayQuantize(colorwayFbm(p));
+        cellPalette = colorwayQuantize(colorwayFbm(p, u_colorwayNoiseZ));
       } else {
         // Mode 2: dye bleed — elongated runs + optional draft coupling + cross-fiber mix.
         float ani = max(0.35, min(12.0, u_colorwayBleedAnisotropy));
@@ -332,15 +334,15 @@ void main() {
         float si = sin(ang);
         vec2 rc = vec2(co * cellID.x - si * cellID.y, si * cellID.x + co * cellID.y);
         vec2 pRot = vec2(rc.x * ani, rc.y / ani) * scale + seedOff;
-        float tStrip = colorwayFbm(pRot);
+        float tStrip = colorwayFbm(pRot, u_colorwayNoiseZ);
         vec2 pH = vec2(cellID.x * ani, cellID.y / ani) * scale + seedOff;
         vec2 pV = vec2(cellID.x / ani, cellID.y * ani) * scale + seedOff;
-        float tH = colorwayFbm(pH);
-        float tV = colorwayFbm(pV);
+        float tH = colorwayFbm(pH, u_colorwayNoiseZ);
+        float tV = colorwayFbm(pV, u_colorwayNoiseZ);
         float tMix = mix(tH, tV, isWeft);
         float tDraft = u_colorwayBleedDraftCoupled > 0.5 ? tMix : tStrip;
         vec2 pIso = cellID.xy * scale + seedOff + vec2(17.13, 23.71);
-        float tIso = colorwayFbm(pIso);
+        float tIso = colorwayFbm(pIso, u_colorwayNoiseZ);
         float xf = clamp(u_colorwayBleedCrossFiber, 0.0, 1.0);
         float tBleed = mix(tDraft, tIso, xf);
         cellPalette = colorwayQuantize(tBleed);

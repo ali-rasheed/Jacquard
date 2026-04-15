@@ -55,6 +55,7 @@ function parseUrlState(search) {
   num('cnp', 'colorwayNoisePersistence', 0.15, 0.95);
   num('cnl', 'colorwayNoiseLacunarity', 1.05, 4);
   num('cnbb', 'colorwayNoiseBias', 0.25, 4);
+  num('cnz', 'colorwayNoiseZ', -500, 500);
   num('cba', 'colorwayBleedAnisotropy', 0.35, 12);
   num('cbr', 'colorwayBleedRotation', 0, 1);
   num('cbx', 'colorwayBleedCrossFiber', 0, 1);
@@ -121,7 +122,7 @@ function buildPreset(q) {
   const extended = [
     'gridSize', 'gradSteps', 'rectAspect', 'cornerRadius', 'canvasAspect',
     'useAllColorways', 'colorwaySeed', 'colorwayNoiseScale', 'colorwayNoiseMode', 'colorwayNoiseOctaves',
-    'colorwayNoisePersistence', 'colorwayNoiseLacunarity', 'colorwayNoiseBias',
+    'colorwayNoisePersistence', 'colorwayNoiseLacunarity', 'colorwayNoiseBias', 'colorwayNoiseZ',
     'colorwayBleedAnisotropy', 'colorwayBleedRotation', 'colorwayBleedCrossFiber', 'colorwayBleedDraftCoupled', 'colorwayIncludeMask',
     'shimmer', 'shimmerSpeed', 'shimmerWidth',
     'shimmerIntensity', 'shimmerPosition', 'shimmerRotation', 'shimmerNoise',
@@ -165,7 +166,7 @@ function presetToJs(preset) {
     `    warpGradient: { startShade: ${preset.warpGradient.startShade}, endShade: ${preset.warpGradient.endShade}, direction: ${preset.warpGradient.direction}, range: [${preset.warpGradient.range.join(', ')}] },`,
     `    weftGradient: { startShade: ${preset.weftGradient.startShade}, endShade: ${preset.weftGradient.endShade}, direction: ${preset.weftGradient.direction}, range: [${preset.weftGradient.range.join(', ')}] },`,
   ];
-  const optional = ['gridSize', 'gradSteps', 'rectAspect', 'cornerRadius', 'canvasAspect', 'useAllColorways', 'colorwaySeed', 'colorwayNoiseScale', 'colorwayNoiseMode', 'colorwayNoiseOctaves', 'colorwayNoisePersistence', 'colorwayNoiseLacunarity', 'colorwayNoiseBias', 'colorwayBleedAnisotropy', 'colorwayBleedRotation', 'colorwayBleedCrossFiber', 'colorwayBleedDraftCoupled', 'colorwayIncludeMask', 'shimmer', 'shimmerSpeed', 'shimmerWidth', 'shimmerIntensity', 'shimmerPosition', 'shimmerRotation', 'shimmerNoise', 'shimmerNoiseSeed', 'shimmerNoiseMin', 'shimmerNoiseMax', 'shimmerBlendMode'];
+  const optional = ['gridSize', 'gradSteps', 'rectAspect', 'cornerRadius', 'canvasAspect', 'useAllColorways', 'colorwaySeed', 'colorwayNoiseScale', 'colorwayNoiseMode', 'colorwayNoiseOctaves', 'colorwayNoisePersistence', 'colorwayNoiseLacunarity', 'colorwayNoiseBias', 'colorwayNoiseZ', 'colorwayBleedAnisotropy', 'colorwayBleedRotation', 'colorwayBleedCrossFiber', 'colorwayBleedDraftCoupled', 'colorwayIncludeMask', 'shimmer', 'shimmerSpeed', 'shimmerWidth', 'shimmerIntensity', 'shimmerPosition', 'shimmerRotation', 'shimmerNoise', 'shimmerNoiseSeed', 'shimmerNoiseMin', 'shimmerNoiseMax', 'shimmerBlendMode'];
   for (const key of optional) {
     if (preset[key] !== undefined)
       lines.push(`    ${key}: ${formatValue(preset[key])},`);

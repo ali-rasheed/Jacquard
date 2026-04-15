@@ -9,13 +9,14 @@ import { useAspectViewportBox } from '../hooks/useAspectViewportBox';
 import fragmentSource from '../shaders/fragment.glsl?raw';
 import vertexSource from '../shaders/vertex.glsl?raw';
 import { RECT_ASPECT_DEFAULT } from '../constants';
+import { WEAVING_URL_DEFAULTS } from '../urlDefaults';
 import { fpsPill } from '../uiConstants';
 
 /**
  * patternFit (layout=stage): 'fill' = cover; 'fit' = contain.
  * layout=embedded: fixed parent box (e.g. offscreen capture) — fills width/height, no viewport math.
  */
-function ShaderCanvasInner({ patternIndex, palette, bgShade, warpShade, weftShade, gridSize, warpGradient, weftGradient, gradSteps, rectAspect, cornerRadius = 0.18, canvasAspect = 1, patternFit = 'fit', layout = 'stage', shimmer = false, shimmerSpeed = 2, shimmerWidth = 2, shimmerIntensity = 0.25, shimmerPosition = 0, shimmerRotation = 0.125, shimmerNoise = 0.3, shimmerNoiseSeed = 0, shimmerNoiseMin = 0.5, shimmerNoiseMax = 1.5, shimmerBlendMode = 0, useAllColorways = false, colorwaySeed = 0, colorwayNoiseScale = 1, colorwayNoiseMode = 0, colorwayNoiseOctaves = 3, colorwayNoisePersistence = 0.5, colorwayNoiseLacunarity = 2, colorwayNoiseBias = 1, colorwayBleedAnisotropy = 3, colorwayBleedRotation = 0, colorwayBleedCrossFiber = 0.2, colorwayBleedDraftCoupled = false, colorwayIncludeMask = 31, shimmerPlaying = true, shimmerPausedAtTime = 0, shimmerPhase = 0, onShimmerTime, patterns, onFpsChange, onCanvasRef, onCaptureReady }) {
+function ShaderCanvasInner({ patternIndex, palette, bgShade, warpShade, weftShade, gridSize, warpGradient, weftGradient, gradSteps, rectAspect, cornerRadius = 0.18, canvasAspect = 1, patternFit = 'fit', layout = 'stage', shimmer = false, shimmerSpeed = 2, shimmerWidth = 2, shimmerIntensity = 0.25, shimmerPosition = 0, shimmerRotation = 0.125, shimmerNoise = 0.3, shimmerNoiseSeed = 0, shimmerNoiseMin = 0.5, shimmerNoiseMax = 1.5, shimmerBlendMode = 0, useAllColorways = WEAVING_URL_DEFAULTS.useAllColorways, colorwaySeed = WEAVING_URL_DEFAULTS.colorwaySeed, colorwayNoiseScale = WEAVING_URL_DEFAULTS.colorwayNoiseScale, colorwayNoiseMode = WEAVING_URL_DEFAULTS.colorwayNoiseMode, colorwayNoiseOctaves = WEAVING_URL_DEFAULTS.colorwayNoiseOctaves, colorwayNoisePersistence = WEAVING_URL_DEFAULTS.colorwayNoisePersistence, colorwayNoiseLacunarity = WEAVING_URL_DEFAULTS.colorwayNoiseLacunarity, colorwayNoiseBias = WEAVING_URL_DEFAULTS.colorwayNoiseBias, colorwayNoiseZ = WEAVING_URL_DEFAULTS.colorwayNoiseZ, colorwayBleedAnisotropy = WEAVING_URL_DEFAULTS.colorwayBleedAnisotropy, colorwayBleedRotation = WEAVING_URL_DEFAULTS.colorwayBleedRotation, colorwayBleedCrossFiber = WEAVING_URL_DEFAULTS.colorwayBleedCrossFiber, colorwayBleedDraftCoupled = WEAVING_URL_DEFAULTS.colorwayBleedDraftCoupled, colorwayIncludeMask = WEAVING_URL_DEFAULTS.colorwayIncludeMask, shimmerPlaying = true, shimmerPausedAtTime = 0, shimmerPhase = 0, onShimmerTime, patterns, onFpsChange, onCanvasRef, onCaptureReady }) {
   const viewportMode = patternFit === 'fill' ? 'cover' : 'contain';
   const ar = canvasAspect > 0 && Number.isFinite(canvasAspect) ? canvasAspect : 1;
   const stageLayout = layout === 'stage';
@@ -47,18 +48,19 @@ function ShaderCanvasInner({ patternIndex, palette, bgShade, warpShade, weftShad
     shimmerNoiseMax ?? 1.5,
     shimmerBlendMode ?? 0,
     useAllColorways ? 1 : 0,
-    colorwaySeed ?? 0,
-    colorwayNoiseScale ?? 1,
-    colorwayNoiseMode ?? 0,
-    colorwayNoiseOctaves ?? 3,
-    colorwayNoisePersistence ?? 0.5,
-    colorwayNoiseLacunarity ?? 2,
-    colorwayNoiseBias ?? 1,
-    colorwayBleedAnisotropy ?? 3,
-    colorwayBleedRotation ?? 0,
-    colorwayBleedCrossFiber ?? 0.2,
+    colorwaySeed ?? WEAVING_URL_DEFAULTS.colorwaySeed,
+    colorwayNoiseScale ?? WEAVING_URL_DEFAULTS.colorwayNoiseScale,
+    colorwayNoiseMode ?? WEAVING_URL_DEFAULTS.colorwayNoiseMode,
+    colorwayNoiseOctaves ?? WEAVING_URL_DEFAULTS.colorwayNoiseOctaves,
+    colorwayNoisePersistence ?? WEAVING_URL_DEFAULTS.colorwayNoisePersistence,
+    colorwayNoiseLacunarity ?? WEAVING_URL_DEFAULTS.colorwayNoiseLacunarity,
+    colorwayNoiseBias ?? WEAVING_URL_DEFAULTS.colorwayNoiseBias,
+    colorwayNoiseZ ?? WEAVING_URL_DEFAULTS.colorwayNoiseZ,
+    colorwayBleedAnisotropy ?? WEAVING_URL_DEFAULTS.colorwayBleedAnisotropy,
+    colorwayBleedRotation ?? WEAVING_URL_DEFAULTS.colorwayBleedRotation,
+    colorwayBleedCrossFiber ?? WEAVING_URL_DEFAULTS.colorwayBleedCrossFiber,
     colorwayBleedDraftCoupled ? 1 : 0,
-    colorwayIncludeMask ?? 31,
+    colorwayIncludeMask ?? WEAVING_URL_DEFAULTS.colorwayIncludeMask,
     shimmerPlaying ?? true,
     shimmerPausedAtTime ?? 0,
     shimmerPhase ?? 0,

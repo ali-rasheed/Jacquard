@@ -12,6 +12,7 @@
 import { useRef, useEffect, useCallback, useState } from 'react';
 import { EXPORT_MAX_DIMENSION, RECT_ASPECT_DEFAULT } from '../constants';
 import { buildPatternTexture, PATTERNS } from '../patterns';
+import { WEAVING_URL_DEFAULTS } from '../urlDefaults';
 
 const DPR = 2;
 
@@ -64,6 +65,7 @@ function getUniformLocs(gl, program) {
     colorwayNoisePersistence: gl.getUniformLocation(program, 'u_colorwayNoisePersistence'),
     colorwayNoiseLacunarity: gl.getUniformLocation(program, 'u_colorwayNoiseLacunarity'),
     colorwayNoiseBias: gl.getUniformLocation(program, 'u_colorwayNoiseBias'),
+    colorwayNoiseZ: gl.getUniformLocation(program, 'u_colorwayNoiseZ'),
     colorwayBleedAnisotropy: gl.getUniformLocation(program, 'u_colorwayBleedAnisotropy'),
     colorwayBleedRotation: gl.getUniformLocation(program, 'u_colorwayBleedRotation'),
     colorwayBleedCrossFiber: gl.getUniformLocation(program, 'u_colorwayBleedCrossFiber'),
@@ -118,7 +120,7 @@ function getPaletteColor(paletteIndex, shadeIndex) {
   return PALETTE_RGBA[p][s];
 }
 
-export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, palette, bgShade, warpShade, weftShade, gridSize, warpGradient, weftGradient, gradSteps, rectAspect, cornerRadius, shimmer, shimmerSpeed, shimmerWidth, shimmerIntensity, shimmerPosition, shimmerRotation, shimmerNoise, shimmerNoiseSeed, shimmerNoiseMin, shimmerNoiseMax, shimmerBlendMode, useAllColorways, colorwaySeed, colorwayNoiseScale, colorwayNoiseMode, colorwayNoiseOctaves, colorwayNoisePersistence, colorwayNoiseLacunarity, colorwayNoiseBias, colorwayBleedAnisotropy, colorwayBleedRotation, colorwayBleedCrossFiber, colorwayBleedDraftCoupled, colorwayIncludeMask, shimmerPlaying, shimmerPausedAtTime, shimmerPhase, onShimmerTime, patterns, onFpsChange, onCaptureReady) {
+export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, palette, bgShade, warpShade, weftShade, gridSize, warpGradient, weftGradient, gradSteps, rectAspect, cornerRadius, shimmer, shimmerSpeed, shimmerWidth, shimmerIntensity, shimmerPosition, shimmerRotation, shimmerNoise, shimmerNoiseSeed, shimmerNoiseMin, shimmerNoiseMax, shimmerBlendMode, useAllColorways, colorwaySeed, colorwayNoiseScale, colorwayNoiseMode, colorwayNoiseOctaves, colorwayNoisePersistence, colorwayNoiseLacunarity, colorwayNoiseBias, colorwayNoiseZ, colorwayBleedAnisotropy, colorwayBleedRotation, colorwayBleedCrossFiber, colorwayBleedDraftCoupled, colorwayIncludeMask, shimmerPlaying, shimmerPausedAtTime, shimmerPhase, onShimmerTime, patterns, onFpsChange, onCaptureReady) {
   const canvasRef = useRef(null);
   const containerRef = useRef(null);
   const vertexSourceRef = useRef(vertexSource);
@@ -173,6 +175,7 @@ export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, pal
   const colorwayNoisePersistenceRef = useRef(colorwayNoisePersistence);
   const colorwayNoiseLacunarityRef = useRef(colorwayNoiseLacunarity);
   const colorwayNoiseBiasRef = useRef(colorwayNoiseBias);
+  const colorwayNoiseZRef = useRef(colorwayNoiseZ);
   const colorwayBleedAnisotropyRef = useRef(colorwayBleedAnisotropy);
   const colorwayBleedRotationRef = useRef(colorwayBleedRotation);
   const colorwayBleedCrossFiberRef = useRef(colorwayBleedCrossFiber);
@@ -198,20 +201,23 @@ export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, pal
   shimmerNoiseMinRef.current = shimmerNoiseMin ?? 0.5;
   shimmerNoiseMaxRef.current = shimmerNoiseMax ?? 1.5;
   shimmerBlendModeRef.current = shimmerBlendMode ?? 0;
-  useAllColorwaysRef.current = useAllColorways ?? 0;
-  colorwaySeedRef.current = colorwaySeed ?? 0;
-  colorwayNoiseScaleRef.current = colorwayNoiseScale ?? 1;
-  colorwayNoiseModeRef.current = colorwayNoiseMode ?? 0;
-  colorwayNoiseOctavesRef.current = colorwayNoiseOctaves ?? 3;
-  colorwayNoisePersistenceRef.current = colorwayNoisePersistence ?? 0.5;
-  colorwayNoiseLacunarityRef.current = colorwayNoiseLacunarity ?? 2;
-  colorwayNoiseBiasRef.current = colorwayNoiseBias ?? 1;
-  colorwayBleedAnisotropyRef.current = colorwayBleedAnisotropy ?? 3;
-  colorwayBleedRotationRef.current = colorwayBleedRotation ?? 0;
-  colorwayBleedCrossFiberRef.current = colorwayBleedCrossFiber ?? 0.2;
+  useAllColorwaysRef.current = useAllColorways ?? WEAVING_URL_DEFAULTS.useAllColorways;
+  colorwaySeedRef.current = colorwaySeed ?? WEAVING_URL_DEFAULTS.colorwaySeed;
+  colorwayNoiseScaleRef.current = colorwayNoiseScale ?? WEAVING_URL_DEFAULTS.colorwayNoiseScale;
+  colorwayNoiseModeRef.current = colorwayNoiseMode ?? WEAVING_URL_DEFAULTS.colorwayNoiseMode;
+  colorwayNoiseOctavesRef.current = colorwayNoiseOctaves ?? WEAVING_URL_DEFAULTS.colorwayNoiseOctaves;
+  colorwayNoisePersistenceRef.current = colorwayNoisePersistence ?? WEAVING_URL_DEFAULTS.colorwayNoisePersistence;
+  colorwayNoiseLacunarityRef.current = colorwayNoiseLacunarity ?? WEAVING_URL_DEFAULTS.colorwayNoiseLacunarity;
+  colorwayNoiseBiasRef.current = colorwayNoiseBias ?? WEAVING_URL_DEFAULTS.colorwayNoiseBias;
+  colorwayNoiseZRef.current = colorwayNoiseZ ?? WEAVING_URL_DEFAULTS.colorwayNoiseZ;
+  colorwayBleedAnisotropyRef.current = colorwayBleedAnisotropy ?? WEAVING_URL_DEFAULTS.colorwayBleedAnisotropy;
+  colorwayBleedRotationRef.current = colorwayBleedRotation ?? WEAVING_URL_DEFAULTS.colorwayBleedRotation;
+  colorwayBleedCrossFiberRef.current = colorwayBleedCrossFiber ?? WEAVING_URL_DEFAULTS.colorwayBleedCrossFiber;
   colorwayBleedDraftCoupledRef.current = Number(colorwayBleedDraftCoupled) > 0 ? 1 : 0;
   const vMask = Number(colorwayIncludeMask);
-  colorwayIncludeMaskRef.current = Number.isFinite(vMask) ? Math.max(0, Math.min(31, Math.floor(vMask))) : 31;
+  colorwayIncludeMaskRef.current = Number.isFinite(vMask)
+    ? Math.max(0, Math.min(31, Math.floor(vMask)))
+    : WEAVING_URL_DEFAULTS.colorwayIncludeMask;
   shimmerPlayingRef.current = shimmerPlaying ?? true;
   shimmerPausedAtTimeRef.current = shimmerPausedAtTime ?? 0;
   shimmerPhaseRef.current = shimmerPhase ?? 0;
@@ -342,6 +348,7 @@ export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, pal
       if (uniformLocs.colorwayNoisePersistence != null) gl.uniform1f(uniformLocs.colorwayNoisePersistence, colorwayNoisePersistenceRef.current);
       if (uniformLocs.colorwayNoiseLacunarity != null) gl.uniform1f(uniformLocs.colorwayNoiseLacunarity, colorwayNoiseLacunarityRef.current);
       if (uniformLocs.colorwayNoiseBias != null) gl.uniform1f(uniformLocs.colorwayNoiseBias, colorwayNoiseBiasRef.current);
+      if (uniformLocs.colorwayNoiseZ != null) gl.uniform1f(uniformLocs.colorwayNoiseZ, colorwayNoiseZRef.current);
       if (uniformLocs.colorwayBleedAnisotropy != null) gl.uniform1f(uniformLocs.colorwayBleedAnisotropy, colorwayBleedAnisotropyRef.current);
       if (uniformLocs.colorwayBleedRotation != null) gl.uniform1f(uniformLocs.colorwayBleedRotation, colorwayBleedRotationRef.current);
       if (uniformLocs.colorwayBleedCrossFiber != null) gl.uniform1f(uniformLocs.colorwayBleedCrossFiber, colorwayBleedCrossFiberRef.current);
