@@ -95,6 +95,30 @@ export const PRESETS = [
 /** Default rect aspect 36×40 (warp orientation). Shared by App, ShaderCanvas, useShaderSandbox. */
 export const RECT_ASPECT_DEFAULT = 36 / 40;
 
+/**
+ * Canvas viewport aspect presets (width ÷ height) for the weave stage. Matches URL `canvas` two-decimal rounding (0.5–2).
+ * Values from URLs, randomize, or presets that fall between these still render; the UI adds **Other (x.xx)** until you pick a listed ratio.
+ */
+export const CANVAS_ASPECT_PRESETS = [
+  { value: 0.5, label: '1∶2 portrait' },
+  { value: 0.56, label: '9∶16 portrait' },
+  { value: 0.67, label: '2∶3 portrait' },
+  { value: 0.75, label: '3∶4 portrait' },
+  { value: 0.8, label: '4∶5 portrait' },
+  { value: 0.9, label: '36∶40 weave cell' },
+  { value: 1, label: '1∶1 square' },
+  { value: 1.25, label: '5∶4 landscape' },
+  { value: 1.33, label: '4∶3' },
+  { value: 1.5, label: '3∶2' },
+  { value: 1.78, label: '16∶9' },
+  { value: 2, label: '2∶1 wide' },
+];
+
+/** Stable select / URL key for canvas aspect (two decimals). */
+export function canvasAspectKey(n) {
+  return Number(n).toFixed(2);
+}
+
 /** Designer-friendly grid sizes; slider snaps to these (max 256 cells on the short axis). */
 export const GRID_SNAPS = [8, 12, 16, 24, 32, 48, 64, 96, 128, 192, 256];
 

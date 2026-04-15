@@ -22,6 +22,8 @@ export function WeavingHalftoneStage({
   gridSize,
   warpGradient,
   weftGradient,
+  warpGradientEnabled = WEAVING_URL_DEFAULTS.warpGradientEnabled,
+  weftGradientEnabled = WEAVING_URL_DEFAULTS.weftGradientEnabled,
   gradSteps,
   rectAspect,
   cornerRadius,
@@ -50,7 +52,7 @@ export function WeavingHalftoneStage({
   colorwayNoisePersistence = WEAVING_URL_DEFAULTS.colorwayNoisePersistence,
   colorwayNoiseLacunarity = WEAVING_URL_DEFAULTS.colorwayNoiseLacunarity,
   colorwayNoiseBias = WEAVING_URL_DEFAULTS.colorwayNoiseBias,
-  colorwayNoiseZ = WEAVING_URL_DEFAULTS.colorwayNoiseZ,
+  colorwayNoiseX = WEAVING_URL_DEFAULTS.colorwayNoiseX,
   colorwayBleedAnisotropy = WEAVING_URL_DEFAULTS.colorwayBleedAnisotropy,
   colorwayBleedRotation = WEAVING_URL_DEFAULTS.colorwayBleedRotation,
   colorwayBleedCrossFiber = WEAVING_URL_DEFAULTS.colorwayBleedCrossFiber,
@@ -109,6 +111,8 @@ export function WeavingHalftoneStage({
     gridSize,
     warpGradient,
     weftGradient,
+    warpGradientEnabled,
+    weftGradientEnabled,
     gradSteps,
     rectAspect,
     cornerRadius,
@@ -121,7 +125,7 @@ export function WeavingHalftoneStage({
     colorwayNoisePersistence,
     colorwayNoiseLacunarity,
     colorwayNoiseBias,
-    colorwayNoiseZ,
+    colorwayNoiseX,
     colorwayBleedAnisotropy,
     colorwayBleedRotation,
     colorwayBleedCrossFiber,
@@ -235,6 +239,8 @@ export function WeavingHalftoneStage({
           gridSize={gridSize}
           warpGradient={warpGradient}
           weftGradient={weftGradient}
+          warpGradientEnabled={warpGradientEnabled}
+          weftGradientEnabled={weftGradientEnabled}
           gradSteps={gradSteps}
           rectAspect={rectAspect ?? RECT_ASPECT_DEFAULT}
           cornerRadius={cornerRadius ?? 0.18}
@@ -262,7 +268,7 @@ export function WeavingHalftoneStage({
           colorwayNoisePersistence={colorwayNoisePersistence}
           colorwayNoiseLacunarity={colorwayNoiseLacunarity}
           colorwayNoiseBias={colorwayNoiseBias}
-          colorwayNoiseZ={colorwayNoiseZ}
+          colorwayNoiseX={colorwayNoiseX}
           colorwayBleedAnisotropy={colorwayBleedAnisotropy}
           colorwayBleedRotation={colorwayBleedRotation}
           colorwayBleedCrossFiber={colorwayBleedCrossFiber}

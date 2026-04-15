@@ -10,20 +10,21 @@ import { useAspectViewportBox } from '../hooks/useAspectViewportBox';
 import fragmentSource from '../shaders/fragmentImageRects.glsl?raw';
 import vertexSource from '../shaders/vertex.glsl?raw';
 import { PATTERNS } from '../patterns';
-import { fpsPill } from '../uiConstants';
 
 /**
  * Canvas aspect matches loaded image (or 1:1 placeholder). Viewport uses ResizeObserver:
  * patternFit 'fit' = contain (full canvas visible); 'fill' = cover (shortest side of stage filled).
  */
-function ImageRectsCanvasInner({ imageSource, mediaTextureKind = 'staticImage', gridSize, palette, bgShade, rectColorSource, quantizeSteps, quantizeMode, quantizeGamma, quantizeDither, rectShade, shadeFrom, patternWarpShade, patternWeftShade, patternIndex, patterns, rectRadius, rectAspect, rectRatio, lumaSizeMix, lumaSizeInvert, lumaSizeFloor, cellGeometryMode, stitchLumaMax, nonStitchShowsBg = false, stitchRevealMode = 0, stitchRevealProgress = 1, stitchRevealSeed = 0, stitchRevealScale = 0.12, stitchRevealSoftness = 0.06, stitchRevealBleedAnisotropy = 3, stitchRevealBleedRotation = 0, stitchRevealBleedCrossFiber = 0.2, stitchRevealBleedDraftCoupled = 0, patternFit = 'fit', onFpsChange, onCanvasRef, onCaptureReady }) {
-  const { canvasRef, containerRef, error, fps, imageSize } = useImageRectsSandbox(
+function ImageRectsCanvasInner({ imageSource, mediaTextureKind = 'staticImage', gridSize, palette, bgShade, bgColorMode = 0, bgCustomColor = '#f2f2f2', rectColorSource, quantizeSteps, quantizeMode, quantizeGamma, quantizeDither, rectShade, shadeFrom, patternWarpShade, patternWeftShade, patternIndex, patterns, rectRadius, rectAspect, rectRatio, lumaSizeMix, lumaSizeInvert, lumaSizeFloor, cellGeometryMode, stitchLumaMax, nonStitchShowsBg = false, stitchRevealMode = 0, stitchRevealProgress = 1, stitchRevealSeed = 0, stitchRevealScale = 0.12, stitchRevealSoftness = 0.06, stitchRevealBleedAnisotropy = 3, stitchRevealBleedRotation = 0, stitchRevealBleedCrossFiber = 0.2, stitchRevealBleedDraftCoupled = 0, patternFit = 'fit', onFpsChange, onCanvasRef, onCaptureReady }) {
+  const { canvasRef, containerRef, error, imageSize } = useImageRectsSandbox(
     vertexSource,
     fragmentSource,
     imageSource ?? '',
     gridSize ?? 32,
     palette ?? 0,
     bgShade ?? 2,
+    bgColorMode ?? 0,
+    bgCustomColor ?? '#f2f2f2',
     rectColorSource ?? 1,
     quantizeSteps ?? 0,
     quantizeMode ?? 0,
@@ -77,9 +78,6 @@ function ImageRectsCanvasInner({ imageSource, mediaTextureKind = 'staticImage', 
       >
         <div ref={containerRef} className="relative flex h-full min-h-0 w-full flex-1 flex-col">
           <canvas ref={(el) => { canvasRef.current = el; onCanvasRef?.(el); }} className="block min-h-0 flex-1 bg-surface" />
-          <div className={fpsPill}>
-            {fps || '--'} fps
-          </div>
           {error ? (
             <div className="absolute bottom-0 left-0 right-0 max-h-[120px] overflow-y-auto border-t border-border-subtle bg-surface-elevated p-3 font-mono text-xs leading-snug text-error">
               {error}

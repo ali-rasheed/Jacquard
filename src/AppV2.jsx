@@ -8,9 +8,12 @@ import { motion } from 'motion/react';
 import * as Label from '@radix-ui/react-label';
 import { ImageRectsCanvas } from './components/ImageRectsCanvas';
 import { SliderWithInput } from './components/SliderWithInput';
-import { useCanvasRecorder, supportsMP4 } from './hooks/useCanvasRecorder';
+import { useCanvasRecorder } from './hooks/useCanvasRecorder';
+import { useKeyframePlayback } from './hooks/useKeyframePlayback';
+import { getMosaicKeyframeSnapshot, applyMosaicKeyframe } from './keyframe/mosaicKeyframe';
+import { CaptureToolbar } from './components/CaptureToolbar';
 import { PATTERNS } from './patterns';
-import { COPY_SCALES, EXPORT_MAX_DIMENSION, GRID_SNAPS, getGridSizeIndex, URL_STATE_MAX_LEN, WEAVE_ICONS } from './constants';
+import { EXPORT_MAX_DIMENSION, GRID_SNAPS, getGridSizeIndex, URL_STATE_MAX_LEN, WEAVE_ICONS } from './constants';
 import { IMAGE_RECTS_URL_DEFAULTS } from './urlDefaults';
 import {
   PALETTE_NAMES,
@@ -52,18 +55,24 @@ const QUANTIZE_MODE_OPTIONS = [
   { value: 1, label: 'HSV' },
 ];
 
-/** Cell shape: always weave rects, or plain tiles except where image is dark enough. */
-const CELL_GEOMETRY_OPTIONS = [
-  { value: 0, label: 'Weave' },
-  { value: 1, label: 'Dark stitches' },
-];
-
 /** Animate colored stitches from background-only: isotropic FBM order vs dye-bleed streaks. */
 const STITCH_REVEAL_MODE_OPTIONS = [
   { value: 0, label: 'Off' },
   { value: 1, label: 'Noise' },
   { value: 2, label: 'Bleed' },
 ];
+
+/** BG color source for Mosaic: palette shade presets or a custom picked color. */
+const BG_COLOR_MODE_OPTIONS = [
+  { value: 0, label: 'Preset' },
+  { value: 1, label: 'Color' },
+];
+
+function normalizeHexColor(hex, fallback = '#f2f2f2') {
+  const value = typeof hex === 'string' ? hex.trim() : '';
+  if (/^#[0-9a-fA-F]{6}$/.test(value)) return value.toLowerCase();
+  return fallback;
+}
 
 /** Map picked file to WebGL upload strategy (V6 video/GIF). */
 function inferMediaTextureKindFromFile(file) {
@@ -102,6 +111,9 @@ function parseUrlStateV2(search) {
   num('grid', 'gridSize', 8, 256);
   num('pal', 'palette', 0, 4);
   num('bg', 'bgShade', 0, 5);
+  num('bgm', 'bgColorMode', 0, 1);
+  const bgc = params.get('bgc');
+  if (bgc != null) out.bgCustomColor = normalizeHexColor(`#${bgc}`, IMAGE_RECTS_URL_DEFAULTS.bgCustomColor);
   num('cm', 'rectColorSource', 0, 2);
   num('pws', 'patternWarpShade', 0, 4);
   num('pwf', 'patternWeftShade', 0, 4);
@@ -192,6 +204,9 @@ function buildUrlStateV2(state) {
   if (state.gridSize !== def.gridSize) p.set('grid', String(state.gridSize));
   if (state.palette !== def.palette) p.set('pal', String(state.palette));
   if (state.bgShade !== def.bgShade) p.set('bg', String(state.bgShade));
+  if (state.bgColorMode !== def.bgColorMode) p.set('bgm', String(state.bgColorMode));
+  const bgCustomColor = normalizeHexColor(state.bgCustomColor, def.bgCustomColor);
+  if (bgCustomColor !== def.bgCustomColor) p.set('bgc', bgCustomColor.slice(1));
   if (state.rectColorSource !== def.rectColorSource) p.set('cm', String(state.rectColorSource));
   if (state.patternWarpShade !== def.patternWarpShade) p.set('pws', String(state.patternWarpShade));
   if (state.patternWeftShade !== def.patternWeftShade) p.set('pwf', String(state.patternWeftShade));
@@ -242,6 +257,8 @@ export default function AppV2({
   const [gridSize, setGridSize] = useState(IMAGE_RECTS_URL_DEFAULTS.gridSize);
   const [palette, setPalette] = useState(IMAGE_RECTS_URL_DEFAULTS.palette);
   const [bgShade, setBgShade] = useState(IMAGE_RECTS_URL_DEFAULTS.bgShade);
+  const [bgColorMode, setBgColorMode] = useState(IMAGE_RECTS_URL_DEFAULTS.bgColorMode);
+  const [bgCustomColor, setBgCustomColor] = useState(IMAGE_RECTS_URL_DEFAULTS.bgCustomColor);
   const [rectColorSource, setRectColorSource] = useState(IMAGE_RECTS_URL_DEFAULTS.rectColorSource);
   const [patternWarpShade, setPatternWarpShade] = useState(IMAGE_RECTS_URL_DEFAULTS.patternWarpShade);
   const [patternWeftShade, setPatternWeftShade] = useState(IMAGE_RECTS_URL_DEFAULTS.patternWeftShade);
@@ -276,12 +293,15 @@ export default function AppV2({
   const [rectRadius, setRectRadius] = useState(IMAGE_RECTS_URL_DEFAULTS.rectRadius); // corner radius in cell space (0 = sharp)
   const [rectAspect, setRectAspect] = useState(IMAGE_RECTS_URL_DEFAULTS.rectAspect); // rect width/height (e.g. 34/40)
   const [rectRatio, setRectRatio] = useState(IMAGE_RECTS_URL_DEFAULTS.rectRatio); // rect scale within cell (1 = full)
-  const [fps, setFps] = useState(0);
   const [copyFormat, setCopyFormat] = useState(IMAGE_RECTS_URL_DEFAULTS.copyFormat); // 'png' | 'webp'
   const [copyScale, setCopyScale] = useState(IMAGE_RECTS_URL_DEFAULTS.copyScale); // 1 | 2 | 4 | 8
+  const [copyFeedback, setCopyFeedback] = useState(null);
+  const copyFeedbackTimeoutRef = useRef(null);
+  const stitchPlayRecordTimeoutRef = useRef(null);
   const canvasRef = useRef(null);
   const imageRectsCaptureRef = useRef(null);            // { captureAtResolution(w, h) } when canvas ready
   const appliedUrlRef = useRef(false);
+  const mosaicKeyframeStitchOverrideRef = useRef(false);
 
   const IMAGE_RECTS_DPR = 2; // matches useImageRectsSandbox DPR
   const capToMax = useCallback((width, height) => {
@@ -355,10 +375,22 @@ export default function AppV2({
     if (blob) await navigator.clipboard.write([new ClipboardItem({ 'image/webp': blob })]);
   }, [copyScale, capToMax]);
 
-  const handleCopy = useCallback(() => {
-    if (copyFormat === 'png') handleCopy2xPng();
-    else handleCopyWebp();
+  const handleCopy = useCallback(async () => {
+    if (copyFeedbackTimeoutRef.current) clearTimeout(copyFeedbackTimeoutRef.current);
+    try {
+      if (copyFormat === 'png') await handleCopy2xPng();
+      else await handleCopyWebp();
+      setCopyFeedback('Copied!');
+      copyFeedbackTimeoutRef.current = setTimeout(() => setCopyFeedback(null), 2000);
+    } catch (err) {
+      setCopyFeedback(err?.message ?? 'Copy failed');
+      copyFeedbackTimeoutRef.current = setTimeout(() => setCopyFeedback(null), 3000);
+    }
   }, [copyFormat, handleCopy2xPng, handleCopyWebp]);
+
+  useEffect(() => () => {
+    if (copyFeedbackTimeoutRef.current) clearTimeout(copyFeedbackTimeoutRef.current);
+  }, []);
 
   /** Video recording (WebM or MP4). Mosaic: auto-starts when media becomes video (per tab — own hook instance). */
   const {
@@ -379,12 +411,204 @@ export default function AppV2({
     recStart(canvasRef.current);
   }, [recStart]);
 
+  /** Shared stop helper: clear any stitch replay auto-stop timer before stopping recorder. */
+  const stopRecordingWithCleanup = useCallback(async () => {
+    if (stitchPlayRecordTimeoutRef.current != null) {
+      clearTimeout(stitchPlayRecordTimeoutRef.current);
+      stitchPlayRecordTimeoutRef.current = null;
+    }
+    await stopRecording();
+  }, [stopRecording]);
+
+  const mosaicSnapRef = useRef({});
+  mosaicSnapRef.current = getMosaicKeyframeSnapshot({
+    gridSize,
+    palette,
+    bgShade,
+    bgColorMode,
+    bgCustomColor,
+    rectColorSource,
+    patternWarpShade,
+    patternWeftShade,
+    lumaSizeMix,
+    lumaSizeInvert,
+    lumaSizeFloor,
+    cellGeometryMode,
+    mosaicBgGaps,
+    stitchLumaMax,
+    stitchRevealMode,
+    stitchRevealProgress,
+    stitchRevealSeed,
+    stitchRevealScale,
+    stitchRevealSoftness,
+    stitchRevealBleedAnisotropy,
+    stitchRevealBleedRotation,
+    stitchRevealBleedCrossFiber,
+    stitchRevealBleedDraftCoupled,
+    quantizeSteps,
+    quantizeMode,
+    quantizeGamma,
+    quantizeDither,
+    patternIndex,
+    rectRadius,
+    rectAspect,
+    rectRatio,
+    patternFit,
+  });
+
+  const mosaicSettersRef = useRef({});
+  mosaicSettersRef.current = {
+    setGridSize,
+    setPalette,
+    setBgShade,
+    setBgColorMode,
+    setBgCustomColor,
+    setRectColorSource,
+    setPatternWarpShade,
+    setPatternWeftShade,
+    setLumaSizeMix,
+    setLumaSizeInvert,
+    setLumaSizeFloor,
+    setCellGeometryMode,
+    setMosaicBgGaps,
+    setStitchLumaMax,
+    setStitchRevealMode,
+    setStitchRevealProgress,
+    setStitchRevealSeed,
+    setStitchRevealScale,
+    setStitchRevealSoftness,
+    setStitchRevealBleedAnisotropy,
+    setStitchRevealBleedRotation,
+    setStitchRevealBleedCrossFiber,
+    setStitchRevealBleedDraftCoupled,
+    setQuantizeSteps,
+    setQuantizeMode,
+    setQuantizeGamma,
+    setQuantizeDither,
+    setPatternIndex,
+    setRectRadius,
+    setRectAspect,
+    setRectRatio,
+    setPatternFit,
+  };
+
+  const applyMosaicSnapshot = useCallback((snap) => {
+    applyMosaicKeyframe(mosaicSettersRef.current, snap);
+  }, []);
+
+  const {
+    editingAfter,
+    setEditingAfter,
+    before: mosaicBefore,
+    setAfter: setMosaicAfter,
+    durationSec: keyframeDurationSec,
+    setDurationSec: setKeyframeDurationSec,
+    isPlaying: keyframePlaying,
+    syncBeforeFromLive: syncMosaicBeforeFromLive,
+    syncAfterFromLive: syncMosaicAfterFromLive,
+    play: playMosaicKeyframe,
+    playAndRecord: playAndRecordMosaicKeyframe,
+    stop: stopMosaicKeyframe,
+  } = useKeyframePlayback({
+    getBefore: () => ({ ...mosaicSnapRef.current }),
+    getAfter: () => ({ ...mosaicSnapRef.current }),
+    applySnapshot: applyMosaicSnapshot,
+    defaultDurationSec: 2,
+  });
+
+  useEffect(() => {
+    if (!editingAfter) return;
+    setMosaicAfter({ ...mosaicSnapRef.current });
+  }, [
+    editingAfter,
+    gridSize,
+    palette,
+    bgShade,
+    bgColorMode,
+    bgCustomColor,
+    rectColorSource,
+    patternWarpShade,
+    patternWeftShade,
+    lumaSizeMix,
+    lumaSizeInvert,
+    lumaSizeFloor,
+    cellGeometryMode,
+    mosaicBgGaps,
+    stitchLumaMax,
+    stitchRevealMode,
+    stitchRevealProgress,
+    stitchRevealSeed,
+    stitchRevealScale,
+    stitchRevealSoftness,
+    stitchRevealBleedAnisotropy,
+    stitchRevealBleedRotation,
+    stitchRevealBleedCrossFiber,
+    stitchRevealBleedDraftCoupled,
+    quantizeSteps,
+    quantizeMode,
+    quantizeGamma,
+    quantizeDither,
+    patternIndex,
+    rectRadius,
+    rectAspect,
+    rectRatio,
+    patternFit,
+    setMosaicAfter,
+  ]);
+
+  useEffect(() => {
+    if (!mosaicKeyframeStitchOverrideRef.current) return;
+    if (!keyframePlaying) mosaicKeyframeStitchOverrideRef.current = false;
+  }, [keyframePlaying]);
+
+  const startMosaicKeyframePlay = useCallback(() => {
+    mosaicKeyframeStitchOverrideRef.current = true;
+    applyMosaicSnapshot(mosaicBefore);
+    playMosaicKeyframe();
+  }, [applyMosaicSnapshot, mosaicBefore, playMosaicKeyframe]);
+
+  const startMosaicPlayAndRecord = useCallback(() => {
+    if (stitchRevealMode > 0) {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      if (stitchPlayRecordTimeoutRef.current != null) {
+        clearTimeout(stitchPlayRecordTimeoutRef.current);
+        stitchPlayRecordTimeoutRef.current = null;
+      }
+      mosaicKeyframeStitchOverrideRef.current = false;
+      // Start from blank so the recorded clip visibly includes the stitch-in ramp.
+      setStitchRevealProgress(0);
+      recStart(canvas, { reason: 'manual' });
+      requestAnimationFrame(() => {
+        setStitchRevealPlayToken((t) => t + 1);
+      });
+      const durationMs = Math.max(0.25, stitchRevealDurationSec) * 1000;
+      stitchPlayRecordTimeoutRef.current = setTimeout(() => {
+        stitchPlayRecordTimeoutRef.current = null;
+        void stopRecordingWithCleanup();
+      }, durationMs + 250);
+      return;
+    }
+    mosaicKeyframeStitchOverrideRef.current = true;
+    applyMosaicSnapshot(mosaicBefore);
+    playAndRecordMosaicKeyframe(recStart, stopRecordingWithCleanup, () => canvasRef.current);
+  }, [
+    applyMosaicSnapshot,
+    mosaicBefore,
+    playAndRecordMosaicKeyframe,
+    recStart,
+    stitchRevealMode,
+    stitchRevealDurationSec,
+    stopRecordingWithCleanup,
+  ]);
+
   const replayStitchReveal = useCallback(() => {
     setStitchRevealPlayToken((t) => t + 1);
   }, []);
 
   /** Ramp stitch-in progress 0→1 when Noise/Bleed is on (replay, new media, or mode change). */
   useEffect(() => {
+    if (mosaicKeyframeStitchOverrideRef.current) return undefined;
     if (stitchRevealMode === 0) {
       setStitchRevealProgress(1);
       return;
@@ -426,8 +650,16 @@ export default function AppV2({
   useEffect(() => {
     if (mediaTextureKind === 'video') return;
     if (!isRecording) return;
-    void stopRecording();
-  }, [mediaTextureKind, isRecording, stopRecording]);
+    if (recordingReason !== 'auto') return;
+    void stopRecordingWithCleanup();
+  }, [mediaTextureKind, isRecording, recordingReason, stopRecordingWithCleanup]);
+
+  useEffect(() => () => {
+    if (stitchPlayRecordTimeoutRef.current != null) {
+      clearTimeout(stitchPlayRecordTimeoutRef.current);
+      stitchPlayRecordTimeoutRef.current = null;
+    }
+  }, []);
 
   const handleReload = useCallback(() => {
     window.location.reload();
@@ -441,6 +673,8 @@ export default function AppV2({
     setGridSize(pick(GRID_SNAPS));
     setPalette(randInt(0, 4));
     setBgShade(randInt(0, 4));
+    setBgColorMode(0);
+    setBgCustomColor(IMAGE_RECTS_URL_DEFAULTS.bgCustomColor);
     setRectColorSource(randInt(0, 2));
     setPatternWarpShade(randInt(0, 4));
     setPatternWeftShade(randInt(0, 4));
@@ -473,6 +707,8 @@ export default function AppV2({
     setGridSize(IMAGE_RECTS_URL_DEFAULTS.gridSize);
     setPalette(IMAGE_RECTS_URL_DEFAULTS.palette);
     setBgShade(IMAGE_RECTS_URL_DEFAULTS.bgShade);
+    setBgColorMode(IMAGE_RECTS_URL_DEFAULTS.bgColorMode);
+    setBgCustomColor(IMAGE_RECTS_URL_DEFAULTS.bgCustomColor);
     setRectColorSource(IMAGE_RECTS_URL_DEFAULTS.rectColorSource);
     setPatternWarpShade(IMAGE_RECTS_URL_DEFAULTS.patternWarpShade);
     setPatternWeftShade(IMAGE_RECTS_URL_DEFAULTS.patternWeftShade);
@@ -518,6 +754,8 @@ export default function AppV2({
     if (q.gridSize != null) setGridSize(GRID_SNAPS.includes(q.gridSize) ? q.gridSize : GRID_SNAPS[getGridSizeIndex(q.gridSize)]);
     if (q.palette != null) setPalette(q.palette);
     if (q.bgShade != null) setBgShade(q.bgShade);
+    if (q.bgColorMode != null) setBgColorMode(q.bgColorMode);
+    if (q.bgCustomColor != null) setBgCustomColor(normalizeHexColor(q.bgCustomColor, IMAGE_RECTS_URL_DEFAULTS.bgCustomColor));
     if (q.rectColorSource != null) setRectColorSource(q.rectColorSource);
     if (q.patternWarpShade != null) setPatternWarpShade(q.patternWarpShade);
     if (q.patternWeftShade != null) setPatternWeftShade(q.patternWeftShade);
@@ -558,7 +796,7 @@ export default function AppV2({
   useEffect(() => {
     urlSyncTimeoutRef.current = setTimeout(() => {
       const search = buildUrlStateV2({
-        gridSize, palette, bgShade, rectColorSource, quantizeSteps, quantizeMode, quantizeGamma, quantizeDither, patternIndex,
+        gridSize, palette, bgShade, bgColorMode, bgCustomColor, rectColorSource, quantizeSteps, quantizeMode, quantizeGamma, quantizeDither, patternIndex,
         patternWarpShade, patternWeftShade, lumaSizeMix, lumaSizeInvert, lumaSizeFloor, cellGeometryMode, stitchLumaMax,
         rectRadius, rectAspect, rectRatio, copyFormat, copyScale, menuHidden, mosaicBgGaps, patternFit,
         stitchRevealMode, stitchRevealDurationSec, stitchRevealSeed, stitchRevealScale, stitchRevealSoftness,
@@ -570,7 +808,7 @@ export default function AppV2({
       }
     }, 400);
     return () => { clearTimeout(urlSyncTimeoutRef.current); };
-  }, [gridSize, palette, bgShade, rectColorSource, quantizeSteps, quantizeMode, quantizeGamma, quantizeDither, patternIndex, patternWarpShade, patternWeftShade, lumaSizeMix, lumaSizeInvert, lumaSizeFloor, cellGeometryMode, stitchLumaMax, rectRadius, rectAspect, rectRatio, copyFormat, copyScale, menuHidden, mosaicBgGaps, patternFit, stitchRevealMode, stitchRevealDurationSec, stitchRevealSeed, stitchRevealScale, stitchRevealSoftness, stitchRevealBleedAnisotropy, stitchRevealBleedRotation, stitchRevealBleedCrossFiber, stitchRevealBleedDraftCoupled]);
+  }, [gridSize, palette, bgShade, bgColorMode, bgCustomColor, rectColorSource, quantizeSteps, quantizeMode, quantizeGamma, quantizeDither, patternIndex, patternWarpShade, patternWeftShade, lumaSizeMix, lumaSizeInvert, lumaSizeFloor, cellGeometryMode, stitchLumaMax, rectRadius, rectAspect, rectRatio, copyFormat, copyScale, menuHidden, mosaicBgGaps, patternFit, stitchRevealMode, stitchRevealDurationSec, stitchRevealSeed, stitchRevealScale, stitchRevealSoftness, stitchRevealBleedAnisotropy, stitchRevealBleedRotation, stitchRevealBleedCrossFiber, stitchRevealBleedDraftCoupled]);
 
   /** Keyboard shortcuts: Mod+C copy, Mod+Shift+R / F5 reload (no presets in v2). */
   useEffect(() => {
@@ -615,8 +853,9 @@ export default function AppV2({
   }, [imageSource]);
 
   /** In-flow: min-h-0 + h-full bounds the column so tall control stacks scroll inside the sidebar (flex default min-height:auto would grow past the shell). */
+  /** Fixed overlay: `top-9` matches App shell nav (`min-h-9`); do not use `top-0` or the menu draws over the nav. */
   const sidebarClass = menuHidden
-    ? 'fixed left-0 top-0 z-10 flex h-full w-72 flex-col gap-3 overflow-y-auto overflow-x-auto border-r border-border-subtle bg-surface px-3 py-3'
+    ? 'fixed left-0 top-9 z-10 flex h-[calc(100dvh-2.25rem)] w-72 flex-col gap-3 overflow-y-auto overflow-x-auto border-r border-border-subtle bg-surface px-3 py-3'
     : 'flex h-full min-h-0 w-72 shrink-0 flex-col gap-3 overflow-y-auto overflow-x-auto overscroll-y-contain border-r border-border-subtle bg-surface px-3 py-3';
 
   return (
@@ -676,75 +915,6 @@ export default function AppV2({
                 <Icon name="restart_alt" className={iconResetGlyphMd} />
                 <span>Reset</span>
               </button>
-              <SegmentedControl>
-                <div className="flex h-full">
-                  {COPY_SCALES.map((s) => (
-                    <SegmentedControlButton
-                      key={s}
-                      active={copyScale === s}
-                      aria-pressed={copyScale === s}
-                      aria-label={`Copy resolution: ${s}×`}
-                      onClick={() => setCopyScale(s)}
-                    >
-                      {s}×
-                    </SegmentedControlButton>
-                  ))}
-                </div>
-                <div className="flex h-full">
-                  {['png', 'webp'].map((fmt) => (
-                    <SegmentedControlButton
-                      key={fmt}
-                      format
-                      active={copyFormat === fmt}
-                      aria-pressed={copyFormat === fmt}
-                      aria-label={`Format: ${fmt}`}
-                      onClick={() => setCopyFormat(fmt)}
-                    >
-                      {fmt}
-                    </SegmentedControlButton>
-                  ))}
-                </div>
-              </SegmentedControl>
-              <div className="inline-flex shrink-0 items-center gap-1" role="group" aria-label="Copy actions">
-                <IconButton size="sm" title={`Copy canvas at ${copyScale}× as ${copyFormat.toUpperCase()}`} aria-label={`Copy ${copyFormat.toUpperCase()}`} onClick={handleCopy}>
-                  <Icon name="content_copy" className={iconSm} />
-                </IconButton>
-                {(copyScale !== IMAGE_RECTS_URL_DEFAULTS.copyScale || copyFormat !== IMAGE_RECTS_URL_DEFAULTS.copyFormat) && (
-                  <IconButton
-                    size="resetSm"
-                    title="Reset copy scale and format to defaults"
-                    aria-label="Reset copy scale and format to defaults"
-                    onClick={() => {
-                      setCopyScale(IMAGE_RECTS_URL_DEFAULTS.copyScale);
-                      setCopyFormat(IMAGE_RECTS_URL_DEFAULTS.copyFormat);
-                    }}
-                  >
-                    <Icon name="restart_alt" className={iconResetGlyph} />
-                  </IconButton>
-                )}
-              </div>
-              <SegmentedControl>
-                <div className="flex h-full">
-                  {(supportsMP4 ? ['mp4', 'webm'] : ['webm']).map((fmt) => (
-                    <SegmentedControlButton
-                      key={fmt}
-                      format
-                      active={recordFormat === fmt}
-                      aria-pressed={recordFormat === fmt}
-                      aria-label={`Record format: ${fmt}`}
-                      onClick={() => setRecordFormat(fmt)}
-                      disabled={isRecording}
-                    >
-                      {fmt}
-                    </SegmentedControlButton>
-                  ))}
-                </div>
-              </SegmentedControl>
-              <div className="inline-flex shrink-0 items-center gap-1" role="group" aria-label="Recording control">
-                <IconButton size="sm" variant={isRecording || isProcessing ? 'danger' : 'default'} title={isProcessing ? 'Processing…' : isRecording ? `${recordingReason === 'auto' ? 'Auto-recording video — ' : ''}Stop and download ${recordFormat.toUpperCase()}` : `Record canvas as ${recordFormat.toUpperCase()}`} aria-label={isProcessing ? 'Processing video' : isRecording ? 'Stop recording' : 'Start recording'} onClick={isRecording ? stopRecording : startRecording} disabled={isProcessing}>
-                  <Icon name={isProcessing ? 'hourglass_empty' : isRecording ? 'stop' : 'videocam'} className={iconSm} />
-                </IconButton>
-              </div>
               <label className={btnGhost + ' cursor-pointer'}>
                 <Icon name="upload_file" className={iconMd} />
                 <span>Pick media</span>
@@ -797,7 +967,43 @@ export default function AppV2({
                   </IconButton>
                 )}
               </div>
-              <AppSelect id="bg-shade-v2" labelText="Background shade" value={bgShade} onValueChange={(v) => setBgShade(Number(v))} defaultValue={IMAGE_RECTS_URL_DEFAULTS.bgShade} onReset={() => setBgShade(IMAGE_RECTS_URL_DEFAULTS.bgShade)} options={shadeOptions('BG')} title="Background shade" placeholder="BG" />
+              <div className="flex flex-wrap items-center gap-2">
+                <AppSelect
+                  id="bg-color-mode-v2"
+                  labelText="Background source"
+                  value={bgColorMode}
+                  onValueChange={(v) => setBgColorMode(Number(v))}
+                  defaultValue={IMAGE_RECTS_URL_DEFAULTS.bgColorMode}
+                  onReset={() => setBgColorMode(IMAGE_RECTS_URL_DEFAULTS.bgColorMode)}
+                  options={BG_COLOR_MODE_OPTIONS}
+                  title="Use palette shade presets or a custom picked color"
+                  placeholder="BG source"
+                />
+                {bgColorMode === 0 ? (
+                  <AppSelect
+                    id="bg-shade-v2"
+                    labelText="Background shade"
+                    value={bgShade}
+                    onValueChange={(v) => setBgShade(Number(v))}
+                    defaultValue={IMAGE_RECTS_URL_DEFAULTS.bgShade}
+                    onReset={() => setBgShade(IMAGE_RECTS_URL_DEFAULTS.bgShade)}
+                    options={shadeOptions('BG')}
+                    title="Background shade preset from current palette"
+                    placeholder="BG"
+                  />
+                ) : (
+                  <label className={`inline-flex items-center gap-2 rounded border border-border-subtle bg-surface-input px-2 py-1 ${typeLabel}`}>
+                    <span className="text-text-muted">BG color</span>
+                    <input
+                      type="color"
+                      value={bgCustomColor}
+                      onChange={(e) => setBgCustomColor(normalizeHexColor(e.target.value, IMAGE_RECTS_URL_DEFAULTS.bgCustomColor))}
+                      className="h-7 w-10 cursor-pointer rounded border border-border-subtle bg-surface-input"
+                      aria-label="Custom mosaic background color"
+                    />
+                  </label>
+                )}
+              </div>
               {rectColorSource === 2 && (
                 <>
                   <AppSelect
@@ -946,17 +1152,26 @@ export default function AppV2({
               </div>
               <div className="flex flex-col gap-1.5 border-t border-border-subtle pt-2">
                 <span className={`${typeLabel} text-text-muted`}>Stitch vs plain (by image darkness)</span>
-                <AppSelect
-                  id="cell-geometry-v2"
-                  labelText="Cell geometry mode"
-                  value={cellGeometryMode}
-                  onValueChange={(v) => setCellGeometryMode(Number(v))}
-                  defaultValue={IMAGE_RECTS_URL_DEFAULTS.cellGeometryMode}
-                  onReset={() => setCellGeometryMode(IMAGE_RECTS_URL_DEFAULTS.cellGeometryMode)}
-                  options={CELL_GEOMETRY_OPTIONS}
-                  title="Weave rects everywhere, or plain cells except where the image is dark enough"
-                  placeholder="Geometry"
-                />
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    className={`${toggleBtn} ${mosaicBgGaps ? toggleBtnActive : ''}`}
+                    aria-pressed={mosaicBgGaps}
+                    aria-label="Background gaps: show canvas between dark stitch cells"
+                    title="Non-stitch cells show background (legacy v5)"
+                    onClick={() => {
+                      setMosaicBgGaps((g) => {
+                        const next = !g;
+                        if (next) setCellGeometryMode(1);
+                        else setCellGeometryMode(IMAGE_RECTS_URL_DEFAULTS.cellGeometryMode);
+                        return next;
+                      });
+                    }}
+                  >
+                    <Icon name="grid_4x4" className={iconSm} />
+                    <span className={typeLabel}>Background gaps</span>
+                  </button>
+                </div>
                 {cellGeometryMode === 1 && (
                   <div className="flex flex-wrap items-center gap-2">
                     <GroupIcon name="texture" title="Stitch darkness cutoff" />
@@ -1125,26 +1340,6 @@ export default function AppV2({
                   </>
                 )}
               </div>
-              <div className="flex flex-wrap items-center gap-2 border-t border-border-subtle pt-2">
-                <button
-                  type="button"
-                  className={`${toggleBtn} ${mosaicBgGaps ? toggleBtnActive : ''}`}
-                  aria-pressed={mosaicBgGaps}
-                  aria-label="Background gaps: show canvas between dark stitch cells"
-                  title="Non-stitch cells show background (legacy v5)"
-                  onClick={() => {
-                    setMosaicBgGaps((g) => {
-                      const next = !g;
-                      if (next) setCellGeometryMode(1);
-                      else setCellGeometryMode(IMAGE_RECTS_URL_DEFAULTS.cellGeometryMode);
-                      return next;
-                    });
-                  }}
-                >
-                  <Icon name="grid_4x4" className={iconSm} />
-                  <span className={typeLabel}>Background gaps</span>
-                </button>
-              </div>
             </div>
           </div>
           <div className={sidebarGroup}>
@@ -1178,6 +1373,8 @@ export default function AppV2({
             gridSize={gridSize}
             palette={palette}
             bgShade={bgShade}
+            bgColorMode={bgColorMode}
+            bgCustomColor={bgCustomColor}
             rectColorSource={rectColorSource}
             quantizeSteps={quantizeSteps}
             quantizeMode={quantizeMode}
@@ -1208,11 +1405,39 @@ export default function AppV2({
             stitchRevealBleedCrossFiber={stitchRevealBleedCrossFiber}
             stitchRevealBleedDraftCoupled={stitchRevealBleedDraftCoupled}
             patternFit={patternFit}
-            onFpsChange={setFps}
             onCanvasRef={(el) => { canvasRef.current = el; }}
             onCaptureReady={(api) => { imageRectsCaptureRef.current = api; }}
           />
         </main>
+
+        <CaptureToolbar
+          copyFormat={copyFormat}
+          setCopyFormat={setCopyFormat}
+          copyScale={copyScale}
+          setCopyScale={setCopyScale}
+          copyDefaults={{ copyScale: IMAGE_RECTS_URL_DEFAULTS.copyScale, copyFormat: IMAGE_RECTS_URL_DEFAULTS.copyFormat }}
+          onCopy={handleCopy}
+          copyFeedback={copyFeedback}
+          showExport={false}
+          recordFormat={recordFormat}
+          setRecordFormat={setRecordFormat}
+          isRecording={isRecording}
+          isProcessing={isProcessing}
+          recordingReason={recordingReason}
+          onRecordClick={isRecording ? stopRecordingWithCleanup : startRecording}
+          onPlayRecord={startMosaicPlayAndRecord}
+          keyframe={{
+            editingAfter,
+            setEditingAfter,
+            durationSec: keyframeDurationSec,
+            setDurationSec: setKeyframeDurationSec,
+            isPlaying: keyframePlaying,
+            onSetBefore: () => { syncMosaicBeforeFromLive(); setEditingAfter(false); },
+            onSetAfter: () => { syncMosaicAfterFromLive(); setEditingAfter(true); },
+            onPlay: startMosaicKeyframePlay,
+            onStop: stopMosaicKeyframe,
+          }}
+        />
 
         <footer className="relative h-[100px] shrink-0 overflow-hidden border-t border-border-subtle bg-surface-elevated">
           <div className="flex h-full min-h-9 flex-wrap items-center gap-2 overflow-y-auto px-3 py-2">
@@ -1245,10 +1470,13 @@ export default function AppV2({
               </>
             ) : null}
             <span className={pill}>{PALETTE_NAMES[palette]}</span>
-            <span className={pill}>BG: {bgShade === 4 ? <><Icon name={SHADE_TRANSPARENT_ICON} className={iconXs} /></> : SHADE_NAMES[bgShade]}</span>
+            <span className={pill}>
+              BG: {bgColorMode === 1
+                ? bgCustomColor.toUpperCase()
+                : (bgShade === 4 ? <><Icon name={SHADE_TRANSPARENT_ICON} className={iconXs} /></> : SHADE_NAMES[bgShade])}
+            </span>
             <span className={pill}>Grid: {gridSize}</span>
             <div className="ml-auto flex items-center gap-2">
-              <span className={pill}>{fps || '--'} fps</span>
               <span className={pill}>WebGL 1</span>
             </div>
           </div>

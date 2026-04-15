@@ -24,15 +24,15 @@ export const WEAVING_URL_DEFAULTS = {
   exportScale: 6,
   useAllColorways: true,
   colorwaySeed: 78.2,
-  colorwayNoiseScale: 0.05,
+  colorwayNoiseScale: 0.005,
   /** 0 = hash, 1 = smooth Perlin+FBM, 2 = dye bleed. */
   colorwayNoiseMode: 2,
   colorwayNoiseOctaves: 3,
   colorwayNoisePersistence: 0.6,
   colorwayNoiseLacunarity: 2.1,
   colorwayNoiseBias: 0.67,
-  /** Third axis through colorway FBM (smooth/bleed); hash mode shifts XY slice. Animate for drift. */
-  colorwayNoiseZ: 0,
+  /** Cell-space X offset for colorway noise (hash / FBM / bleed). Animate for drift. */
+  colorwayNoiseX: 0,
   colorwayBleedAnisotropy: 0.6,
   colorwayBleedRotation: 0.5,
   colorwayBleedCrossFiber: 0,
@@ -52,12 +52,19 @@ export const WEAVING_URL_DEFAULTS = {
   shimmerBlendMode: 0,
   warpGradient: { startShade: 0, endShade: 3, direction: 0, range: [0, 100] },
   weftGradient: { startShade: 0, endShade: 3, direction: 0, range: [0, 100] },
+  /** When false, warp threads use flat **warp** shade only (gradient fields kept for when toggled back on). */
+  warpGradientEnabled: true,
+  weftGradientEnabled: true,
 };
 
 export const IMAGE_RECTS_URL_DEFAULTS = {
   gridSize: 32,
   palette: 0,
   bgShade: 2,
+  /** 0 = palette BG shade, 1 = custom picked color (bgc). */
+  bgColorMode: 0,
+  /** Custom background color when bgColorMode = 1. */
+  bgCustomColor: '#f2f2f2',
   /** 0 = brand palette, 1 = image RGB, 2 = warp/weft pattern colors (URL cm). */
   rectColorSource: 1,
   quantizeSteps: 0,

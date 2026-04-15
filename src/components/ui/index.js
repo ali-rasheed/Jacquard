@@ -7,3 +7,5 @@ export { AppSelect } from './AppSelect';
 export { DirectionSwitch } from './DirectionSwitch';
 export { SegmentedControl, SegmentedControlButton } from './SegmentedControl';
 export { IconButton } from './IconButton';
+export { AppTooltip } from './AppTooltip';
+export { AppTooltipProvider } from './AppTooltipProvider';

@@ -1,0 +1,18 @@
+---
+description: After user-driven product or behavior changes, ask for the “why” to record in docs/FEATURES.md when unclear.
+alwaysApply: true
+---
+
+# Documentation follow-up — capture the user’s “why”
+
+When **the user** asks for a change that affects **product behavior, UI, URL params, tabs, or shader-visible modes**, and they have **not** already stated a clear rationale:
+
+1. **Before treating the task as done**, ask one short follow-up, for example:
+   - *“What should we record in `docs/FEATURES.md` as the reason for this change?”*
+   - Or, if you already updated FEATURES.md: *“Does this match your intent, or should I adjust the ‘why’ wording?”*
+
+2. **If they decline** or want to skip, note *“no rationale captured”* is fine — do not nag.
+
+3. **If the why was explicit** in the same message (e.g. “remove X because Y”), fold **Y** into `docs/FEATURES.md` per `feature-changelog.mdc` and you **don’t** need to ask again unless something is ambiguous.
+
+Goal: documentation reflects **intent**, not only **diffs**.
