@@ -8,6 +8,9 @@
  * WebGL: callers should call gl.finish() after draw (see useImageRectsSandbox / useShaderSandbox)
  * so VideoFrame and captureStream see completed frames.
  *
+ * MP4: the capture rAF loop shares one session object with stopRecording — set session.active=false
+ * and cancel rAF before encoder.flush/close so no tick calls encode() on a closed codec.
+ *
  * Usage:
  *   const rec = useCanvasRecorder('shaderbox');
  *   <button onClick={() => rec.startRecording(canvasEl)}>Record</button>
@@ -146,32 +149,49 @@ export function useCanvasRecorder(filePrefix = 'shaderbox') {
       const frameDuration = 1_000_000 / FPS;
       let lastTime = 0;
 
+      /** Session: keep one object so stop can set `active=false` before flush/close; rAF must not encode after close. */
+      const session = {
+        encoder,
+        muxer,
+        target,
+        raf: 0,
+        active: true,
+        canvas,
+      };
+
       const capture = (now) => {
-        if (!mp4Ref.current) return;
+        if (!session.active || !mp4Ref.current || mp4Ref.current !== session) return;
+        if (encoder.state === 'closed') return;
         if (now - lastTime >= 1000 / FPS) {
           lastTime = now;
+          if (!session.active || encoder.state === 'closed') return;
           try {
-            const frame = new VideoFrame(canvas, { timestamp: frameCount * frameDuration });
+            const frame = new VideoFrame(session.canvas, { timestamp: frameCount * frameDuration });
             encoder.encode(frame, { keyFrame: frameCount % (FPS * KEYFRAME_INTERVAL_S) === 0 });
             frame.close();
             frameCount++;
           } catch (e) {
             console.error('useCanvasRecorder: VideoFrame encode failed', e);
             setRecordError(`Recording encode error: ${e?.message ?? 'unknown'}`);
+            session.active = false;
+            if (session.raf) cancelAnimationFrame(session.raf);
+            session.raf = 0;
             try {
               encoder.close();
             } catch { /* ignore */ }
-            cancelAnimationFrame(mp4Ref.current?.raf);
-            mp4Ref.current = null;
+            if (mp4Ref.current === session) mp4Ref.current = null;
             setIsRecording(false);
             setRecordingReason(null);
             return;
           }
         }
-        mp4Ref.current.raf = requestAnimationFrame(capture);
+        if (!session.active || !mp4Ref.current || mp4Ref.current !== session) return;
+        if (encoder.state === 'closed') return;
+        session.raf = requestAnimationFrame(capture);
       };
 
-      mp4Ref.current = { encoder, muxer, target, raf: requestAnimationFrame(capture) };
+      mp4Ref.current = session;
+      session.raf = requestAnimationFrame(capture);
       setIsRecording(true);
     },
     [],
@@ -206,19 +226,25 @@ export function useCanvasRecorder(filePrefix = 'shaderbox') {
 
   const stopRecording = useCallback(async () => {
     if (recordFormat === 'mp4' && mp4Ref.current) {
-      const { encoder, muxer, target, raf } = mp4Ref.current;
-      cancelAnimationFrame(raf);
-      mp4Ref.current = null;
+      const session = mp4Ref.current;
+      const { encoder, muxer, target, raf } = session;
+      /** Stop capture loop first so no rAF tick calls encode() after flush/close. */
+      session.active = false;
+      if (raf) cancelAnimationFrame(raf);
+      session.raf = 0;
       setIsProcessing(true);
       setRecordError(null);
       try {
-        await encoder.flush();
+        if (encoder.state !== 'closed') {
+          await encoder.flush();
+        }
         muxer.finalize();
         try {
-          encoder.close();
+          if (encoder.state !== 'closed') encoder.close();
         } catch { /* ignore */ }
         const blob = new Blob([target.buffer], { type: 'video/mp4' });
         const filename = `${filePrefix}-${Date.now()}.mp4`;
+        if (mp4Ref.current === session) mp4Ref.current = null;
         if (!blob.size) {
           setRecordError('Recording: empty MP4 — try recording longer or use WebM.');
         } else {
@@ -227,6 +253,7 @@ export function useCanvasRecorder(filePrefix = 'shaderbox') {
       } catch (e) {
         console.error('useCanvasRecorder: MP4 finalize failed', e);
         setRecordError(`Recording failed: ${e?.message ?? 'unknown error'}`);
+        if (mp4Ref.current === session) mp4Ref.current = null;
       } finally {
         setIsProcessing(false);
         setIsRecording(false);
