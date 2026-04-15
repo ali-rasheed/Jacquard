@@ -131,7 +131,17 @@ export function useCanvasRecorder(filePrefix = 'shaderbox') {
 
       const encoder = new VideoEncoder({
         output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
-        error: (e) => console.error('VideoEncoder error:', e),
+        error: (e) => {
+          console.error('VideoEncoder error:', e);
+          const session = mp4Ref.current;
+          if (session) {
+            cancelAnimationFrame(session.raf);
+            mp4Ref.current = null;
+          }
+          setRecordError(`Recording encode error: ${e?.message ?? 'unknown'}`);
+          setIsRecording(false);
+          setRecordingReason(null);
+        },
       });
 
       encoder.configure({
