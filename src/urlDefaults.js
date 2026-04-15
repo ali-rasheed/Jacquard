@@ -61,6 +61,10 @@ export const IMAGE_RECTS_URL_DEFAULTS = {
   gridSize: 32,
   palette: 0,
   bgShade: 2,
+  /** 0 = palette BG shade, 1 = custom picked color (bgc). */
+  bgColorMode: 0,
+  /** Custom background color when bgColorMode = 1. */
+  bgCustomColor: '#f2f2f2',
   /** 0 = brand palette, 1 = image RGB, 2 = warp/weft pattern colors (URL cm). */
   rectColorSource: 1,
   quantizeSteps: 0,

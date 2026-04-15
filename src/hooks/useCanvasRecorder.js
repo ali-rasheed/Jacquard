@@ -24,6 +24,9 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 const FPS = 30;
 const BITRATE = 5_000_000;
 const KEYFRAME_INTERVAL_S = 2;
+const VIDEO_EXPORT_SCALE = 2;
+/** MP4 tries 2x first, then falls back if encoder caps are lower on this device/browser. */
+const MP4_EXPORT_SCALES = [VIDEO_EXPORT_SCALE, 1.5, 1, 0.75, 0.5];
 /** Frequent chunks + final blob on stop; avoids sparse data on short clips. */
 const WEBM_TIMESLICE_MS = 250;
 /** Prefer higher H.264 levels for large canvases; fall back to lower levels. */
@@ -61,6 +64,33 @@ async function pickSupportedAvcConfig(baseConfig) {
   return null;
 }
 
+/**
+ * Some browsers emit `metadata.decoderConfig = null` (or null colorSpace), which can crash
+ * mp4-muxer internals that expect an object. Normalize metadata before muxing.
+ */
+function normalizeMuxerMetadata(metadata) {
+  if (!metadata || typeof metadata !== 'object') return undefined;
+  const decoderConfig = metadata.decoderConfig;
+  if (!decoderConfig || typeof decoderConfig !== 'object') return undefined;
+  const normalizedDecoderConfig = { ...decoderConfig };
+  if (normalizedDecoderConfig.colorSpace == null) delete normalizedDecoderConfig.colorSpace;
+  return { ...metadata, decoderConfig: normalizedDecoderConfig };
+}
+
+function makeRecordingCanvas(sourceCanvas, { scale = VIDEO_EXPORT_SCALE, forceEven = false } = {}) {
+  const canvas = document.createElement('canvas');
+  let width = Math.max(2, Math.round(sourceCanvas.width * scale));
+  let height = Math.max(2, Math.round(sourceCanvas.height * scale));
+  if (forceEven) {
+    if (width % 2 !== 0) width -= 1;
+    if (height % 2 !== 0) height -= 1;
+  }
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d', { alpha: true });
+  return { canvas, ctx, width, height };
+}
+
 export const supportsMP4 = typeof VideoEncoder !== 'undefined';
 
 export function useCanvasRecorder(filePrefix = 'shaderbox') {
@@ -94,7 +124,13 @@ export function useCanvasRecorder(filePrefix = 'shaderbox') {
         setRecordError('Recording: no supported WebM codec in this browser.');
         return;
       }
-      const stream = canvas.captureStream(FPS);
+      const { canvas: recordingCanvas, ctx } = makeRecordingCanvas(canvas);
+      if (!ctx) {
+        setRecordError('Recording: failed to create 2D context for WebM export.');
+        return;
+      }
+      ctx.drawImage(canvas, 0, 0, recordingCanvas.width, recordingCanvas.height);
+      const stream = recordingCanvas.captureStream(FPS);
       let recorder;
       try {
         recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: BITRATE });
@@ -102,18 +138,43 @@ export function useCanvasRecorder(filePrefix = 'shaderbox') {
         setRecordError(`Recording: MediaRecorder failed — ${e?.message ?? 'unknown'}`);
         return;
       }
+      const session = {
+        recorder,
+        stream,
+        raf: 0,
+        active: true,
+        sourceCanvas: canvas,
+        recordingCanvas,
+        ctx,
+      };
+      const pump = () => {
+        if (!session.active) return;
+        try {
+          session.ctx.drawImage(session.sourceCanvas, 0, 0, session.recordingCanvas.width, session.recordingCanvas.height);
+        } catch {
+          /* ignore transient draw errors while source canvas is resizing */
+        }
+        session.raf = requestAnimationFrame(pump);
+      };
       const chunks = [];
       recorder.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
       recorder.onerror = (e) => {
         console.error('useCanvasRecorder: MediaRecorder error', e);
+        session.active = false;
+        if (session.raf) cancelAnimationFrame(session.raf);
+        session.raf = 0;
         setRecordError('Recording: encoder error — try WebM or reload the page.');
         setIsRecording(false);
         setRecordingReason(null);
       };
       recorder.onstop = () => {
+        session.active = false;
+        if (session.raf) cancelAnimationFrame(session.raf);
+        session.raf = 0;
         const blob = new Blob(chunks, { type: mimeType });
         const filename = `${filePrefix}-${Date.now()}.webm`;
         stream.getTracks().forEach((t) => { try { t.stop(); } catch { /* ignore */ } });
+        if (webmRef.current === session) webmRef.current = null;
         if (!blob.size) {
           setRecordError('Recording: no video data — record a bit longer or try MP4.');
           setIsRecording(false);
@@ -125,7 +186,8 @@ export function useCanvasRecorder(filePrefix = 'shaderbox') {
         setRecordingReason(null);
       };
       recorder.start(WEBM_TIMESLICE_MS);
-      webmRef.current = recorder;
+      session.raf = requestAnimationFrame(pump);
+      webmRef.current = session;
       setIsRecording(true);
     },
     [filePrefix],
@@ -145,8 +207,29 @@ export function useCanvasRecorder(filePrefix = 'shaderbox') {
       }
       const { Muxer, ArrayBufferTarget } = await import('mp4-muxer');
 
-      const w = canvas.width % 2 === 0 ? canvas.width : canvas.width - 1;
-      const h = canvas.height % 2 === 0 ? canvas.height : canvas.height - 1;
+      let selectedSurface = null;
+      let selectedEncoderConfig = null;
+      for (const scale of MP4_EXPORT_SCALES) {
+        const surface = makeRecordingCanvas(canvas, { scale, forceEven: true });
+        if (!surface.ctx) continue;
+        const baseEncoderConfig = {
+          width: surface.width,
+          height: surface.height,
+          bitrate: BITRATE,
+          framerate: FPS,
+        };
+        const encoderConfig = await pickSupportedAvcConfig(baseEncoderConfig);
+        if (!encoderConfig) continue;
+        selectedSurface = surface;
+        selectedEncoderConfig = encoderConfig;
+        break;
+      }
+      if (!selectedSurface || !selectedEncoderConfig) {
+        setRecordError('Recording: MP4 encoder does not support this canvas size. Try WebM or reduce canvas size.');
+        return;
+      }
+      const { canvas: recordingCanvas, ctx: recordingCtx, width: w, height: h } = selectedSurface;
+      recordingCtx.drawImage(canvas, 0, 0, w, h);
 
       const target = new ArrayBufferTarget();
       const muxer = new Muxer({
@@ -156,22 +239,19 @@ export function useCanvasRecorder(filePrefix = 'shaderbox') {
       });
 
       const encoder = new VideoEncoder({
-        output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
+        output: (chunk, meta) => {
+          try {
+            const normalizedMeta = normalizeMuxerMetadata(meta);
+            muxer.addVideoChunk(chunk, normalizedMeta);
+          } catch (e) {
+            console.error('useCanvasRecorder: addVideoChunk failed', e);
+            setRecordError(`Recording failed: ${e?.message ?? 'muxer metadata error'}`);
+          }
+        },
         error: (e) => console.error('VideoEncoder error:', e),
       });
 
-      const baseEncoderConfig = {
-        width: w,
-        height: h,
-        bitrate: BITRATE,
-        framerate: FPS,
-      };
-      const encoderConfig = await pickSupportedAvcConfig(baseEncoderConfig);
-      if (!encoderConfig) {
-        setRecordError(`Recording: MP4 encoder does not support ${w}x${h}. Try WebM or reduce canvas size.`);
-        return;
-      }
-      encoder.configure(encoderConfig);
+      encoder.configure(selectedEncoderConfig);
 
       let frameCount = 0;
       const frameDuration = 1_000_000 / FPS;
@@ -185,7 +265,9 @@ export function useCanvasRecorder(filePrefix = 'shaderbox') {
         raf: 0,
         active: true,
         stopping: false,
-        canvas,
+        sourceCanvas: canvas,
+        recordingCanvas,
+        recordingCtx,
       };
 
       const capture = (now) => {
@@ -196,7 +278,8 @@ export function useCanvasRecorder(filePrefix = 'shaderbox') {
           if (!session.active || encoder.state === 'closed') return;
           let frame = null;
           try {
-            frame = new VideoFrame(session.canvas, { timestamp: frameCount * frameDuration });
+            session.recordingCtx.drawImage(session.sourceCanvas, 0, 0, w, h);
+            frame = new VideoFrame(session.recordingCanvas, { timestamp: frameCount * frameDuration });
             encoder.encode(frame, { keyFrame: frameCount % (FPS * KEYFRAME_INTERVAL_S) === 0 });
             frameCount++;
           } catch (e) {
@@ -307,11 +390,18 @@ export function useCanvasRecorder(filePrefix = 'shaderbox') {
         setRecordingReason(null);
       }
     } else if (webmRef.current) {
-      const rec = webmRef.current;
-      if (rec.state === 'recording') {
-        rec.stop();
+      const session = webmRef.current;
+      session.active = false;
+      if (session.raf) cancelAnimationFrame(session.raf);
+      session.raf = 0;
+      if (session.recorder.state === 'recording') {
+        session.recorder.stop();
+      } else {
+        session.stream.getTracks().forEach((t) => { try { t.stop(); } catch { /* ignore */ } });
+        if (webmRef.current === session) webmRef.current = null;
+        setIsRecording(false);
+        setRecordingReason(null);
       }
-      webmRef.current = null;
     }
   }, [recordFormat, filePrefix]);
 

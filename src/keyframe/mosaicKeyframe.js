@@ -7,6 +7,8 @@ export const MOSAIC_KEYFRAME_KEYS = [
   'gridSize',
   'palette',
   'bgShade',
+  'bgColorMode',
+  'bgCustomColor',
   'rectColorSource',
   'patternWarpShade',
   'patternWeftShade',
@@ -58,6 +60,8 @@ export function applyMosaicKeyframe(setters, snap) {
   if (snap.gridSize != null) setters.setGridSize?.(r(snap.gridSize, 8, 256));
   if (snap.palette != null) setters.setPalette?.(r(snap.palette, 0, 4));
   if (snap.bgShade != null) setters.setBgShade?.(r(snap.bgShade, 0, 5));
+  if (snap.bgColorMode != null) setters.setBgColorMode?.(r(snap.bgColorMode, 0, 1));
+  if (typeof snap.bgCustomColor === 'string') setters.setBgCustomColor?.(snap.bgCustomColor);
   if (snap.rectColorSource != null) setters.setRectColorSource?.(r(snap.rectColorSource, 0, 2));
   if (snap.patternWarpShade != null) setters.setPatternWarpShade?.(r(snap.patternWarpShade, 0, 4));
   if (snap.patternWeftShade != null) setters.setPatternWeftShade?.(r(snap.patternWeftShade, 0, 4));

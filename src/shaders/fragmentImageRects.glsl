@@ -19,6 +19,8 @@ uniform float u_gridSize;
 uniform sampler2D u_imageSampler;
 uniform float u_palette;
 uniform float u_bgShade;
+uniform float u_bgUseCustom; // 0 = palette shade; 1 = u_bgCustomColor
+uniform vec3 u_bgCustomColor;
 uniform float u_rectColorSource; // 0 brand, 1 image, 2 warp/weft pattern colors
 uniform float u_quantizeSteps; // 0–1 = off, 2+ = levels per band
 uniform float u_quantizeMode;  // 0 = RGB, 1 = HSV
@@ -320,7 +322,9 @@ void main() {
   cell *= revealMul;
 
   // --- COLORING (same as original: palette + bg shade for background). Supports transparent. ---
-  vec4 bgVec = getPaletteColor(u_palette, u_bgShade);
+  vec4 bgVec = u_bgUseCustom > 0.5
+    ? vec4(clamp(u_bgCustomColor, 0.0, 1.0), 1.0)
+    : getPaletteColor(u_palette, u_bgShade);
   vec4 inRectVec = rectVec.a > 0.001 ? rectVec : vec4(bgVec.rgb, 1.0);
   gl_FragColor = mix(bgVec, inRectVec, cell);
 }

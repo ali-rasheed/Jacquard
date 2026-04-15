@@ -213,6 +213,14 @@ export function CaptureToolbar({
               </button>
             </AppTooltip>
           )}
+          {isRecording && (
+            <AppTooltip content="Stop current recording immediately">
+              <button type="button" className={btnGhost} onClick={onRecordClick} disabled={isProcessing}>
+                <Icon name="stop_circle" className={iconSm} />
+                <span className={typeLabel}>Stop record</span>
+              </button>
+            </AppTooltip>
+          )}
         </div>
 
         {keyframe && (
