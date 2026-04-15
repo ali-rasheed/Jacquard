@@ -34,6 +34,22 @@ Data flow: **React state → uniforms / props → fragment shaders**. Resolution
 
 ---
 
+## Keyboard shortcuts
+
+**Mod** means **⌘** on macOS and **Ctrl** on Windows/Linux. Shortcuts are ignored while focus is inside an `input`, `select`, or `textarea` (including numeric fields next to sliders).
+
+| Shortcut | Where it works | Action |
+|----------|----------------|--------|
+| **Mod+C** | Weave, Mosaic, Print mosaic | Copy canvas (same as sidebar **Copy**; respects copy format/scale). |
+| **Mod+Shift+R** or **F5** | Weave, Mosaic, Print mosaic | Reload the page (`history` reload). |
+| **Mod+1** … **Mod+9** | Whole app shell (`App.jsx`, all tabs) | Apply weave **preset** at index **0…8** (first nine entries in **`PRESETS`**). There is no **Mod+0** for the tenth preset. You see the result on **Weave** / **Print mosaic**; on **Mosaic** the weave state still updates in the background if you switch back. |
+| **Enter** | Slider number field (when focused) | Commit typed value (`SliderWithInput`). |
+| **← →** (and Radix defaults) | Slider **thumb** when focused | Nudge value (browser/Radix slider behavior). |
+
+There are no global shortcuts today for **randomize**, **reset**, **record**, **Fit/Fill**, or switching tabs — those are UI-only unless you add them.
+
+---
+
 ## Tabs (URL `?v=`)
 
 | `v` | Internal `view` | Nav label | Main surface |
@@ -58,12 +74,12 @@ Data flow: **React state → uniforms / props → fragment shaders**. Resolution
 
 ## Weave
 
-- **Controls:** presets, palette, weave pattern, shades, gradients, grid & layout, shimmer, colorways, **Halftone Off/On**, copy scale/format, optional MP4/WebM recording. **Fit / Fill** is only in the **main nav** (far right), not the sidebar.
+- **Controls:** presets, palette, weave pattern, shades, **warp / weft gradient On–Off** (flat = **Warp** / **Weft** shade only; **On** uses start/end/range/direction), grid & layout, **canvas aspect** as a **preset dropdown** (common ratios + **Other (x.xx)** when the value isn’t listed — URL `canvas` still allows 0.5–2), shimmer, colorways, **Halftone Off/On**, copy scale/format, optional MP4/WebM recording. **Fit / Fill** is only in the **main nav** (far right), not the sidebar.
 - **What:** Sidebar **Actions** stacks reset/randomize, copy, PNG download, record, and optional desktop image for halftone / Print mosaic in separate rows. **Why:** Keeps export pipelines distinct without one crowded row of controls.
 - **Colorways:** Five named palettes (Citrine, Garnet, Lapis, Peridot, **Quartz**). **Quartz** aligns with ENS Core neutrals in shader slots (see previous doc detail).
-- **What:** **Use all 5 colorways** can distribute palette indices three ways in `fragment.glsl`: **Random** (legacy per-cell hash), **Smooth** (2D gradient noise + FBM: octaves, persistence, lacunarity, bias), **Bleed** (anisotropic FBM for streaks along threads; run length, angle, cross-fiber mix, optional **draft-coupled** warp/weft blend). **Noise Z** (`u_colorwayNoiseZ`) translates the third axis through the gradient lattice (FBM scales Z per octave; hash mode shifts the 2D slice), with optional **Play** oscillation. **Include palettes** toggles restrict the pool (bitmask); all five on matches legacy behavior. **Why:** Coherent regions and fiber-parallel “dye” looks without Manhattan/Voronoi; URL-shareable tuning and time-varying colorway fields.
-- **What:** With no URL overrides, **Use all 5 colorways** starts **on**, distribution **Bleed**, noise scale **0.05**, seed **78.2**, run length **0.6**, streak angle **180°**, cross-fiber **0**, **draft-coupled** on, FBM octaves **3** / persistence **0.6** / lacunarity **2.1** / bias **0.67**, and all palettes included (`cpm=31`). **Why:** Default open state matches a tuned reference look; reset buttons and `WEAVING_URL_DEFAULTS` in `src/urlDefaults.js` stay aligned.
-- **URL:** `cnm` (0–2), `cns`/`seed`, `cnz` (noise Z, −500…500), `cpm` (0–31 include mask), FBM `cno`/`cnp`/`cnl`/`cnbb`, bleed `cba`/`cbr`/`cbx`/`cbd`, plus existing weave keys — `buildUrlState` / `parseUrlState` in `App.jsx`.
+- **What:** **Use all 5 colorways** can distribute palette indices three ways in `fragment.glsl`: **Random** (legacy per-cell hash), **Smooth** (2D gradient noise + FBM: octaves, persistence, lacunarity, bias), **Bleed** (anisotropic FBM for streaks along threads; run length, angle, cross-fiber mix, optional **draft-coupled** warp/weft blend). **Noise X** (`u_colorwayNoiseX`) shifts the noise sample along **cell-space X** (warp/column direction), scaled in-shader (~`0.04×`) so slider/URL values move the field subtly; **Play** sweeps **Noise X** over **`cnx`** (−500…500, ~**50 min** loop, two decimals); legacy URLs may still use **`cnz`** (read as the same value). Values in-range at play-press are unchanged on frame 0 (`colorwayOscClamped`). The rAF loop only chains while **Use all 5 colorways** is on (turning it off pauses; turning it back on resumes from the same phase). **Include palettes** toggles restrict the pool (bitmask); all five on matches legacy behavior. **Why:** Coherent regions and fiber-parallel “dye” looks without Manhattan/Voronoi; URL-shareable tuning and time-varying colorway fields.
+- **What:** With no URL overrides, **Use all 5 colorways** starts **on**, distribution **Bleed**, noise scale **0.005**, seed **78.2**, run length **0.6**, streak angle **180°**, cross-fiber **0**, **draft-coupled** on, FBM octaves **3** / persistence **0.6** / lacunarity **2.1** / bias **0.67**, and all palettes included (`cpm=31`). **Why:** Default open state matches a tuned reference look; reset buttons and `WEAVING_URL_DEFAULTS` in `src/urlDefaults.js` stay aligned.
+- **URL:** `cnm` (0–2), `cns` (noise scale **0.005–0.25**), `seed`, `cnx` (noise X, −500…500; legacy `cnz` accepted on parse), `cpm` (0–31 include mask), FBM `cno`/`cnp`/`cnl`/`cnbb`, bleed `cba`/`cbr`/`cbx`/`cbd`, **`wgg`/`wfg`** (warp/weft gradient enabled **0|1**; default **on**, omitted when on), plus existing weave keys — `buildUrlState` / `parseUrlState` in `App.jsx`.
 
 ---
 

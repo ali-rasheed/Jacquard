@@ -1,5 +1,6 @@
 /**
  * useShaderSandbox — WebGL shader compilation and render loop.
+ * When warp/weft gradient flags are off, both gradient stops use the corresponding **warp** / **weft** shade (flat thread color).
  * Compiles vertex + fragment shaders, uploads fullscreen quad, runs animation loop.
  * Pattern data is uploaded as a texture; uniforms include u_tileW, u_tileH for the selected pattern.
  *
@@ -65,7 +66,7 @@ function getUniformLocs(gl, program) {
     colorwayNoisePersistence: gl.getUniformLocation(program, 'u_colorwayNoisePersistence'),
     colorwayNoiseLacunarity: gl.getUniformLocation(program, 'u_colorwayNoiseLacunarity'),
     colorwayNoiseBias: gl.getUniformLocation(program, 'u_colorwayNoiseBias'),
-    colorwayNoiseZ: gl.getUniformLocation(program, 'u_colorwayNoiseZ'),
+    colorwayNoiseX: gl.getUniformLocation(program, 'u_colorwayNoiseX'),
     colorwayBleedAnisotropy: gl.getUniformLocation(program, 'u_colorwayBleedAnisotropy'),
     colorwayBleedRotation: gl.getUniformLocation(program, 'u_colorwayBleedRotation'),
     colorwayBleedCrossFiber: gl.getUniformLocation(program, 'u_colorwayBleedCrossFiber'),
@@ -120,7 +121,7 @@ function getPaletteColor(paletteIndex, shadeIndex) {
   return PALETTE_RGBA[p][s];
 }
 
-export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, palette, bgShade, warpShade, weftShade, gridSize, warpGradient, weftGradient, gradSteps, rectAspect, cornerRadius, shimmer, shimmerSpeed, shimmerWidth, shimmerIntensity, shimmerPosition, shimmerRotation, shimmerNoise, shimmerNoiseSeed, shimmerNoiseMin, shimmerNoiseMax, shimmerBlendMode, useAllColorways, colorwaySeed, colorwayNoiseScale, colorwayNoiseMode, colorwayNoiseOctaves, colorwayNoisePersistence, colorwayNoiseLacunarity, colorwayNoiseBias, colorwayNoiseZ, colorwayBleedAnisotropy, colorwayBleedRotation, colorwayBleedCrossFiber, colorwayBleedDraftCoupled, colorwayIncludeMask, shimmerPlaying, shimmerPausedAtTime, shimmerPhase, onShimmerTime, patterns, onFpsChange, onCaptureReady) {
+export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, palette, bgShade, warpShade, weftShade, gridSize, warpGradient, weftGradient, warpGradientEnabled, weftGradientEnabled, gradSteps, rectAspect, cornerRadius, shimmer, shimmerSpeed, shimmerWidth, shimmerIntensity, shimmerPosition, shimmerRotation, shimmerNoise, shimmerNoiseSeed, shimmerNoiseMin, shimmerNoiseMax, shimmerBlendMode, useAllColorways, colorwaySeed, colorwayNoiseScale, colorwayNoiseMode, colorwayNoiseOctaves, colorwayNoisePersistence, colorwayNoiseLacunarity, colorwayNoiseBias, colorwayNoiseX, colorwayBleedAnisotropy, colorwayBleedRotation, colorwayBleedCrossFiber, colorwayBleedDraftCoupled, colorwayIncludeMask, shimmerPlaying, shimmerPausedAtTime, shimmerPhase, onShimmerTime, patterns, onFpsChange, onCaptureReady) {
   const canvasRef = useRef(null);
   const containerRef = useRef(null);
   const vertexSourceRef = useRef(vertexSource);
@@ -129,6 +130,8 @@ export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, pal
   const prevShaderRef = useRef({ vertex: null, fragment: null });
   const warpGradientRef = useRef(warpGradient);
   const weftGradientRef = useRef(weftGradient);
+  const warpGradientEnabledRef = useRef(warpGradientEnabled);
+  const weftGradientEnabledRef = useRef(weftGradientEnabled);
   const onCaptureReadyRef = useRef(onCaptureReady);
   // When patterns is omitted, callers pass (..., onFpsChange) so the 7th arg is the callback
   const callback = typeof patterns === 'function' ? patterns : onFpsChange;
@@ -146,6 +149,8 @@ export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, pal
   onFpsChangeRef.current = callback;
   warpGradientRef.current = warpGradient;
   weftGradientRef.current = weftGradient;
+  warpGradientEnabledRef.current = warpGradientEnabled !== false;
+  weftGradientEnabledRef.current = weftGradientEnabled !== false;
 
   const patternIndexRef = useRef(patternIndex);
   const paletteRef = useRef(palette);
@@ -175,7 +180,7 @@ export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, pal
   const colorwayNoisePersistenceRef = useRef(colorwayNoisePersistence);
   const colorwayNoiseLacunarityRef = useRef(colorwayNoiseLacunarity);
   const colorwayNoiseBiasRef = useRef(colorwayNoiseBias);
-  const colorwayNoiseZRef = useRef(colorwayNoiseZ);
+  const colorwayNoiseXRef = useRef(colorwayNoiseX);
   const colorwayBleedAnisotropyRef = useRef(colorwayBleedAnisotropy);
   const colorwayBleedRotationRef = useRef(colorwayBleedRotation);
   const colorwayBleedCrossFiberRef = useRef(colorwayBleedCrossFiber);
@@ -209,7 +214,7 @@ export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, pal
   colorwayNoisePersistenceRef.current = colorwayNoisePersistence ?? WEAVING_URL_DEFAULTS.colorwayNoisePersistence;
   colorwayNoiseLacunarityRef.current = colorwayNoiseLacunarity ?? WEAVING_URL_DEFAULTS.colorwayNoiseLacunarity;
   colorwayNoiseBiasRef.current = colorwayNoiseBias ?? WEAVING_URL_DEFAULTS.colorwayNoiseBias;
-  colorwayNoiseZRef.current = colorwayNoiseZ ?? WEAVING_URL_DEFAULTS.colorwayNoiseZ;
+  colorwayNoiseXRef.current = colorwayNoiseX ?? WEAVING_URL_DEFAULTS.colorwayNoiseX;
   colorwayBleedAnisotropyRef.current = colorwayBleedAnisotropy ?? WEAVING_URL_DEFAULTS.colorwayBleedAnisotropy;
   colorwayBleedRotationRef.current = colorwayBleedRotation ?? WEAVING_URL_DEFAULTS.colorwayBleedRotation;
   colorwayBleedCrossFiberRef.current = colorwayBleedCrossFiber ?? WEAVING_URL_DEFAULTS.colorwayBleedCrossFiber;
@@ -307,8 +312,12 @@ export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, pal
       gl.uniform1f(uniformLocs.weftShade, weftShadeRef.current);
       gl.uniform1f(uniformLocs.gridSize, gridSizeRef.current);
 
-      const wg = warpGradientRef.current || { startShade: warpShade, endShade: warpShade, direction: 0, range: [0, 100] };
-      const wf = weftGradientRef.current || { startShade: weftShade, endShade: weftShade, direction: 0, range: [0, 100] };
+      const ws = warpShadeRef.current;
+      const wes = weftShadeRef.current;
+      let wg = warpGradientRef.current || { startShade: ws, endShade: ws, direction: 0, range: [0, 100] };
+      let wf = weftGradientRef.current || { startShade: wes, endShade: wes, direction: 0, range: [0, 100] };
+      if (!warpGradientEnabledRef.current) wg = { ...wg, startShade: ws, endShade: ws };
+      if (!weftGradientEnabledRef.current) wf = { ...wf, startShade: wes, endShade: wes };
       const warpStart = getPaletteColor(palette, wg.startShade);
       const warpEnd = getPaletteColor(palette, wg.endShade);
       const weftStart = getPaletteColor(palette, wf.startShade);
@@ -348,7 +357,7 @@ export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, pal
       if (uniformLocs.colorwayNoisePersistence != null) gl.uniform1f(uniformLocs.colorwayNoisePersistence, colorwayNoisePersistenceRef.current);
       if (uniformLocs.colorwayNoiseLacunarity != null) gl.uniform1f(uniformLocs.colorwayNoiseLacunarity, colorwayNoiseLacunarityRef.current);
       if (uniformLocs.colorwayNoiseBias != null) gl.uniform1f(uniformLocs.colorwayNoiseBias, colorwayNoiseBiasRef.current);
-      if (uniformLocs.colorwayNoiseZ != null) gl.uniform1f(uniformLocs.colorwayNoiseZ, colorwayNoiseZRef.current);
+      if (uniformLocs.colorwayNoiseX != null) gl.uniform1f(uniformLocs.colorwayNoiseX, colorwayNoiseXRef.current);
       if (uniformLocs.colorwayBleedAnisotropy != null) gl.uniform1f(uniformLocs.colorwayBleedAnisotropy, colorwayBleedAnisotropyRef.current);
       if (uniformLocs.colorwayBleedRotation != null) gl.uniform1f(uniformLocs.colorwayBleedRotation, colorwayBleedRotationRef.current);
       if (uniformLocs.colorwayBleedCrossFiber != null) gl.uniform1f(uniformLocs.colorwayBleedCrossFiber, colorwayBleedCrossFiberRef.current);
@@ -472,7 +481,7 @@ export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, pal
       if (patternTexture) gl.deleteTexture(patternTexture);
       if (program) gl.deleteProgram(program);
     };
-  }, [palette, warpShade, weftShade, patterns]);
+  }, [palette, patterns]);
 
   useEffect(() => {
     const cleanup = run();

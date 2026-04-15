@@ -1,0 +1,30 @@
+---
+description: When adding or removing product features in shaderbox, update docs/FEATURES.md with what changed and why.
+alwaysApply: true
+---
+
+# Feature changes — document what and why
+
+This repo keeps a living product/architecture doc at **`docs/FEATURES.md`**. Whenever you **add, remove, hide, or materially change** something users (or URL state) can see, **update that file in the same change** (same PR / same session).
+
+## What counts as a feature change
+
+- New or removed **tabs**, **controls**, **shortcuts**, **export/copy** behavior, **URL query params**, or **shader-driven modes**
+- UI removed but behavior kept (e.g. forced defaults) → document under **Disabled / hidden** with **why** and how to **re-enable**
+- Renames of modes or important labels that affect how people talk about the app
+
+## What to write
+
+For each change, add a short note (a bullet or a new subsection is enough):
+
+1. **What** — behavior or surface area (be specific: which tab, which param).
+2. **Why** — intent (simplify UX, defer complexity, bug avoidance, experiment, etc.).
+
+Prefer updating existing sections (tabs, architecture table, **Disabled / hidden**) over duplicating long prose elsewhere.
+
+## Do not
+
+- Skip documentation because the diff was “small” — if the product changed, the doc should reflect it.
+- Replace `docs/FEATURES.md` with only a link to commit messages; the file should remain readable on its own.
+
+If the user did not state **why**, prompt once for rationale before closing out — see **`doc-followups-why.mdc`**.

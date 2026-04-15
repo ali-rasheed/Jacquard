@@ -615,8 +615,9 @@ export default function AppV2({
   }, [imageSource]);
 
   /** In-flow: min-h-0 + h-full bounds the column so tall control stacks scroll inside the sidebar (flex default min-height:auto would grow past the shell). */
+  /** Fixed overlay: `top-9` matches App shell nav (`min-h-9`); do not use `top-0` or the menu draws over the nav. */
   const sidebarClass = menuHidden
-    ? 'fixed left-0 top-0 z-10 flex h-full w-72 flex-col gap-3 overflow-y-auto overflow-x-auto border-r border-border-subtle bg-surface px-3 py-3'
+    ? 'fixed left-0 top-9 z-10 flex h-[calc(100dvh-2.25rem)] w-72 flex-col gap-3 overflow-y-auto overflow-x-auto border-r border-border-subtle bg-surface px-3 py-3'
     : 'flex h-full min-h-0 w-72 shrink-0 flex-col gap-3 overflow-y-auto overflow-x-auto overscroll-y-contain border-r border-border-subtle bg-surface px-3 py-3';
 
   return (

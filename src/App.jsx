@@ -1,7 +1,7 @@
 /**
  * ENS Warp&Weft — root shell: Weave, Mosaic, Print mosaic; URL sync; shared sidebars / lazy stages.
  */
-import { useState, useCallback, useRef, useEffect, useLayoutEffect, lazy, Suspense } from 'react';
+import { useState, useCallback, useRef, useEffect, useLayoutEffect, useMemo, lazy, Suspense } from 'react';
 import { motion } from 'motion/react';
 import * as Select from '@radix-ui/react-select';
 import * as Label from '@radix-ui/react-label';
@@ -22,6 +22,8 @@ import {
   EXPORT_SCALES,
   GRID_SNAPS,
   getGridSizeIndex,
+  CANVAS_ASPECT_PRESETS,
+  canvasAspectKey,
   PRESETS,
   COPY_SCALES,
   RECT_ASPECT_DEFAULT,
@@ -142,6 +144,17 @@ function colorwayOscFromOrigin(tMs, periodMs, minV, maxV, origin) {
   return minV + span * (0.5 + 0.5 * Math.sin(phi + (tMs / periodMs) * TAU));
 }
 
+/** Same as `colorwayOscFromOrigin` but clamps `origin` into `[minV,maxV]` so Play starts from the current slider value with no jump. */
+function colorwayOscClamped(tMs, periodMs, minV, maxV, origin) {
+  const o = Number(origin);
+  const clamped = Number.isFinite(o) ? Math.max(minV, Math.min(maxV, o)) : (minV + maxV) * 0.5;
+  return colorwayOscFromOrigin(tMs, periodMs, minV, maxV, clamped);
+}
+
+/** Noise X play sweep: URL allows `cnx` −500…500; legacy `cnz` still parses. Sidebar slider is −250…250 (subset). */
+const COLORWAY_NOISE_X_PLAY_MIN = -500;
+const COLORWAY_NOISE_X_PLAY_MAX = 500;
+
 /** Which colorway params are auto-animated (single rAF loop in App). */
 const COLORWAY_ANIM_INITIAL = {
   seed: false,
@@ -152,7 +165,7 @@ const COLORWAY_ANIM_INITIAL = {
   persistence: false,
   lacunarity: false,
   bias: false,
-  noiseZ: false,
+  noiseX: false,
   bleedAnisotropy: false,
   bleedRotation: false,
   bleedCrossFiber: false,
@@ -212,19 +225,28 @@ function parseUrlState(search) {
   num('preset', 'presetIndex', 0, PRESETS.length - 1);
   grad('warp');
   grad('weft');
+  num('wgg', 'warpGradientEnabled', 0, 1);
+  num('wfg', 'weftGradientEnabled', 0, 1);
   num('steps', 'gradSteps', 0, 16);
   num('rect', 'rectAspect', 0.5, 1);
   num('corner', 'cornerRadius', 0, 0.5);
   num('canvas', 'canvasAspect', 0.5, 2);
   num('all', 'useAllColorways', 0, 1);
   num('seed', 'colorwaySeed', 0, 999);
-  num('cns', 'colorwayNoiseScale', 0.05, 2.5);
+  num('cns', 'colorwayNoiseScale', 0.005, 0.25);
   num('cnm', 'colorwayNoiseMode', 0, 2);
   num('cno', 'colorwayNoiseOctaves', 1, 4);
   num('cnp', 'colorwayNoisePersistence', 0.15, 0.95);
   num('cnl', 'colorwayNoiseLacunarity', 1.05, 4);
   num('cnbb', 'colorwayNoiseBias', 0.25, 4);
-  num('cnz', 'colorwayNoiseZ', -500, 500);
+  num('cnx', 'colorwayNoiseX', -500, 500);
+  {
+    const legacy = params.get('cnz');
+    if (legacy != null && out.colorwayNoiseX === undefined) {
+      const n = Number(legacy);
+      if (Number.isFinite(n)) out.colorwayNoiseX = Math.max(-500, Math.min(500, n));
+    }
+  }
   num('cba', 'colorwayBleedAnisotropy', 0.35, 12);
   num('cbr', 'colorwayBleedRotation', 0, 1);
   num('cbx', 'colorwayBleedCrossFiber', 0, 1);
@@ -358,6 +380,8 @@ function buildUrlState(state) {
     p.set('weftG', [wft.startShade, wft.endShade, wft.direction, wft.range[0], wft.range[1]].join(','));
   }
   if (state.gradSteps !== def.gradSteps) p.set('steps', String(state.gradSteps));
+  if (!!state.warpGradientEnabled !== !!def.warpGradientEnabled) p.set('wgg', state.warpGradientEnabled ? '1' : '0');
+  if (!!state.weftGradientEnabled !== !!def.weftGradientEnabled) p.set('wfg', state.weftGradientEnabled ? '1' : '0');
   if (state.rectAspect !== def.rectAspect) p.set('rect', String(Number(state.rectAspect.toFixed(2))));
   if (state.cornerRadius !== def.cornerRadius) p.set('corner', String(Number(state.cornerRadius.toFixed(2))));
   if (state.canvasAspect !== def.canvasAspect) p.set('canvas', String(Number(state.canvasAspect.toFixed(2))));
@@ -365,13 +389,13 @@ function buildUrlState(state) {
   if (state.copyScale !== def.copyScale) p.set('cs', String(state.copyScale));
   if (state.useAllColorways !== def.useAllColorways) p.set('all', state.useAllColorways ? '1' : '0');
   if (state.colorwaySeed !== def.colorwaySeed) p.set('seed', String(state.colorwaySeed));
-  if (state.colorwayNoiseScale !== def.colorwayNoiseScale) p.set('cns', String(Number(state.colorwayNoiseScale.toFixed(2))));
+  if (state.colorwayNoiseScale !== def.colorwayNoiseScale) p.set('cns', String(Number(state.colorwayNoiseScale.toFixed(3))));
   if (state.colorwayNoiseMode !== def.colorwayNoiseMode) p.set('cnm', String(Math.round(state.colorwayNoiseMode)));
   if (state.colorwayNoiseOctaves !== def.colorwayNoiseOctaves) p.set('cno', String(Math.round(state.colorwayNoiseOctaves)));
   if (state.colorwayNoisePersistence !== def.colorwayNoisePersistence) p.set('cnp', String(Number(state.colorwayNoisePersistence.toFixed(2))));
   if (state.colorwayNoiseLacunarity !== def.colorwayNoiseLacunarity) p.set('cnl', String(Number(state.colorwayNoiseLacunarity.toFixed(2))));
   if (state.colorwayNoiseBias !== def.colorwayNoiseBias) p.set('cnbb', String(Number(state.colorwayNoiseBias.toFixed(2))));
-  if (state.colorwayNoiseZ !== def.colorwayNoiseZ) p.set('cnz', String(Number(state.colorwayNoiseZ.toFixed(2))));
+  if (state.colorwayNoiseX !== def.colorwayNoiseX) p.set('cnx', String(Number(state.colorwayNoiseX.toFixed(2))));
   if (state.colorwayBleedAnisotropy !== def.colorwayBleedAnisotropy) p.set('cba', String(Number(state.colorwayBleedAnisotropy.toFixed(2))));
   if (state.colorwayBleedRotation !== def.colorwayBleedRotation) p.set('cbr', String(Number(state.colorwayBleedRotation.toFixed(3))));
   if (state.colorwayBleedCrossFiber !== def.colorwayBleedCrossFiber) p.set('cbx', String(Number(state.colorwayBleedCrossFiber.toFixed(2))));
@@ -446,6 +470,8 @@ export default function App() {
   const [gridSize, setGridSize] = useState(WEAVING_URL_DEFAULTS.gridSize);
   const [warpGradient, setWarpGradient] = useState(WEAVING_URL_DEFAULTS.warpGradient);
   const [weftGradient, setWeftGradient] = useState(WEAVING_URL_DEFAULTS.weftGradient);
+  const [warpGradientEnabled, setWarpGradientEnabled] = useState(WEAVING_URL_DEFAULTS.warpGradientEnabled);
+  const [weftGradientEnabled, setWeftGradientEnabled] = useState(WEAVING_URL_DEFAULTS.weftGradientEnabled);
   const [gradSteps, setGradSteps] = useState(WEAVING_URL_DEFAULTS.gradSteps); // 0 = smooth; 2–16 = discrete bands
   const [rectAspect, setRectAspect] = useState(WEAVING_URL_DEFAULTS.rectAspect);
   const [cornerRadius, setCornerRadius] = useState(WEAVING_URL_DEFAULTS.cornerRadius);
@@ -480,7 +506,7 @@ export default function App() {
   const [colorwayNoisePersistence, setColorwayNoisePersistence] = useState(WEAVING_URL_DEFAULTS.colorwayNoisePersistence);
   const [colorwayNoiseLacunarity, setColorwayNoiseLacunarity] = useState(WEAVING_URL_DEFAULTS.colorwayNoiseLacunarity);
   const [colorwayNoiseBias, setColorwayNoiseBias] = useState(WEAVING_URL_DEFAULTS.colorwayNoiseBias);
-  const [colorwayNoiseZ, setColorwayNoiseZ] = useState(WEAVING_URL_DEFAULTS.colorwayNoiseZ);
+  const [colorwayNoiseX, setColorwayNoiseX] = useState(WEAVING_URL_DEFAULTS.colorwayNoiseX);
   const [colorwayBleedAnisotropy, setColorwayBleedAnisotropy] = useState(WEAVING_URL_DEFAULTS.colorwayBleedAnisotropy);
   const [colorwayBleedRotation, setColorwayBleedRotation] = useState(WEAVING_URL_DEFAULTS.colorwayBleedRotation);
   const [colorwayBleedCrossFiber, setColorwayBleedCrossFiber] = useState(WEAVING_URL_DEFAULTS.colorwayBleedCrossFiber);
@@ -504,7 +530,7 @@ export default function App() {
     persistence: colorwayNoisePersistence,
     lacunarity: colorwayNoiseLacunarity,
     bias: colorwayNoiseBias,
-    noiseZ: colorwayNoiseZ,
+    noiseX: colorwayNoiseX,
     bleedAnisotropy: colorwayBleedAnisotropy,
     bleedRotation: colorwayBleedRotation,
     bleedCrossFiber: colorwayBleedCrossFiber,
@@ -656,6 +682,8 @@ export default function App() {
     if (q.gridSize != null) setGridSize(GRID_SNAPS.includes(q.gridSize) ? q.gridSize : GRID_SNAPS[getGridSizeIndex(q.gridSize)]);
     if (q.warpGradient) setWarpGradient(q.warpGradient);
     if (q.weftGradient) setWeftGradient(q.weftGradient);
+    if (q.warpGradientEnabled != null) setWarpGradientEnabled(!!q.warpGradientEnabled);
+    if (q.weftGradientEnabled != null) setWeftGradientEnabled(!!q.weftGradientEnabled);
     if (q.gradSteps != null) setGradSteps(q.gradSteps);
     if (q.rectAspect != null) setRectAspect(Math.min(1, Math.max(0.5, Number(q.rectAspect))));
     if (q.cornerRadius != null) setCornerRadius(q.cornerRadius);
@@ -671,7 +699,7 @@ export default function App() {
     if (q.colorwayNoisePersistence != null) setColorwayNoisePersistence(q.colorwayNoisePersistence);
     if (q.colorwayNoiseLacunarity != null) setColorwayNoiseLacunarity(q.colorwayNoiseLacunarity);
     if (q.colorwayNoiseBias != null) setColorwayNoiseBias(q.colorwayNoiseBias);
-    if (q.colorwayNoiseZ != null) setColorwayNoiseZ(q.colorwayNoiseZ);
+    if (q.colorwayNoiseX != null) setColorwayNoiseX(q.colorwayNoiseX);
     if (q.colorwayBleedAnisotropy != null) setColorwayBleedAnisotropy(q.colorwayBleedAnisotropy);
     if (q.colorwayBleedRotation != null) setColorwayBleedRotation(snapColorwayBleedRotation(q.colorwayBleedRotation));
     if (q.colorwayBleedCrossFiber != null) setColorwayBleedCrossFiber(q.colorwayBleedCrossFiber);
@@ -734,8 +762,8 @@ export default function App() {
     urlSyncTimeoutRef.current = setTimeout(() => {
       const search = buildUrlState({
         view, weaveHalftoneOn, menuHidden, presetIndex, pattern, palette, bgShade, warpShade, weftShade, gridSize,
-        warpGradient, weftGradient, gradSteps, rectAspect, cornerRadius, canvasAspect, patternFit, copyFormat, copyScale,
-        useAllColorways, colorwaySeed, colorwayNoiseScale, colorwayNoiseMode, colorwayNoiseOctaves, colorwayNoisePersistence, colorwayNoiseLacunarity, colorwayNoiseBias, colorwayNoiseZ, colorwayBleedAnisotropy, colorwayBleedRotation, colorwayBleedCrossFiber, colorwayBleedDraftCoupled, colorwayIncludeMask, shimmer, shimmerSpeed, shimmerWidth, shimmerIntensity, shimmerPosition, shimmerRotation, shimmerNoise, shimmerNoiseSeed, shimmerNoiseMin, shimmerNoiseMax, shimmerBlendMode,
+        warpGradient, weftGradient, warpGradientEnabled, weftGradientEnabled, gradSteps, rectAspect, cornerRadius, canvasAspect, patternFit, copyFormat, copyScale,
+        useAllColorways, colorwaySeed, colorwayNoiseScale, colorwayNoiseMode, colorwayNoiseOctaves, colorwayNoisePersistence, colorwayNoiseLacunarity, colorwayNoiseBias, colorwayNoiseX, colorwayBleedAnisotropy, colorwayBleedRotation, colorwayBleedCrossFiber, colorwayBleedDraftCoupled, colorwayIncludeMask, shimmer, shimmerSpeed, shimmerWidth, shimmerIntensity, shimmerPosition, shimmerRotation, shimmerNoise, shimmerNoiseSeed, shimmerNoiseMin, shimmerNoiseMax, shimmerBlendMode,
         halftonePresetIndex, halftoneSize, halftoneSoftness, halftoneGridNoise, halftoneContrast, halftoneType,
         halftoneColorBack, halftoneColorC, halftoneColorM, halftoneColorY, halftoneColorK, halftoneFloodC, halftoneGainC, halftoneGainY,
         comboGridSize, comboPalette, comboBgShade, comboRectColorSource, comboQuantizeSteps, comboQuantizeMode, comboQuantizeGamma, comboQuantizeDither, comboPatternIndex, comboPatternWarpShade, comboPatternWeftShade, comboLumaSizeMix, comboLumaSizeInvert, comboLumaSizeFloor, comboCellGeometryMode, comboStitchLumaMax, comboRectRadius, comboRectAspect, comboRectRatio,
@@ -746,79 +774,93 @@ export default function App() {
       }
     }, 400);
     return () => { clearTimeout(urlSyncTimeoutRef.current); };
-  }, [view, weaveHalftoneOn, menuHidden, presetIndex, pattern, palette, bgShade, warpShade, weftShade, gridSize, warpGradient, weftGradient, gradSteps, rectAspect, cornerRadius, canvasAspect, patternFit, copyFormat, copyScale, useAllColorways, colorwaySeed, colorwayNoiseScale, colorwayNoiseMode, colorwayNoiseOctaves, colorwayNoisePersistence, colorwayNoiseLacunarity, colorwayNoiseBias, colorwayNoiseZ, colorwayBleedAnisotropy, colorwayBleedRotation, colorwayBleedCrossFiber, colorwayBleedDraftCoupled, colorwayIncludeMask, shimmer, shimmerSpeed, shimmerWidth, shimmerIntensity, shimmerPosition, shimmerRotation, shimmerNoise, shimmerNoiseSeed, shimmerNoiseMin, shimmerNoiseMax, shimmerBlendMode, halftonePresetIndex, halftoneSize, halftoneSoftness, halftoneGridNoise, halftoneContrast, halftoneType, halftoneColorBack, halftoneColorC, halftoneColorM, halftoneColorY, halftoneColorK, halftoneFloodC, halftoneGainC, halftoneGainY, comboGridSize, comboPalette, comboBgShade, comboRectColorSource, comboQuantizeSteps, comboQuantizeMode, comboQuantizeGamma, comboQuantizeDither, comboPatternIndex, comboPatternWarpShade, comboPatternWeftShade, comboLumaSizeMix, comboLumaSizeInvert, comboLumaSizeFloor, comboCellGeometryMode, comboStitchLumaMax, comboRectRadius, comboRectAspect, comboRectRatio]);
+  }, [view, weaveHalftoneOn, menuHidden, presetIndex, pattern, palette, bgShade, warpShade, weftShade, gridSize, warpGradient, weftGradient, warpGradientEnabled, weftGradientEnabled, gradSteps, rectAspect, cornerRadius, canvasAspect, patternFit, copyFormat, copyScale, useAllColorways, colorwaySeed, colorwayNoiseScale, colorwayNoiseMode, colorwayNoiseOctaves, colorwayNoisePersistence, colorwayNoiseLacunarity, colorwayNoiseBias, colorwayNoiseX, colorwayBleedAnisotropy, colorwayBleedRotation, colorwayBleedCrossFiber, colorwayBleedDraftCoupled, colorwayIncludeMask, shimmer, shimmerSpeed, shimmerWidth, shimmerIntensity, shimmerPosition, shimmerRotation, shimmerNoise, shimmerNoiseSeed, shimmerNoiseMin, shimmerNoiseMax, shimmerBlendMode, halftonePresetIndex, halftoneSize, halftoneSoftness, halftoneGridNoise, halftoneContrast, halftoneType, halftoneColorBack, halftoneColorC, halftoneColorM, halftoneColorY, halftoneColorK, halftoneFloodC, halftoneGainC, halftoneGainY, comboGridSize, comboPalette, comboBgShade, comboRectColorSource, comboQuantizeSteps, comboQuantizeMode, comboQuantizeGamma, comboQuantizeDither, comboPatternIndex, comboPatternWarpShade, comboPatternWeftShade, comboLumaSizeMix, comboLumaSizeInvert, comboLumaSizeFloor, comboCellGeometryMode, comboStitchLumaMax, comboRectRadius, comboRectAspect, comboRectRatio]);
 
   /** Auto-animate colorway params from captured slider origins; each loop repeats (see `colorwayAnimMetaRef`). */
   useEffect(() => {
-    if (!useAllColorways) return;
     if (!Object.values(colorwayAnimPlaying).some(Boolean)) return;
     let frame;
     const tick = () => {
       const p = colorwayAnimPlayingRef.current;
-      if (!useAllColorwaysRef.current || !Object.values(p).some(Boolean)) return;
-      const now = performance.now();
-      const meta = colorwayAnimMetaRef.current;
+      if (!Object.values(p).some(Boolean)) return;
+      const go = useAllColorwaysRef.current;
+      if (go) {
+        const now = performance.now();
+        const meta = colorwayAnimMetaRef.current;
 
-      if (p.seed && meta.seed) {
-        const t = now - meta.seed.startMs;
-        const T = COLORWAY_SEED_LOOP_MS;
-        const u = (t % T) / T;
-        const o = Number(meta.seed.origin);
-        setColorwaySeed(((o + u * 100) % 100 + 100) % 100);
+        if (p.seed && meta.seed) {
+          const t = now - meta.seed.startMs;
+          const T = COLORWAY_SEED_LOOP_MS;
+          const u = (t % T) / T;
+          const o = Number(meta.seed.origin);
+          setColorwaySeed(((o + u * 100) % 100 + 100) % 100);
+        }
+        if (p.noiseScale && meta.noiseScale) {
+          const t = now - meta.noiseScale.startMs;
+          const s = colorwayOscClamped(t, 48000, 0.005, 0.25, meta.noiseScale.origin);
+          setColorwayNoiseScale(Number(s.toFixed(3)));
+        }
+        if (p.noiseMode && meta.noiseMode) {
+          const t = now - meta.noiseMode.startMs;
+          const o = Math.max(0, Math.min(2, Math.round(Number(meta.noiseMode.origin))));
+          setColorwayNoiseMode((o + Math.floor(t / 5000)) % 3);
+        }
+        if (p.includeMask && meta.includeMask) {
+          const t = now - meta.includeMask.startMs;
+          const startStep = colorwayIncludeMaskToStep(meta.includeMask.origin);
+          setColorwayIncludeMask(colorwayIncludeStepToMask(startStep + Math.floor(t / 1200)));
+        }
+        if (p.octaves && meta.octaves) {
+          const t = now - meta.octaves.startMs;
+          const o = Math.max(1, Math.min(4, Math.round(Number(meta.octaves.origin))));
+          setColorwayNoiseOctaves((((o - 1 + Math.floor(t / 2000)) % 4) + 4) % 4 + 1);
+        }
+        if (p.persistence && meta.persistence) {
+          const t = now - meta.persistence.startMs;
+          setColorwayNoisePersistence(colorwayOscClamped(t, 50000, 0.15, 0.95, meta.persistence.origin));
+        }
+        if (p.lacunarity && meta.lacunarity) {
+          const t = now - meta.lacunarity.startMs;
+          setColorwayNoiseLacunarity(colorwayOscClamped(t, 56000, 1.05, 4, meta.lacunarity.origin));
+        }
+        if (p.bias && meta.bias) {
+          const t = now - meta.bias.startMs;
+          setColorwayNoiseBias(colorwayOscClamped(t, 44000, 0.25, 4, meta.bias.origin));
+        }
+        if (p.noiseX && meta.noiseX) {
+          const t = now - meta.noiseX.startMs;
+          const nx = colorwayOscClamped(
+            t,
+            3_000_000,
+            COLORWAY_NOISE_X_PLAY_MIN,
+            COLORWAY_NOISE_X_PLAY_MAX,
+            meta.noiseX.origin,
+          );
+          setColorwayNoiseX(Number(nx.toFixed(2)));
+        }
+        if (p.bleedAnisotropy && meta.bleedAnisotropy) {
+          const t = now - meta.bleedAnisotropy.startMs;
+          setColorwayBleedAnisotropy(colorwayOscClamped(t, 64000, 0.35, 12, meta.bleedAnisotropy.origin));
+        }
+        if (p.bleedRotation && meta.bleedRotation) {
+          const t = now - meta.bleedRotation.startMs;
+          setColorwayBleedRotation(
+            snapColorwayBleedRotation(colorwayOscClamped(t, 70000, 0, 1, meta.bleedRotation.origin)),
+          );
+        }
+        if (p.bleedCrossFiber && meta.bleedCrossFiber) {
+          const t = now - meta.bleedCrossFiber.startMs;
+          setColorwayBleedCrossFiber(colorwayOscClamped(t, 40000, 0, 1, meta.bleedCrossFiber.origin));
+        }
+        if (p.bleedDraftCoupled && meta.bleedDraftCoupled) {
+          const t = now - meta.bleedDraftCoupled.startMs;
+          const o = meta.bleedDraftCoupled.origin ? 1 : 0;
+          setColorwayBleedDraftCoupled(((o + Math.floor(t / 3000)) & 1) === 1);
+        }
       }
-      if (p.noiseScale && meta.noiseScale) {
-        const t = now - meta.noiseScale.startMs;
-        setColorwayNoiseScale(colorwayOscFromOrigin(t, 48000, 0.05, 2.5, meta.noiseScale.origin));
+      if (Object.values(colorwayAnimPlayingRef.current).some(Boolean) && useAllColorwaysRef.current) {
+        frame = requestAnimationFrame(tick);
       }
-      if (p.noiseMode && meta.noiseMode) {
-        const t = now - meta.noiseMode.startMs;
-        const o = Math.max(0, Math.min(2, Math.round(Number(meta.noiseMode.origin))));
-        setColorwayNoiseMode((o + Math.floor(t / 5000)) % 3);
-      }
-      if (p.includeMask && meta.includeMask) {
-        const t = now - meta.includeMask.startMs;
-        const startStep = colorwayIncludeMaskToStep(meta.includeMask.origin);
-        setColorwayIncludeMask(colorwayIncludeStepToMask(startStep + Math.floor(t / 1200)));
-      }
-      if (p.octaves && meta.octaves) {
-        const t = now - meta.octaves.startMs;
-        const o = Math.max(1, Math.min(4, Math.round(Number(meta.octaves.origin))));
-        setColorwayNoiseOctaves((((o - 1 + Math.floor(t / 2000)) % 4) + 4) % 4 + 1);
-      }
-      if (p.persistence && meta.persistence) {
-        const t = now - meta.persistence.startMs;
-        setColorwayNoisePersistence(colorwayOscFromOrigin(t, 50000, 0.15, 0.95, meta.persistence.origin));
-      }
-      if (p.lacunarity && meta.lacunarity) {
-        const t = now - meta.lacunarity.startMs;
-        setColorwayNoiseLacunarity(colorwayOscFromOrigin(t, 56000, 1.05, 4, meta.lacunarity.origin));
-      }
-      if (p.bias && meta.bias) {
-        const t = now - meta.bias.startMs;
-        setColorwayNoiseBias(colorwayOscFromOrigin(t, 44000, 0.25, 4, meta.bias.origin));
-      }
-      if (p.noiseZ && meta.noiseZ) {
-        const t = now - meta.noiseZ.startMs;
-        setColorwayNoiseZ(colorwayOscFromOrigin(t, 54000, -220, 220, meta.noiseZ.origin));
-      }
-      if (p.bleedAnisotropy && meta.bleedAnisotropy) {
-        const t = now - meta.bleedAnisotropy.startMs;
-        setColorwayBleedAnisotropy(colorwayOscFromOrigin(t, 64000, 0.35, 12, meta.bleedAnisotropy.origin));
-      }
-      if (p.bleedRotation && meta.bleedRotation) {
-        const t = now - meta.bleedRotation.startMs;
-        setColorwayBleedRotation(snapColorwayBleedRotation(colorwayOscFromOrigin(t, 70000, 0, 1, meta.bleedRotation.origin)));
-      }
-      if (p.bleedCrossFiber && meta.bleedCrossFiber) {
-        const t = now - meta.bleedCrossFiber.startMs;
-        setColorwayBleedCrossFiber(colorwayOscFromOrigin(t, 40000, 0, 1, meta.bleedCrossFiber.origin));
-      }
-      if (p.bleedDraftCoupled && meta.bleedDraftCoupled) {
-        const t = now - meta.bleedDraftCoupled.startMs;
-        const o = meta.bleedDraftCoupled.origin ? 1 : 0;
-        setColorwayBleedDraftCoupled(((o + Math.floor(t / 3000)) & 1) === 1);
-      }
-      frame = requestAnimationFrame(tick);
     };
     frame = requestAnimationFrame(tick);
     return () => {
@@ -1029,6 +1071,8 @@ export default function App() {
     setWeftShade(p.weftShade);
     setWarpGradient(p.warpGradient);
     setWeftGradient(p.weftGradient);
+    setWarpGradientEnabled(p.warpGradient.startShade !== p.warpGradient.endShade);
+    setWeftGradientEnabled(p.weftGradient.startShade !== p.weftGradient.endShade);
     if (p.gridSize != null) setGridSize(GRID_SNAPS.includes(p.gridSize) ? p.gridSize : GRID_SNAPS[getGridSizeIndex(p.gridSize)]);
     if (p.gradSteps != null) setGradSteps(p.gradSteps);
     if (p.rectAspect != null) setRectAspect(Math.min(1, Math.max(0.5, p.rectAspect)));
@@ -1065,6 +1109,8 @@ export default function App() {
     setGridSize(WEAVING_URL_DEFAULTS.gridSize);
     setWarpGradient(WEAVING_URL_DEFAULTS.warpGradient);
     setWeftGradient(WEAVING_URL_DEFAULTS.weftGradient);
+    setWarpGradientEnabled(WEAVING_URL_DEFAULTS.warpGradientEnabled);
+    setWeftGradientEnabled(WEAVING_URL_DEFAULTS.weftGradientEnabled);
     setGradSteps(WEAVING_URL_DEFAULTS.gradSteps);
     setRectAspect(WEAVING_URL_DEFAULTS.rectAspect);
     setCornerRadius(WEAVING_URL_DEFAULTS.cornerRadius);
@@ -1093,7 +1139,7 @@ export default function App() {
     setColorwayNoisePersistence(WEAVING_URL_DEFAULTS.colorwayNoisePersistence);
     setColorwayNoiseLacunarity(WEAVING_URL_DEFAULTS.colorwayNoiseLacunarity);
     setColorwayNoiseBias(WEAVING_URL_DEFAULTS.colorwayNoiseBias);
-    setColorwayNoiseZ(WEAVING_URL_DEFAULTS.colorwayNoiseZ);
+    setColorwayNoiseX(WEAVING_URL_DEFAULTS.colorwayNoiseX);
     setColorwayBleedAnisotropy(WEAVING_URL_DEFAULTS.colorwayBleedAnisotropy);
     setColorwayBleedRotation(WEAVING_URL_DEFAULTS.colorwayBleedRotation);
     setColorwayBleedCrossFiber(WEAVING_URL_DEFAULTS.colorwayBleedCrossFiber);
@@ -1172,6 +1218,8 @@ export default function App() {
       direction: randInt(0, 1),
       range: [randInt(0, 100), randInt(0, 100)],
     });
+    setWarpGradientEnabled(true);
+    setWeftGradientEnabled(true);
     setGradSteps(Math.random() < 0.5 ? 0 : randInt(2, 16));
     if (randomizeRectAspect) setRectAspect(Number(rand(0.5, 1).toFixed(2)));
     if (randomizeCornerRadius) setCornerRadius(Number(rand(0.05, 0.4).toFixed(2)));
@@ -1188,7 +1236,7 @@ export default function App() {
     setShimmerNoiseMax(Number(rand(1, 1.8).toFixed(1)));
     setUseAllColorways(Math.random() < 0.5);
     setColorwaySeed(randInt(0, 100));
-    setColorwayNoiseScale(Number((0.25 + Math.random() * 2.75).toFixed(2)));
+    setColorwayNoiseScale(Number((0.025 + Math.random() * 0.225).toFixed(3)));
     setColorwayAnimPlaying({ ...COLORWAY_ANIM_INITIAL });
   }, [randomizeRectAspect, randomizeCornerRadius]);
 
@@ -1237,6 +1285,19 @@ export default function App() {
     { value: 1, label: 'Left', icon: 'arrow_back' },
   ];
 
+  const canvasAspectSelectOptions = useMemo(() => {
+    const key = canvasAspectKey(canvasAspect);
+    const presetKeys = new Set(CANVAS_ASPECT_PRESETS.map((p) => canvasAspectKey(p.value)));
+    const base = CANVAS_ASPECT_PRESETS.map((p) => ({
+      value: canvasAspectKey(p.value),
+      label: p.label,
+    }));
+    if (!presetKeys.has(key)) {
+      return [{ value: key, label: `Other (${key})` }, ...base];
+    }
+    return base;
+  }, [canvasAspect]);
+
   /** Main bar: Fit|Fill in one segment control, right-aligned (`flex-1` spacer before it; same `?display=` everywhere). */
   const navViewportFitFill = (
     <>
@@ -1269,7 +1330,7 @@ export default function App() {
   if (view === 'imageRects') {
     return (
       <div className="flex min-h-0 flex-col bg-surface" style={{ height: '100dvh' }}>
-        <nav className="flex w-full min-h-9 shrink-0 flex-nowrap items-center gap-3 overflow-x-auto border-b border-border-subtle bg-surface-elevated px-3 py-2" aria-label="App mode">
+        <nav className="relative z-20 flex w-full min-h-9 shrink-0 flex-nowrap items-center gap-3 overflow-x-auto border-b border-border-subtle bg-surface-elevated px-3 py-2" aria-label="App mode">
           <div className="flex min-w-0 flex-wrap items-center gap-3">
             <h1 className={`shrink-0 text-left ${typeBase} font-semibold tracking-[-0.01em] text-text`}>ENS Warp&Weft</h1>
             <button
@@ -1301,7 +1362,7 @@ export default function App() {
 
   return (
     <div className="flex min-h-0 flex-col bg-surface" style={{ height: '100dvh' }}>
-      <nav className="flex w-full min-h-9 shrink-0 flex-nowrap items-center gap-3 overflow-x-auto border-b border-border-subtle bg-surface-elevated px-3 py-2" aria-label="App mode">
+      <nav className="relative z-20 flex w-full min-h-9 shrink-0 flex-nowrap items-center gap-3 overflow-x-auto border-b border-border-subtle bg-surface-elevated px-3 py-2" aria-label="App mode">
         <div className="flex min-w-0 flex-wrap items-center gap-3">
           <h1 className={`shrink-0 text-left ${typeBase} font-semibold tracking-[-0.01em] text-text`}>ENS Warp&Weft</h1>
           <button
@@ -1745,73 +1806,127 @@ export default function App() {
                   </div>
                 </div>
                 <div className={sidebarGroup}>
-                  <div className={sidebarGroupTitle}>Warp gradient</div>
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    <GroupIcon name="gradient" title="Warp gradient range" />
-                    <Label.Root className="sr-only" htmlFor="warp-range">Warp gradient range</Label.Root>
-                    <SliderWithInput
-                      id="warp-range"
-                      value={warpGradient.range}
-                      onValueChange={([a, b]) => {
-                        setPresetIndex(null);
-                        const snap = gradSteps >= 2;
-                        setWarpGradient((g) => ({
-                          ...g,
-                          range: snap ? [snapGradRangeValue(a, gradSteps), snapGradRangeValue(b, gradSteps)] : [a, b],
-                        }));
-                      }}
-                      min={0}
-                      max={100}
-                      step={gradSteps >= 2 ? 100 / gradSteps : 5}
-                      snapPointCount={gradSteps >= 2 ? gradSteps + 1 : 5}
-                      aria-label="Warp gradient range"
-                      defaultValue={WEAVING_URL_DEFAULTS.warpGradient.range}
-                      onReset={() => {
-                        setPresetIndex(null);
-                        setWarpGradient((g) => ({ ...g, range: [...WEAVING_URL_DEFAULTS.warpGradient.range] }));
-                      }}
-                    />
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className={sidebarGroupTitle}>Warp gradient</div>
+                    <div className="flex shrink-0 items-center gap-1.5">
+                      <span className={`${controlLabel} ${typeLabel}`}>Gradient</span>
+                      <SegmentedControl>
+                        <div className="flex h-full">
+                          <SegmentedControlButton
+                            active={!warpGradientEnabled}
+                            aria-pressed={!warpGradientEnabled}
+                            aria-label="Warp: flat shade only (no gradient)"
+                            onClick={() => { setPresetIndex(null); setWarpGradientEnabled(false); }}
+                          >
+                            Off
+                          </SegmentedControlButton>
+                          <SegmentedControlButton
+                            active={warpGradientEnabled}
+                            aria-pressed={warpGradientEnabled}
+                            aria-label="Warp: use gradient stops and range"
+                            onClick={() => { setPresetIndex(null); setWarpGradientEnabled(true); }}
+                          >
+                            On
+                          </SegmentedControlButton>
+                        </div>
+                      </SegmentedControl>
+                    </div>
                   </div>
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    <GroupIcon name="gradient" title="Warp gradient" />
-                    <AppSelect id="warp-start-shade" labelText="Warp gradient start shade" value={warpGradient.startShade} onValueChange={(s) => { setPresetIndex(null); setWarpGradient((g) => ({ ...g, startShade: Number(s) })); }} defaultValue={WEAVING_URL_DEFAULTS.warpGradient.startShade} onReset={() => { setPresetIndex(null); setWarpGradient((g) => ({ ...g, startShade: WEAVING_URL_DEFAULTS.warpGradient.startShade })); }} options={shadeOptions()} title="Warp start" placeholder="Start" />
-                    <AppSelect id="warp-end-shade" labelText="Warp gradient end shade" value={warpGradient.endShade} onValueChange={(s) => { setPresetIndex(null); setWarpGradient((g) => ({ ...g, endShade: Number(s) })); }} defaultValue={WEAVING_URL_DEFAULTS.warpGradient.endShade} onReset={() => { setPresetIndex(null); setWarpGradient((g) => ({ ...g, endShade: WEAVING_URL_DEFAULTS.warpGradient.endShade })); }} options={shadeOptions()} title="Warp end" placeholder="End" />
-                    <DirectionSwitch value={warpGradient.direction} onValueChange={(d) => { setPresetIndex(null); setWarpGradient((g) => ({ ...g, direction: d })); }} defaultValue={WEAVING_URL_DEFAULTS.warpGradient.direction} onReset={() => { setPresetIndex(null); setWarpGradient((g) => ({ ...g, direction: WEAVING_URL_DEFAULTS.warpGradient.direction })); }} options={directionOptions} title="Warp direction" ariaLabel="Warp gradient direction" />
+                  <div className={!warpGradientEnabled ? 'pointer-events-none opacity-45' : ''}>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <GroupIcon name="gradient" title="Warp gradient range" />
+                      <Label.Root className="sr-only" htmlFor="warp-range">Warp gradient range</Label.Root>
+                      <SliderWithInput
+                        id="warp-range"
+                        value={warpGradient.range}
+                        onValueChange={([a, b]) => {
+                          setPresetIndex(null);
+                          const snap = gradSteps >= 2;
+                          setWarpGradient((g) => ({
+                            ...g,
+                            range: snap ? [snapGradRangeValue(a, gradSteps), snapGradRangeValue(b, gradSteps)] : [a, b],
+                          }));
+                        }}
+                        min={0}
+                        max={100}
+                        step={gradSteps >= 2 ? 100 / gradSteps : 5}
+                        snapPointCount={gradSteps >= 2 ? gradSteps + 1 : 5}
+                        aria-label="Warp gradient range"
+                        defaultValue={WEAVING_URL_DEFAULTS.warpGradient.range}
+                        onReset={() => {
+                          setPresetIndex(null);
+                          setWarpGradient((g) => ({ ...g, range: [...WEAVING_URL_DEFAULTS.warpGradient.range] }));
+                        }}
+                      />
+                    </div>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <GroupIcon name="gradient" title="Warp gradient" />
+                      <AppSelect id="warp-start-shade" labelText="Warp gradient start shade" value={warpGradient.startShade} onValueChange={(s) => { setPresetIndex(null); setWarpGradient((g) => ({ ...g, startShade: Number(s) })); }} defaultValue={WEAVING_URL_DEFAULTS.warpGradient.startShade} onReset={() => { setPresetIndex(null); setWarpGradient((g) => ({ ...g, startShade: WEAVING_URL_DEFAULTS.warpGradient.startShade })); }} options={shadeOptions()} title="Warp start" placeholder="Start" />
+                      <AppSelect id="warp-end-shade" labelText="Warp gradient end shade" value={warpGradient.endShade} onValueChange={(s) => { setPresetIndex(null); setWarpGradient((g) => ({ ...g, endShade: Number(s) })); }} defaultValue={WEAVING_URL_DEFAULTS.warpGradient.endShade} onReset={() => { setPresetIndex(null); setWarpGradient((g) => ({ ...g, endShade: WEAVING_URL_DEFAULTS.warpGradient.endShade })); }} options={shadeOptions()} title="Warp end" placeholder="End" />
+                      <DirectionSwitch value={warpGradient.direction} onValueChange={(d) => { setPresetIndex(null); setWarpGradient((g) => ({ ...g, direction: d })); }} defaultValue={WEAVING_URL_DEFAULTS.warpGradient.direction} onReset={() => { setPresetIndex(null); setWarpGradient((g) => ({ ...g, direction: WEAVING_URL_DEFAULTS.warpGradient.direction })); }} options={directionOptions} title="Warp direction" ariaLabel="Warp gradient direction" />
+                    </div>
                   </div>
                 </div>
                 <div className={sidebarGroup}>
-                  <div className={sidebarGroupTitle}>Weft gradient</div>
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    <GroupIcon name="gradient" title="Weft gradient range" />
-                    <Label.Root className="sr-only" htmlFor="weft-range">Weft gradient range</Label.Root>
-                    <SliderWithInput
-                      id="weft-range"
-                      value={weftGradient.range}
-                      onValueChange={([a, b]) => {
-                        setPresetIndex(null);
-                        const snap = gradSteps >= 2;
-                        setWeftGradient((g) => ({
-                          ...g,
-                          range: snap ? [snapGradRangeValue(a, gradSteps), snapGradRangeValue(b, gradSteps)] : [a, b],
-                        }));
-                      }}
-                      min={0}
-                      max={100}
-                      step={gradSteps >= 2 ? 100 / gradSteps : 5}
-                      snapPointCount={gradSteps >= 2 ? gradSteps + 1 : 5}
-                      aria-label="Weft gradient range"
-                      defaultValue={WEAVING_URL_DEFAULTS.weftGradient.range}
-                      onReset={() => {
-                        setPresetIndex(null);
-                        setWeftGradient((g) => ({ ...g, range: [...WEAVING_URL_DEFAULTS.weftGradient.range] }));
-                      }}
-                    />
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className={sidebarGroupTitle}>Weft gradient</div>
+                    <div className="flex shrink-0 items-center gap-1.5">
+                      <span className={`${controlLabel} ${typeLabel}`}>Gradient</span>
+                      <SegmentedControl>
+                        <div className="flex h-full">
+                          <SegmentedControlButton
+                            active={!weftGradientEnabled}
+                            aria-pressed={!weftGradientEnabled}
+                            aria-label="Weft: flat shade only (no gradient)"
+                            onClick={() => { setPresetIndex(null); setWeftGradientEnabled(false); }}
+                          >
+                            Off
+                          </SegmentedControlButton>
+                          <SegmentedControlButton
+                            active={weftGradientEnabled}
+                            aria-pressed={weftGradientEnabled}
+                            aria-label="Weft: use gradient stops and range"
+                            onClick={() => { setPresetIndex(null); setWeftGradientEnabled(true); }}
+                          >
+                            On
+                          </SegmentedControlButton>
+                        </div>
+                      </SegmentedControl>
+                    </div>
                   </div>
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    <GroupIcon name="gradient" title="Weft gradient" />
-                    <AppSelect id="weft-start-shade" labelText="Weft gradient start shade" value={weftGradient.startShade} onValueChange={(s) => { setPresetIndex(null); setWeftGradient((g) => ({ ...g, startShade: Number(s) })); }} defaultValue={WEAVING_URL_DEFAULTS.weftGradient.startShade} onReset={() => { setPresetIndex(null); setWeftGradient((g) => ({ ...g, startShade: WEAVING_URL_DEFAULTS.weftGradient.startShade })); }} options={shadeOptions()} title="Weft start" placeholder="Start" />
-                    <AppSelect id="weft-end-shade" labelText="Weft gradient end shade" value={weftGradient.endShade} onValueChange={(s) => { setPresetIndex(null); setWeftGradient((g) => ({ ...g, endShade: Number(s) })); }} defaultValue={WEAVING_URL_DEFAULTS.weftGradient.endShade} onReset={() => { setPresetIndex(null); setWeftGradient((g) => ({ ...g, endShade: WEAVING_URL_DEFAULTS.weftGradient.endShade })); }} options={shadeOptions()} title="Weft end" placeholder="End" />
-                    <DirectionSwitch value={weftGradient.direction} onValueChange={(d) => { setPresetIndex(null); setWeftGradient((g) => ({ ...g, direction: d })); }} defaultValue={WEAVING_URL_DEFAULTS.weftGradient.direction} onReset={() => { setPresetIndex(null); setWeftGradient((g) => ({ ...g, direction: WEAVING_URL_DEFAULTS.weftGradient.direction })); }} options={directionOptionsWeft} title="Weft direction" ariaLabel="Weft gradient direction" />
+                  <div className={!weftGradientEnabled ? 'pointer-events-none opacity-45' : ''}>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <GroupIcon name="gradient" title="Weft gradient range" />
+                      <Label.Root className="sr-only" htmlFor="weft-range">Weft gradient range</Label.Root>
+                      <SliderWithInput
+                        id="weft-range"
+                        value={weftGradient.range}
+                        onValueChange={([a, b]) => {
+                          setPresetIndex(null);
+                          const snap = gradSteps >= 2;
+                          setWeftGradient((g) => ({
+                            ...g,
+                            range: snap ? [snapGradRangeValue(a, gradSteps), snapGradRangeValue(b, gradSteps)] : [a, b],
+                          }));
+                        }}
+                        min={0}
+                        max={100}
+                        step={gradSteps >= 2 ? 100 / gradSteps : 5}
+                        snapPointCount={gradSteps >= 2 ? gradSteps + 1 : 5}
+                        aria-label="Weft gradient range"
+                        defaultValue={WEAVING_URL_DEFAULTS.weftGradient.range}
+                        onReset={() => {
+                          setPresetIndex(null);
+                          setWeftGradient((g) => ({ ...g, range: [...WEAVING_URL_DEFAULTS.weftGradient.range] }));
+                        }}
+                      />
+                    </div>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <GroupIcon name="gradient" title="Weft gradient" />
+                      <AppSelect id="weft-start-shade" labelText="Weft gradient start shade" value={weftGradient.startShade} onValueChange={(s) => { setPresetIndex(null); setWeftGradient((g) => ({ ...g, startShade: Number(s) })); }} defaultValue={WEAVING_URL_DEFAULTS.weftGradient.startShade} onReset={() => { setPresetIndex(null); setWeftGradient((g) => ({ ...g, startShade: WEAVING_URL_DEFAULTS.weftGradient.startShade })); }} options={shadeOptions()} title="Weft start" placeholder="Start" />
+                      <AppSelect id="weft-end-shade" labelText="Weft gradient end shade" value={weftGradient.endShade} onValueChange={(s) => { setPresetIndex(null); setWeftGradient((g) => ({ ...g, endShade: Number(s) })); }} defaultValue={WEAVING_URL_DEFAULTS.weftGradient.endShade} onReset={() => { setPresetIndex(null); setWeftGradient((g) => ({ ...g, endShade: WEAVING_URL_DEFAULTS.weftGradient.endShade })); }} options={shadeOptions()} title="Weft end" placeholder="End" />
+                      <DirectionSwitch value={weftGradient.direction} onValueChange={(d) => { setPresetIndex(null); setWeftGradient((g) => ({ ...g, direction: d })); }} defaultValue={WEAVING_URL_DEFAULTS.weftGradient.direction} onReset={() => { setPresetIndex(null); setWeftGradient((g) => ({ ...g, direction: WEAVING_URL_DEFAULTS.weftGradient.direction })); }} options={directionOptionsWeft} title="Weft direction" ariaLabel="Weft gradient direction" />
+                    </div>
                   </div>
                 </div>
                 <div className={sidebarGroup}>
@@ -1871,20 +1986,23 @@ export default function App() {
                   </div>
                   )}
                   <div className="flex flex-wrap items-center gap-1.5">
-                    <GroupIcon name="crop" title="Canvas aspect" />
-                    <Label.Root className="sr-only" htmlFor="canvas-aspect-slider">Canvas aspect ratio</Label.Root>
-                    <SliderWithInput
-                      id="canvas-aspect-slider"
-                      value={canvasAspect}
-                      onValueChange={setCanvasAspect}
-                      min={0.5}
-                      max={2}
-                      step={0.05}
-                      snapPointCount={16}
-                      format={(n) => n.toFixed(2)}
-                      aria-label="Canvas aspect ratio"
-                      defaultValue={WEAVING_URL_DEFAULTS.canvasAspect}
-                      onReset={() => setCanvasAspect(WEAVING_URL_DEFAULTS.canvasAspect)}
+                    <GroupIcon name="crop" title="Canvas aspect presets" />
+                    <AppSelect
+                      id="canvas-aspect-preset"
+                      labelText="Canvas aspect ratio"
+                      value={canvasAspectKey(canvasAspect)}
+                      onValueChange={(v) => {
+                        setPresetIndex(null);
+                        setCanvasAspect(Number(v));
+                      }}
+                      options={canvasAspectSelectOptions}
+                      title="Canvas aspect"
+                      placeholder="Aspect"
+                      defaultValue={canvasAspectKey(WEAVING_URL_DEFAULTS.canvasAspect)}
+                      onReset={() => {
+                        setPresetIndex(null);
+                        setCanvasAspect(WEAVING_URL_DEFAULTS.canvasAspect);
+                      }}
                     />
                   </div>
                   {view === 'weaving' && (
@@ -2234,10 +2352,10 @@ export default function App() {
                             id="colorway-noise-scale"
                             value={colorwayNoiseScale}
                             onValueChange={setColorwayNoiseScale}
-                            min={0.05}
-                            max={2.5}
-                            step={0.01}
-                            format={(n) => n.toFixed(2)}
+                            min={0.005}
+                            max={0.25}
+                            step={0.001}
+                            format={(n) => n.toFixed(3)}
                             aria-label="Colorway spatial scale"
                             defaultValue={WEAVING_URL_DEFAULTS.colorwayNoiseScale}
                             onReset={() => setColorwayNoiseScale(WEAVING_URL_DEFAULTS.colorwayNoiseScale)}
@@ -2269,25 +2387,25 @@ export default function App() {
                         </div>
                         <div className="flex w-full flex-col gap-1.5">
                           <div className="flex items-center justify-between gap-2">
-                            <Label.Root className={typeLabel} htmlFor="colorway-noise-z">Noise Z</Label.Root>
+                            <Label.Root className={typeLabel} htmlFor="colorway-noise-x">Noise X</Label.Root>
                             <ColorwayAnimPlayBtn
-                              active={colorwayAnimPlaying.noiseZ}
-                              onToggle={() => setColorwayAnimPlaying((x) => ({ ...x, noiseZ: !x.noiseZ }))}
-                              labelPlay="Play: oscillate noise Z translation"
-                              labelPause="Pause noise Z animation"
+                              active={colorwayAnimPlaying.noiseX}
+                              onToggle={() => setColorwayAnimPlaying((x) => ({ ...x, noiseX: !x.noiseX }))}
+                              labelPlay="Play: oscillate noise X over ~50 minutes, loop"
+                              labelPause="Pause noise X animation"
                             />
                           </div>
                           <SliderWithInput
-                            id="colorway-noise-z"
-                            value={colorwayNoiseZ}
-                            onValueChange={setColorwayNoiseZ}
+                            id="colorway-noise-x"
+                            value={colorwayNoiseX}
+                            onValueChange={(v) => setColorwayNoiseX(Number(Number(v).toFixed(2)))}
                             min={-250}
                             max={250}
-                            step={0.5}
-                            format={(n) => n.toFixed(1)}
-                            aria-label="Colorway noise Z (third dimension; animates pattern drift)"
-                            defaultValue={WEAVING_URL_DEFAULTS.colorwayNoiseZ}
-                            onReset={() => setColorwayNoiseZ(WEAVING_URL_DEFAULTS.colorwayNoiseZ)}
+                            step={0.01}
+                            format={(n) => n.toFixed(2)}
+                            aria-label="Colorway noise X (cell-space offset along warp; animates pattern drift)"
+                            defaultValue={WEAVING_URL_DEFAULTS.colorwayNoiseX}
+                            onReset={() => setColorwayNoiseX(WEAVING_URL_DEFAULTS.colorwayNoiseX)}
                           />
                         </div>
                         {colorwayNoiseMode === 1 && (
@@ -2576,6 +2694,8 @@ export default function App() {
                 gridSize={gridSize}
                 warpGradient={warpGradient}
                 weftGradient={weftGradient}
+                warpGradientEnabled={warpGradientEnabled}
+                weftGradientEnabled={weftGradientEnabled}
                 gradSteps={gradSteps}
                 rectAspect={rectAspect}
                 cornerRadius={cornerRadius}
@@ -2599,7 +2719,7 @@ export default function App() {
                 colorwayNoisePersistence={colorwayNoisePersistence}
                 colorwayNoiseLacunarity={colorwayNoiseLacunarity}
                 colorwayNoiseBias={colorwayNoiseBias}
-                colorwayNoiseZ={colorwayNoiseZ}
+                colorwayNoiseX={colorwayNoiseX}
                 colorwayBleedAnisotropy={colorwayBleedAnisotropy}
                 colorwayBleedRotation={colorwayBleedRotation}
                 colorwayBleedCrossFiber={colorwayBleedCrossFiber}
@@ -2675,6 +2795,8 @@ export default function App() {
                     gridSize={gridSize}
                     warpGradient={warpGradient}
                     weftGradient={weftGradient}
+                    warpGradientEnabled={warpGradientEnabled}
+                    weftGradientEnabled={weftGradientEnabled}
                     gradSteps={gradSteps}
                     rectAspect={rectAspect}
                     cornerRadius={cornerRadius}
@@ -2703,7 +2825,7 @@ export default function App() {
                     colorwayNoisePersistence={colorwayNoisePersistence}
                     colorwayNoiseLacunarity={colorwayNoiseLacunarity}
                     colorwayNoiseBias={colorwayNoiseBias}
-                    colorwayNoiseZ={colorwayNoiseZ}
+                    colorwayNoiseX={colorwayNoiseX}
                     colorwayBleedAnisotropy={colorwayBleedAnisotropy}
                     colorwayBleedRotation={colorwayBleedRotation}
                     colorwayBleedCrossFiber={colorwayBleedCrossFiber}
@@ -2738,8 +2860,12 @@ export default function App() {
               <span className={pill}>BG: {bgShade === 4 ? <><Icon name={SHADE_TRANSPARENT_ICON} className={iconXs} /></> : SHADE_NAMES[bgShade]}</span>
               <span className={pill}>Warp: {SHADE_NAMES[warpShade]}</span>
               <span className={pill}>Weft: {SHADE_NAMES[weftShade]}</span>
-              <span className={pill}>Warp: {SHADE_NAMES[warpGradient.startShade]}→{SHADE_NAMES[warpGradient.endShade]}</span>
-              <span className={pill}>Weft: {SHADE_NAMES[weftGradient.startShade]}→{SHADE_NAMES[weftGradient.endShade]}</span>
+              <span className={pill}>
+                Warp grad: {warpGradientEnabled ? `${SHADE_NAMES[warpGradient.startShade]}→${SHADE_NAMES[warpGradient.endShade]}` : 'off'}
+              </span>
+              <span className={pill}>
+                Weft grad: {weftGradientEnabled ? `${SHADE_NAMES[weftGradient.startShade]}→${SHADE_NAMES[weftGradient.endShade]}` : 'off'}
+              </span>
               <span className={pill}>Grid: {gridSize}</span>
               <span className={pill}>Steps: {gradSteps === 0 ? 'Smooth' : gradSteps}</span>
               <span className={pill}>Canvas: {canvasAspect.toFixed(2)}</span>
