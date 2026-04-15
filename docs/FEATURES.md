@@ -8,6 +8,9 @@ React + Vite app for **ENS-style weave drafts** and **image-to-grid** experiment
 
 ## Recent product changes (consolidated nav & URLs)
 
+- **What:** **Capture bar** below the canvas on **Weave / Print mosaic** (`App.jsx`) and **Mosaic** (`AppV2`): copy scale/format, PNG download scale, video format, **Record**, **Play + record**, and **Animate** (keyframes **A**/**B**, **Edit B**, duration, **Play**/**Stop**). Sidebar **Actions** no longer holds those export/record controls. **Why:** One consistent place for image/video capture next to the viewport; room for animation authoring without crowding prop groups.
+- **What:** **Keyframe animation** (Weave flat, Weave+halftone, Print mosaic combo+halftone, Mosaic): **Set A** / **Set B** snapshots of exposed shader props; **Edit B** streams sidebar edits into B; **Play** blends **A→B** over the chosen duration (numbers interpolate; discrete choices flip at **50%** progress). Mosaic **Play** temporarily drives **`u_stitchRevealProgress`** from the keyframes so the built-in stitch ramp does not fight the timeline. **Why:** Record intentional before/after motion without URL bloat; midpoint rule keeps toggles predictable.
+- **What:** **Tooltips** use **Radix** with **150ms** open delay (`AppTooltipProvider` in `Root.jsx`). **GroupIcon** and **AppSelect** wrap trigger + visible label area so hovering the **icon** or the **control row** shows the same tip. **Why:** Less accidental tooltip spam; labels and icons share one discoverable hover target for prop rows.
 - **What:** Three top-level modes in the main shell — **Weave**, **Mosaic**, **Print mosaic** — plus merged behaviors below. **Why:** Fewer tabs for the same pipelines; clearer names; **ENS Warp&Weft** title is **first** in the top bar (left-aligned after padding), then menu toggle and mode controls.
 - **What:** **Mosaic** (formerly Image Rects v2/v5/v6) is a single **`AppV2`** surface: one media picker (image / video / GIF), **Background gaps** toggle (replaces v5). **Fit / Fill** lives in the **main nav bar on the far right** for **every** tab (shared **`patternFit`** / **`?display=`** with Weave and Print mosaic). **Why:** One viewport control, always visible, URL stays consistent across modes.
 - **What:** Legacy **`?v=5`** and **`?v=6`** still load **Mosaic**; **`AppV2`** parses `v=5` as background gaps + default dark-stitch geometry when `gm`/`gap` omit; **`v=6`** is treated like **`v=2`** for routing (media kind comes from the unified file picker). **Why:** Old bookmarks keep working while new shares normalize to **`v=2`**.
@@ -21,8 +24,8 @@ React + Vite app for **ENS-style weave drafts** and **image-to-grid** experiment
 
 | Layer | Role |
 |--------|------|
-| **`App.jsx`** | Root shell: `view` routing (weave / mosaic / print mosaic), URL sync for weaving + halftone + combo, shared sidebar for weave & print mosaic. Lazy-loads halftone stages. |
-| **`AppV2.jsx`** | **Mosaic**: standalone sidebar, footer, copy/record, URL state (`v=2`, `gap=`, `display=`, …), **`ImageRectsCanvas`**. |
+| **`App.jsx`** | Root shell: `view` routing (weave / mosaic / print mosaic), URL sync for weaving + halftone + combo, shared sidebar for weave & print mosaic, **capture toolbar** + keyframes under the stage. Lazy-loads halftone stages. |
+| **`AppV2.jsx`** | **Mosaic**: standalone sidebar, footer, **capture toolbar** + keyframes, URL state (`v=2`, `gap=`, `display=`, …), **`ImageRectsCanvas`**. |
 | **`ShaderCanvas` + weaving hook** | **Weave** draft (`fragment.glsl` + `vertex.glsl`): grid of rounded rects, warp/weft, gradients, shimmer, colorways. |
 | **`ImageRectsCanvas` + `useImageRectsSandbox`** | **Mosaic** pipeline (`fragmentImageRects.glsl`): static image, video, or GIF → rects. |
 | **`WeavingHalftoneStage`** | Weave → intermediate buffer → **CMYK halftone** (`@paper-design/shaders-react`). |
@@ -40,7 +43,7 @@ Data flow: **React state → uniforms / props → fragment shaders**. Resolution
 
 | Shortcut | Where it works | Action |
 |----------|----------------|--------|
-| **Mod+C** | Weave, Mosaic, Print mosaic | Copy canvas (same as sidebar **Copy**; respects copy format/scale). |
+| **Mod+C** | Weave, Mosaic, Print mosaic | Copy canvas (same as **capture bar Copy**; respects copy format/scale). |
 | **Mod+Shift+R** or **F5** | Weave, Mosaic, Print mosaic | Reload the page (`history` reload). |
 | **Mod+1** … **Mod+9** | Whole app shell (`App.jsx`, all tabs) | Apply weave **preset** at index **0…8** (first nine entries in **`PRESETS`**). There is no **Mod+0** for the tenth preset. You see the result on **Weave** / **Print mosaic**; on **Mosaic** the weave state still updates in the background if you switch back. |
 | **Enter** | Slider number field (when focused) | Commit typed value (`SliderWithInput`). |
@@ -74,8 +77,8 @@ There are no global shortcuts today for **randomize**, **reset**, **record**, **
 
 ## Weave
 
-- **Controls:** presets, palette, weave pattern, shades, **warp / weft gradient On–Off** (flat = **Warp** / **Weft** shade only; **On** uses start/end/range/direction), grid & layout, **canvas aspect** as a **preset dropdown** (common ratios + **Other (x.xx)** when the value isn’t listed — URL `canvas` still allows 0.5–2), shimmer, colorways, **Halftone Off/On**, copy scale/format, optional MP4/WebM recording. **Fit / Fill** is only in the **main nav** (far right), not the sidebar.
-- **What:** Sidebar **Actions** stacks reset/randomize, copy, PNG download, record, and optional desktop image for halftone / Print mosaic in separate rows. **Why:** Keeps export pipelines distinct without one crowded row of controls.
+- **Controls:** presets, palette, weave pattern, shades, **warp / weft gradient On–Off** (flat = **Warp** / **Weft** shade only; **On** uses start/end/range/direction), grid & layout, **canvas aspect** as a **preset dropdown** (common ratios + **Other (x.xx)** when the value isn’t listed — URL `canvas` still allows 0.5–2), shimmer, colorways, **Halftone Off/On**. **Copy / PNG download / record / keyframe animate** live in the **capture bar** under the canvas. **Fit / Fill** is only in the **main nav** (far right), not the sidebar.
+- **What:** Sidebar **Actions** is **reset**, **randomize**, and optional **desktop image** for halftone / Print mosaic only. **Why:** Export and recording stay next to the canvas; Actions stays for session/file picks.
 - **Colorways:** Five named palettes (Citrine, Garnet, Lapis, Peridot, **Quartz**). **Quartz** aligns with ENS Core neutrals in shader slots (see previous doc detail).
 - **What:** **Use all 5 colorways** can distribute palette indices three ways in `fragment.glsl`: **Random** (legacy per-cell hash), **Smooth** (2D gradient noise + FBM: octaves, persistence, lacunarity, bias), **Bleed** (anisotropic FBM for streaks along threads; run length, angle, cross-fiber mix, optional **draft-coupled** warp/weft blend). **Noise X** (`u_colorwayNoiseX`) shifts the noise sample along **cell-space X** (warp/column direction), scaled in-shader (~`0.04×`) so slider/URL values move the field subtly; **Play** sweeps **Noise X** over **`cnx`** (−500…500, ~**50 min** loop, two decimals); legacy URLs may still use **`cnz`** (read as the same value). Values in-range at play-press are unchanged on frame 0 (`colorwayOscClamped`). The rAF loop only chains while **Use all 5 colorways** is on (turning it off pauses; turning it back on resumes from the same phase). **Include palettes** toggles restrict the pool (bitmask); all five on matches legacy behavior. **Why:** Coherent regions and fiber-parallel “dye” looks without Manhattan/Voronoi; URL-shareable tuning and time-varying colorway fields.
 - **What:** With no URL overrides, **Use all 5 colorways** starts **on**, distribution **Bleed**, noise scale **0.005**, seed **78.2**, run length **0.6**, streak angle **180°**, cross-fiber **0**, **draft-coupled** on, FBM octaves **3** / persistence **0.6** / lacunarity **2.1** / bias **0.67**, and all palettes included (`cpm=31`). **Why:** Default open state matches a tuned reference look; reset buttons and `WEAVING_URL_DEFAULTS` in `src/urlDefaults.js` stay aligned.
@@ -86,7 +89,7 @@ There are no global shortcuts today for **randomize**, **reset**, **record**, **
 ## Mosaic (`AppV2`)
 
 - **Media:** image, video, or GIF via one file input; **`mediaTextureKind`** inferred from file.
-- **What:** When you load a **video** file (switch from still image / GIF to **video** as the decoded source), **canvas recording starts automatically** (WebM/MP4 per toolbar). **Why:** Capture the mosaic output together with the source video without an extra click; stop from the toolbar or by switching back to image/GIF (recording stops when **`mediaTextureKind`** is not **`video`**).
+- **What:** When you load a **video** file (switch from still image / GIF to **video** as the decoded source), **canvas recording starts automatically** (WebM/MP4 per **capture bar**). **Why:** Capture the mosaic output together with the source video without an extra click; stop from the capture bar or by switching back to image/GIF (recording stops when **`mediaTextureKind`** is not **`video`**).
 - **Background gaps:** toggle + URL **`gap=`**; aligns with legacy v5 shader flag **`nonStitchShowsBg`**.
 - **Viewport:** **`patternFit`** from **`App.jsx`** (nav bar) + **`display=`**; passed through to **`ImageRectsCanvas`**.
 - **What:** **Stitch-in** (sidebar **Stitch-in**): optional animation from a **blank** background-only frame to the full mosaic by ramping **`u_stitchRevealProgress`** 0→1. **Noise** uses isotropic FBM on cell IDs (organic scatter); **Bleed** uses the same dye-bleed–style streaks as weave “all colorways” (rotation, anisotropy, optional draft coupling to warp/weft). **Replay** / **New seed** / **duration** / **scale** / **softness** control the look; **Why:** lets mosaic reads like thread appearing from empty cloth, with two distinct visual orders.

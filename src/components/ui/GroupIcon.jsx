@@ -1,14 +1,17 @@
 /**
  * Section icon with optional lock: lock button at top-left when onLockChange provided,
  * optional locked superscript at top-right when locked and no onLockChange.
- * @param {{ name: string, title?: string, locked?: boolean, onLockChange?: (locked: boolean) => void, className?: string }} props
+ * When `tooltip` is set, Radix tooltip (150ms) wraps icon + lock so label rows can share the same hit area as adjacent text.
+ * @param {{ name: string, title?: string, tooltip?: string, locked?: boolean, onLockChange?: (locked: boolean) => void, className?: string }} props
  */
 import { Icon } from './Icon';
+import { AppTooltip } from './AppTooltip';
 import { iconLg, iconXs, iconXxs, shadeLockBtn, shadeLockBtnLocked } from '../../uiConstants';
 
-export function GroupIcon({ name, title, locked = false, onLockChange, className = '' }) {
-  return (
-    <span title={title} className={`relative inline-flex shrink-0 ${className}`}>
+export function GroupIcon({ name, title, tooltip, locked = false, onLockChange, className = '' }) {
+  const tip = tooltip ?? title;
+  const inner = (
+    <span className={`relative inline-flex shrink-0 ${className}`}>
       {onLockChange && (
         <button
           type="button"
@@ -27,5 +30,11 @@ export function GroupIcon({ name, title, locked = false, onLockChange, className
         </span>
       )}
     </span>
+  );
+  if (!tip) return inner;
+  return (
+    <AppTooltip content={tip}>
+      <span className="inline-flex cursor-default items-center">{inner}</span>
+    </AppTooltip>
   );
 }

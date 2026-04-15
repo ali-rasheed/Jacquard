@@ -7,7 +7,10 @@ import * as Select from '@radix-ui/react-select';
 import * as Label from '@radix-ui/react-label';
 import { ShaderCanvas } from './components/ShaderCanvas';
 import { SliderWithInput } from './components/SliderWithInput';
-import { useCanvasRecorder, supportsMP4 } from './hooks/useCanvasRecorder';
+import { useCanvasRecorder } from './hooks/useCanvasRecorder';
+import { useKeyframePlayback } from './hooks/useKeyframePlayback';
+import { getWeaveAppKeyframeSnapshot, applyWeaveAppKeyframe } from './keyframe/weaveAppKeyframe';
+import { CaptureToolbar } from './components/CaptureToolbar';
 import { halftoneCmykPresets } from '@paper-design/shaders-react';
 import { PATTERNS } from './patterns';
 import { getCopyCanvas } from './copyHelpers';
@@ -19,13 +22,11 @@ function copyExportView(view, weaveHalftoneOn) {
 }
 import {
   EXPORT_MAX_DIMENSION,
-  EXPORT_SCALES,
   GRID_SNAPS,
   getGridSizeIndex,
   CANVAS_ASPECT_PRESETS,
   canvasAspectKey,
   PRESETS,
-  COPY_SCALES,
   RECT_ASPECT_DEFAULT,
   snapGradRangeValue,
   URL_STATE_MAX_LEN,
@@ -1060,6 +1061,280 @@ export default function App() {
     recStart(canvas);
   }, [view, weaveHalftoneOn, recStart]);
 
+  const weaveKeyframeState = useMemo(
+    () => ({
+      pattern,
+      palette,
+      bgShade,
+      warpShade,
+      weftShade,
+      gridSize,
+      warpGradient,
+      weftGradient,
+      warpGradientEnabled,
+      weftGradientEnabled,
+      gradSteps,
+      rectAspect,
+      cornerRadius,
+      canvasAspect,
+      patternFit,
+      shimmer,
+      shimmerSpeed,
+      shimmerWidth,
+      shimmerIntensity,
+      shimmerPosition,
+      shimmerRotation,
+      shimmerNoise,
+      shimmerNoiseSeed,
+      shimmerNoiseMin,
+      shimmerNoiseMax,
+      shimmerBlendMode,
+      useAllColorways,
+      colorwaySeed,
+      colorwayNoiseScale,
+      colorwayNoiseMode,
+      colorwayNoiseOctaves,
+      colorwayNoisePersistence,
+      colorwayNoiseLacunarity,
+      colorwayNoiseBias,
+      colorwayNoiseX,
+      colorwayBleedAnisotropy,
+      colorwayBleedRotation,
+      colorwayBleedCrossFiber,
+      colorwayBleedDraftCoupled,
+      colorwayIncludeMask,
+      halftonePresetIndex,
+      halftoneSize,
+      halftoneSoftness,
+      halftoneGridNoise,
+      halftoneContrast,
+      halftoneType,
+      halftoneColorBack,
+      halftoneColorC,
+      halftoneColorM,
+      halftoneColorY,
+      halftoneColorK,
+      halftoneFloodC,
+      halftoneGainC,
+      halftoneGainY,
+      comboGridSize,
+      comboPalette,
+      comboBgShade,
+      comboRectColorSource,
+      comboPatternWarpShade,
+      comboPatternWeftShade,
+      comboLumaSizeMix,
+      comboLumaSizeInvert,
+      comboLumaSizeFloor,
+      comboCellGeometryMode,
+      comboStitchLumaMax,
+      comboQuantizeSteps,
+      comboQuantizeMode,
+      comboQuantizeGamma,
+      comboQuantizeDither,
+      comboPatternIndex,
+      comboRectRadius,
+      comboRectAspect,
+      comboRectRatio,
+    }),
+    [
+      pattern,
+      palette,
+      bgShade,
+      warpShade,
+      weftShade,
+      gridSize,
+      warpGradient,
+      weftGradient,
+      warpGradientEnabled,
+      weftGradientEnabled,
+      gradSteps,
+      rectAspect,
+      cornerRadius,
+      canvasAspect,
+      patternFit,
+      shimmer,
+      shimmerSpeed,
+      shimmerWidth,
+      shimmerIntensity,
+      shimmerPosition,
+      shimmerRotation,
+      shimmerNoise,
+      shimmerNoiseSeed,
+      shimmerNoiseMin,
+      shimmerNoiseMax,
+      shimmerBlendMode,
+      useAllColorways,
+      colorwaySeed,
+      colorwayNoiseScale,
+      colorwayNoiseMode,
+      colorwayNoiseOctaves,
+      colorwayNoisePersistence,
+      colorwayNoiseLacunarity,
+      colorwayNoiseBias,
+      colorwayNoiseX,
+      colorwayBleedAnisotropy,
+      colorwayBleedRotation,
+      colorwayBleedCrossFiber,
+      colorwayBleedDraftCoupled,
+      colorwayIncludeMask,
+      halftonePresetIndex,
+      halftoneSize,
+      halftoneSoftness,
+      halftoneGridNoise,
+      halftoneContrast,
+      halftoneType,
+      halftoneColorBack,
+      halftoneColorC,
+      halftoneColorM,
+      halftoneColorY,
+      halftoneColorK,
+      halftoneFloodC,
+      halftoneGainC,
+      halftoneGainY,
+      comboGridSize,
+      comboPalette,
+      comboBgShade,
+      comboRectColorSource,
+      comboPatternWarpShade,
+      comboPatternWeftShade,
+      comboLumaSizeMix,
+      comboLumaSizeInvert,
+      comboLumaSizeFloor,
+      comboCellGeometryMode,
+      comboStitchLumaMax,
+      comboQuantizeSteps,
+      comboQuantizeMode,
+      comboQuantizeGamma,
+      comboQuantizeDither,
+      comboPatternIndex,
+      comboRectRadius,
+      comboRectAspect,
+      comboRectRatio,
+    ],
+  );
+
+  const weaveKeyframeSettersRef = useRef({});
+  weaveKeyframeSettersRef.current = {
+    setPattern,
+    setPalette,
+    setBgShade,
+    setWarpShade,
+    setWeftShade,
+    setGridSize,
+    setWarpGradient,
+    setWeftGradient,
+    setWarpGradientEnabled,
+    setWeftGradientEnabled,
+    setGradSteps,
+    setRectAspect,
+    setCornerRadius,
+    setCanvasAspect,
+    setPatternFit,
+    setShimmer,
+    setShimmerSpeed,
+    setShimmerWidth,
+    setShimmerIntensity,
+    setShimmerPosition,
+    setShimmerRotation,
+    setShimmerNoise,
+    setShimmerNoiseSeed,
+    setShimmerNoiseMin,
+    setShimmerNoiseMax,
+    setShimmerBlendMode,
+    setUseAllColorways,
+    setColorwaySeed,
+    setColorwayNoiseScale,
+    setColorwayNoiseMode,
+    setColorwayNoiseOctaves,
+    setColorwayNoisePersistence,
+    setColorwayNoiseLacunarity,
+    setColorwayNoiseBias,
+    setColorwayNoiseX,
+    setColorwayBleedAnisotropy,
+    setColorwayBleedRotation,
+    setColorwayBleedCrossFiber,
+    setColorwayBleedDraftCoupled,
+    setColorwayIncludeMask,
+    setHalftonePresetIndex,
+    setHalftoneSize,
+    setHalftoneSoftness,
+    setHalftoneGridNoise,
+    setHalftoneContrast,
+    setHalftoneType,
+    setHalftoneColorBack,
+    setHalftoneColorC,
+    setHalftoneColorM,
+    setHalftoneColorY,
+    setHalftoneColorK,
+    setHalftoneFloodC,
+    setHalftoneGainC,
+    setHalftoneGainY,
+    setComboGridSize,
+    setComboPalette,
+    setComboBgShade,
+    setComboRectColorSource,
+    setComboPatternWarpShade,
+    setComboPatternWeftShade,
+    setComboLumaSizeMix,
+    setComboLumaSizeInvert,
+    setComboLumaSizeFloor,
+    setComboCellGeometryMode,
+    setComboStitchLumaMax,
+    setComboQuantizeSteps,
+    setComboQuantizeMode,
+    setComboQuantizeGamma,
+    setComboQuantizeDither,
+    setComboPatternIndex,
+    setComboRectRadius,
+    setComboRectAspect,
+    setComboRectRatio,
+  };
+
+  const applyWeaveKeyframeSnapshot = useCallback(
+    (snap) => {
+      applyWeaveAppKeyframe(view, weaveHalftoneOn, weaveKeyframeSettersRef.current, snap);
+    },
+    [view, weaveHalftoneOn],
+  );
+
+  const {
+    editingAfter: weaveEditingAfter,
+    setEditingAfter: setWeaveEditingAfter,
+    before: weaveBefore,
+    setAfter: setWeaveAfter,
+    durationSec: weaveKeyframeDurationSec,
+    setDurationSec: setWeaveKeyframeDurationSec,
+    isPlaying: weaveKeyframePlaying,
+    syncBeforeFromLive: syncWeaveBeforeFromLive,
+    syncAfterFromLive: syncWeaveAfterFromLive,
+    play: playWeaveKeyframe,
+    playAndRecord: playAndRecordWeaveKeyframe,
+    stop: stopWeaveKeyframe,
+  } = useKeyframePlayback({
+    getBefore: () => getWeaveAppKeyframeSnapshot(view, weaveHalftoneOn, weaveKeyframeState),
+    getAfter: () => getWeaveAppKeyframeSnapshot(view, weaveHalftoneOn, weaveKeyframeState),
+    applySnapshot: applyWeaveKeyframeSnapshot,
+    defaultDurationSec: 2,
+  });
+
+  useEffect(() => {
+    if (!weaveEditingAfter) return;
+    setWeaveAfter(getWeaveAppKeyframeSnapshot(view, weaveHalftoneOn, weaveKeyframeState));
+  }, [weaveEditingAfter, view, weaveHalftoneOn, weaveKeyframeState, setWeaveAfter]);
+
+  const startWeaveKeyframePlay = useCallback(() => {
+    applyWeaveKeyframeSnapshot(weaveBefore);
+    playWeaveKeyframe();
+  }, [applyWeaveKeyframeSnapshot, weaveBefore, playWeaveKeyframe]);
+
+  const startWeavePlayAndRecord = useCallback(() => {
+    applyWeaveKeyframeSnapshot(weaveBefore);
+    playAndRecordWeaveKeyframe(recStart, stopRecording, () =>
+      getCopyCanvas(copyExportView(view, weaveHalftoneOn), canvasRef, halftoneCanvasRef, halftoneContainerRef),
+    );
+  }, [applyWeaveKeyframeSnapshot, weaveBefore, playAndRecordWeaveKeyframe, recStart, stopRecording, view, weaveHalftoneOn]);
+
   const applyPreset = useCallback((index) => {
     if (index == null || index < 0 || index >= PRESETS.length) return;
     const p = PRESETS[index];
@@ -1408,144 +1683,6 @@ export default function App() {
                   <Icon name="shuffle" className={iconMd} />
                   <span>Randomize</span>
                 </button>
-              </div>
-              <div className="flex flex-col gap-1 border-t border-border-subtle pt-2">
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <SegmentedControl>
-                    <div className="flex h-full">
-                      {COPY_SCALES.map((s) => (
-                        <SegmentedControlButton
-                          key={s}
-                          active={copyScale === s}
-                          aria-pressed={copyScale === s}
-                          aria-label={`Copy resolution: ${s}×`}
-                          onClick={() => setCopyScale(s)}
-                        >
-                          {s}×
-                        </SegmentedControlButton>
-                      ))}
-                    </div>
-                    <div className="flex h-full">
-                      {['png', 'webp'].map((fmt) => (
-                        <SegmentedControlButton
-                          key={fmt}
-                          format
-                          active={copyFormat === fmt}
-                          aria-pressed={copyFormat === fmt}
-                          aria-label={`Format: ${fmt}`}
-                          onClick={() => setCopyFormat(fmt)}
-                        >
-                          {fmt}
-                        </SegmentedControlButton>
-                      ))}
-                    </div>
-                  </SegmentedControl>
-                  <div className="inline-flex shrink-0 items-center gap-1" role="group" aria-label="Copy actions">
-                    <IconButton
-                      size="sm"
-                      title={`Copy canvas at ${copyScale}× as ${copyFormat.toUpperCase()}`}
-                      aria-label={`Copy ${copyFormat.toUpperCase()}`}
-                      onClick={handleCopy}
-                    >
-                      <Icon name="content_copy" className={iconSm} />
-                    </IconButton>
-                    {(copyScale !== WEAVING_URL_DEFAULTS.copyScale || copyFormat !== WEAVING_URL_DEFAULTS.copyFormat) && (
-                      <IconButton
-                        size="resetSm"
-                        title="Reset copy scale and format to defaults"
-                        aria-label="Reset copy scale and format to defaults"
-                        onClick={() => {
-                          setCopyScale(WEAVING_URL_DEFAULTS.copyScale);
-                          setCopyFormat(WEAVING_URL_DEFAULTS.copyFormat);
-                        }}
-                      >
-                        <Icon name="restart_alt" className={iconResetGlyph} />
-                      </IconButton>
-                    )}
-                  </div>
-                  {copyFeedback && (
-                    <span className={`shrink-0 text-xs ${copyFeedback === 'Copied!' ? 'text-accent' : 'text-error'}`} role="status">
-                      {copyFeedback}
-                    </span>
-                  )}
-                </div>
-              </div>
-              <div className="flex flex-col gap-1 border-t border-border-subtle pt-2">
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <SegmentedControl>
-                    <div className="flex h-full">
-                      {EXPORT_SCALES.map((s) => (
-                        <SegmentedControlButton
-                          key={s}
-                          active={exportScale === s}
-                          aria-pressed={exportScale === s}
-                          aria-label={`Export at ${s}×`}
-                          onClick={() => setExportScale(s)}
-                        >
-                          {s}×
-                        </SegmentedControlButton>
-                      ))}
-                    </div>
-                  </SegmentedControl>
-                  <div className="inline-flex shrink-0 items-center gap-1" role="group" aria-label="PNG download actions">
-                    <IconButton
-                      size="sm"
-                      title={`Export PNG at ${exportScale}× (download)`}
-                      aria-label="Export PNG"
-                      onClick={handleExport}
-                    >
-                      <Icon name="file_download" className={iconSm} />
-                    </IconButton>
-                    {exportScale !== WEAVING_URL_DEFAULTS.exportScale && (
-                      <IconButton
-                        size="resetSm"
-                        title="Reset export scale to default"
-                        aria-label="Reset export scale to default"
-                        onClick={() => setExportScale(WEAVING_URL_DEFAULTS.exportScale)}
-                      >
-                        <Icon name="restart_alt" className={iconResetGlyph} />
-                      </IconButton>
-                    )}
-                  </div>
-                  {exportFeedback && (
-                    <span className={`shrink-0 text-xs ${exportFeedback === 'Exported!' ? 'text-accent' : 'text-error'}`} role="status">
-                      {exportFeedback}
-                    </span>
-                  )}
-                </div>
-              </div>
-              <div className="flex flex-col gap-1 border-t border-border-subtle pt-2">
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <SegmentedControl>
-                    <div className="flex h-full">
-                      {(supportsMP4 ? ['mp4', 'webm'] : ['webm']).map((fmt) => (
-                        <SegmentedControlButton
-                          key={fmt}
-                          format
-                          active={recordFormat === fmt}
-                          aria-pressed={recordFormat === fmt}
-                          aria-label={`Record format: ${fmt}`}
-                          onClick={() => setRecordFormat(fmt)}
-                          disabled={isRecording}
-                        >
-                          {fmt}
-                        </SegmentedControlButton>
-                      ))}
-                    </div>
-                  </SegmentedControl>
-                  <div className="inline-flex shrink-0 items-center gap-1" role="group" aria-label="Recording control">
-                    <IconButton
-                      size="sm"
-                      variant={isRecording || isProcessing ? 'danger' : 'default'}
-                      title={isProcessing ? 'Processing…' : isRecording ? `Stop and download ${recordFormat.toUpperCase()}` : `Record canvas as ${recordFormat.toUpperCase()}`}
-                      aria-label={isProcessing ? 'Processing video' : isRecording ? 'Stop recording' : 'Start recording'}
-                      onClick={isRecording ? stopRecording : startRecording}
-                      disabled={isProcessing}
-                    >
-                      <Icon name={isProcessing ? 'hourglass_empty' : isRecording ? 'stop' : 'videocam'} className={iconSm} />
-                    </IconButton>
-                  </div>
-                </div>
               </div>
               {(view === 'weaving' && weaveHalftoneOn) || view === 'imageRectsHalftone' ? (
                 <div className="flex flex-col gap-1 border-t border-border-subtle pt-2">
@@ -2852,6 +2989,40 @@ export default function App() {
               </Suspense>
             )}
           </main>
+
+          <CaptureToolbar
+            copyFormat={copyFormat}
+            setCopyFormat={setCopyFormat}
+            copyScale={copyScale}
+            setCopyScale={setCopyScale}
+            copyDefaults={{ copyScale: WEAVING_URL_DEFAULTS.copyScale, copyFormat: WEAVING_URL_DEFAULTS.copyFormat }}
+            onCopy={handleCopy}
+            copyFeedback={copyFeedback}
+            showExport
+            exportScale={exportScale}
+            setExportScale={setExportScale}
+            exportDefaults={{ exportScale: WEAVING_URL_DEFAULTS.exportScale }}
+            onExport={handleExport}
+            exportFeedback={exportFeedback}
+            recordFormat={recordFormat}
+            setRecordFormat={setRecordFormat}
+            isRecording={isRecording}
+            isProcessing={isProcessing}
+            recordingReason={null}
+            onRecordClick={isRecording ? stopRecording : startRecording}
+            onPlayRecord={startWeavePlayAndRecord}
+            keyframe={{
+              editingAfter: weaveEditingAfter,
+              setEditingAfter: setWeaveEditingAfter,
+              durationSec: weaveKeyframeDurationSec,
+              setDurationSec: setWeaveKeyframeDurationSec,
+              isPlaying: weaveKeyframePlaying,
+              onSetBefore: () => { syncWeaveBeforeFromLive(); setWeaveEditingAfter(false); },
+              onSetAfter: () => { syncWeaveAfterFromLive(); setWeaveEditingAfter(true); },
+              onPlay: startWeaveKeyframePlay,
+              onStop: stopWeaveKeyframe,
+            }}
+          />
 
           <footer className="relative h-[100px] shrink-0 overflow-hidden border-t border-border-subtle bg-surface-elevated">
             <div className="flex h-full min-h-9 flex-wrap items-center gap-1.5 overflow-y-auto px-3 py-2">

@@ -8,9 +8,12 @@ import { motion } from 'motion/react';
 import * as Label from '@radix-ui/react-label';
 import { ImageRectsCanvas } from './components/ImageRectsCanvas';
 import { SliderWithInput } from './components/SliderWithInput';
-import { useCanvasRecorder, supportsMP4 } from './hooks/useCanvasRecorder';
+import { useCanvasRecorder } from './hooks/useCanvasRecorder';
+import { useKeyframePlayback } from './hooks/useKeyframePlayback';
+import { getMosaicKeyframeSnapshot, applyMosaicKeyframe } from './keyframe/mosaicKeyframe';
+import { CaptureToolbar } from './components/CaptureToolbar';
 import { PATTERNS } from './patterns';
-import { COPY_SCALES, EXPORT_MAX_DIMENSION, GRID_SNAPS, getGridSizeIndex, URL_STATE_MAX_LEN, WEAVE_ICONS } from './constants';
+import { EXPORT_MAX_DIMENSION, GRID_SNAPS, getGridSizeIndex, URL_STATE_MAX_LEN, WEAVE_ICONS } from './constants';
 import { IMAGE_RECTS_URL_DEFAULTS } from './urlDefaults';
 import {
   PALETTE_NAMES,
@@ -279,9 +282,12 @@ export default function AppV2({
   const [fps, setFps] = useState(0);
   const [copyFormat, setCopyFormat] = useState(IMAGE_RECTS_URL_DEFAULTS.copyFormat); // 'png' | 'webp'
   const [copyScale, setCopyScale] = useState(IMAGE_RECTS_URL_DEFAULTS.copyScale); // 1 | 2 | 4 | 8
+  const [copyFeedback, setCopyFeedback] = useState(null);
+  const copyFeedbackTimeoutRef = useRef(null);
   const canvasRef = useRef(null);
   const imageRectsCaptureRef = useRef(null);            // { captureAtResolution(w, h) } when canvas ready
   const appliedUrlRef = useRef(false);
+  const mosaicKeyframeStitchOverrideRef = useRef(false);
 
   const IMAGE_RECTS_DPR = 2; // matches useImageRectsSandbox DPR
   const capToMax = useCallback((width, height) => {
@@ -355,10 +361,22 @@ export default function AppV2({
     if (blob) await navigator.clipboard.write([new ClipboardItem({ 'image/webp': blob })]);
   }, [copyScale, capToMax]);
 
-  const handleCopy = useCallback(() => {
-    if (copyFormat === 'png') handleCopy2xPng();
-    else handleCopyWebp();
+  const handleCopy = useCallback(async () => {
+    if (copyFeedbackTimeoutRef.current) clearTimeout(copyFeedbackTimeoutRef.current);
+    try {
+      if (copyFormat === 'png') await handleCopy2xPng();
+      else await handleCopyWebp();
+      setCopyFeedback('Copied!');
+      copyFeedbackTimeoutRef.current = setTimeout(() => setCopyFeedback(null), 2000);
+    } catch (err) {
+      setCopyFeedback(err?.message ?? 'Copy failed');
+      copyFeedbackTimeoutRef.current = setTimeout(() => setCopyFeedback(null), 3000);
+    }
   }, [copyFormat, handleCopy2xPng, handleCopyWebp]);
+
+  useEffect(() => () => {
+    if (copyFeedbackTimeoutRef.current) clearTimeout(copyFeedbackTimeoutRef.current);
+  }, []);
 
   /** Video recording (WebM or MP4). Mosaic: auto-starts when media becomes video (per tab — own hook instance). */
   const {
@@ -379,12 +397,157 @@ export default function AppV2({
     recStart(canvasRef.current);
   }, [recStart]);
 
+  const mosaicSnapRef = useRef({});
+  mosaicSnapRef.current = getMosaicKeyframeSnapshot({
+    gridSize,
+    palette,
+    bgShade,
+    rectColorSource,
+    patternWarpShade,
+    patternWeftShade,
+    lumaSizeMix,
+    lumaSizeInvert,
+    lumaSizeFloor,
+    cellGeometryMode,
+    mosaicBgGaps,
+    stitchLumaMax,
+    stitchRevealProgress,
+    stitchRevealSeed,
+    stitchRevealScale,
+    stitchRevealSoftness,
+    stitchRevealBleedAnisotropy,
+    stitchRevealBleedRotation,
+    stitchRevealBleedCrossFiber,
+    stitchRevealBleedDraftCoupled,
+    quantizeSteps,
+    quantizeMode,
+    quantizeGamma,
+    quantizeDither,
+    patternIndex,
+    rectRadius,
+    rectAspect,
+    rectRatio,
+    patternFit,
+  });
+
+  const mosaicSettersRef = useRef({});
+  mosaicSettersRef.current = {
+    setGridSize,
+    setPalette,
+    setBgShade,
+    setRectColorSource,
+    setPatternWarpShade,
+    setPatternWeftShade,
+    setLumaSizeMix,
+    setLumaSizeInvert,
+    setLumaSizeFloor,
+    setCellGeometryMode,
+    setMosaicBgGaps,
+    setStitchLumaMax,
+    setStitchRevealProgress,
+    setStitchRevealSeed,
+    setStitchRevealScale,
+    setStitchRevealSoftness,
+    setStitchRevealBleedAnisotropy,
+    setStitchRevealBleedRotation,
+    setStitchRevealBleedCrossFiber,
+    setStitchRevealBleedDraftCoupled,
+    setQuantizeSteps,
+    setQuantizeMode,
+    setQuantizeGamma,
+    setQuantizeDither,
+    setPatternIndex,
+    setRectRadius,
+    setRectAspect,
+    setRectRatio,
+    setPatternFit,
+  };
+
+  const applyMosaicSnapshot = useCallback((snap) => {
+    applyMosaicKeyframe(mosaicSettersRef.current, snap);
+  }, []);
+
+  const {
+    editingAfter,
+    setEditingAfter,
+    before: mosaicBefore,
+    setAfter: setMosaicAfter,
+    durationSec: keyframeDurationSec,
+    setDurationSec: setKeyframeDurationSec,
+    isPlaying: keyframePlaying,
+    syncBeforeFromLive: syncMosaicBeforeFromLive,
+    syncAfterFromLive: syncMosaicAfterFromLive,
+    play: playMosaicKeyframe,
+    playAndRecord: playAndRecordMosaicKeyframe,
+    stop: stopMosaicKeyframe,
+  } = useKeyframePlayback({
+    getBefore: () => ({ ...mosaicSnapRef.current }),
+    getAfter: () => ({ ...mosaicSnapRef.current }),
+    applySnapshot: applyMosaicSnapshot,
+    defaultDurationSec: 2,
+  });
+
+  useEffect(() => {
+    if (!editingAfter) return;
+    setMosaicAfter({ ...mosaicSnapRef.current });
+  }, [
+    editingAfter,
+    gridSize,
+    palette,
+    bgShade,
+    rectColorSource,
+    patternWarpShade,
+    patternWeftShade,
+    lumaSizeMix,
+    lumaSizeInvert,
+    lumaSizeFloor,
+    cellGeometryMode,
+    mosaicBgGaps,
+    stitchLumaMax,
+    stitchRevealProgress,
+    stitchRevealSeed,
+    stitchRevealScale,
+    stitchRevealSoftness,
+    stitchRevealBleedAnisotropy,
+    stitchRevealBleedRotation,
+    stitchRevealBleedCrossFiber,
+    stitchRevealBleedDraftCoupled,
+    quantizeSteps,
+    quantizeMode,
+    quantizeGamma,
+    quantizeDither,
+    patternIndex,
+    rectRadius,
+    rectAspect,
+    rectRatio,
+    patternFit,
+    setMosaicAfter,
+  ]);
+
+  useEffect(() => {
+    if (!mosaicKeyframeStitchOverrideRef.current) return;
+    if (!keyframePlaying) mosaicKeyframeStitchOverrideRef.current = false;
+  }, [keyframePlaying]);
+
+  const startMosaicKeyframePlay = useCallback(() => {
+    mosaicKeyframeStitchOverrideRef.current = true;
+    applyMosaicSnapshot(mosaicBefore);
+    playMosaicKeyframe();
+  }, [applyMosaicSnapshot, mosaicBefore, playMosaicKeyframe]);
+
+  const startMosaicPlayAndRecord = useCallback(() => {
+    mosaicKeyframeStitchOverrideRef.current = true;
+    applyMosaicSnapshot(mosaicBefore);
+    playAndRecordMosaicKeyframe(recStart, stopRecording, () => canvasRef.current);
+  }, [applyMosaicSnapshot, mosaicBefore, playAndRecordMosaicKeyframe, recStart, stopRecording]);
+
   const replayStitchReveal = useCallback(() => {
     setStitchRevealPlayToken((t) => t + 1);
   }, []);
 
   /** Ramp stitch-in progress 0→1 when Noise/Bleed is on (replay, new media, or mode change). */
   useEffect(() => {
+    if (mosaicKeyframeStitchOverrideRef.current) return undefined;
     if (stitchRevealMode === 0) {
       setStitchRevealProgress(1);
       return;
@@ -677,75 +840,6 @@ export default function AppV2({
                 <Icon name="restart_alt" className={iconResetGlyphMd} />
                 <span>Reset</span>
               </button>
-              <SegmentedControl>
-                <div className="flex h-full">
-                  {COPY_SCALES.map((s) => (
-                    <SegmentedControlButton
-                      key={s}
-                      active={copyScale === s}
-                      aria-pressed={copyScale === s}
-                      aria-label={`Copy resolution: ${s}×`}
-                      onClick={() => setCopyScale(s)}
-                    >
-                      {s}×
-                    </SegmentedControlButton>
-                  ))}
-                </div>
-                <div className="flex h-full">
-                  {['png', 'webp'].map((fmt) => (
-                    <SegmentedControlButton
-                      key={fmt}
-                      format
-                      active={copyFormat === fmt}
-                      aria-pressed={copyFormat === fmt}
-                      aria-label={`Format: ${fmt}`}
-                      onClick={() => setCopyFormat(fmt)}
-                    >
-                      {fmt}
-                    </SegmentedControlButton>
-                  ))}
-                </div>
-              </SegmentedControl>
-              <div className="inline-flex shrink-0 items-center gap-1" role="group" aria-label="Copy actions">
-                <IconButton size="sm" title={`Copy canvas at ${copyScale}× as ${copyFormat.toUpperCase()}`} aria-label={`Copy ${copyFormat.toUpperCase()}`} onClick={handleCopy}>
-                  <Icon name="content_copy" className={iconSm} />
-                </IconButton>
-                {(copyScale !== IMAGE_RECTS_URL_DEFAULTS.copyScale || copyFormat !== IMAGE_RECTS_URL_DEFAULTS.copyFormat) && (
-                  <IconButton
-                    size="resetSm"
-                    title="Reset copy scale and format to defaults"
-                    aria-label="Reset copy scale and format to defaults"
-                    onClick={() => {
-                      setCopyScale(IMAGE_RECTS_URL_DEFAULTS.copyScale);
-                      setCopyFormat(IMAGE_RECTS_URL_DEFAULTS.copyFormat);
-                    }}
-                  >
-                    <Icon name="restart_alt" className={iconResetGlyph} />
-                  </IconButton>
-                )}
-              </div>
-              <SegmentedControl>
-                <div className="flex h-full">
-                  {(supportsMP4 ? ['mp4', 'webm'] : ['webm']).map((fmt) => (
-                    <SegmentedControlButton
-                      key={fmt}
-                      format
-                      active={recordFormat === fmt}
-                      aria-pressed={recordFormat === fmt}
-                      aria-label={`Record format: ${fmt}`}
-                      onClick={() => setRecordFormat(fmt)}
-                      disabled={isRecording}
-                    >
-                      {fmt}
-                    </SegmentedControlButton>
-                  ))}
-                </div>
-              </SegmentedControl>
-              <div className="inline-flex shrink-0 items-center gap-1" role="group" aria-label="Recording control">
-                <IconButton size="sm" variant={isRecording || isProcessing ? 'danger' : 'default'} title={isProcessing ? 'Processing…' : isRecording ? `${recordingReason === 'auto' ? 'Auto-recording video — ' : ''}Stop and download ${recordFormat.toUpperCase()}` : `Record canvas as ${recordFormat.toUpperCase()}`} aria-label={isProcessing ? 'Processing video' : isRecording ? 'Stop recording' : 'Start recording'} onClick={isRecording ? stopRecording : startRecording} disabled={isProcessing}>
-                  <Icon name={isProcessing ? 'hourglass_empty' : isRecording ? 'stop' : 'videocam'} className={iconSm} />
-                </IconButton>
-              </div>
               <label className={btnGhost + ' cursor-pointer'}>
                 <Icon name="upload_file" className={iconMd} />
                 <span>Pick media</span>
@@ -1214,6 +1308,35 @@ export default function AppV2({
             onCaptureReady={(api) => { imageRectsCaptureRef.current = api; }}
           />
         </main>
+
+        <CaptureToolbar
+          copyFormat={copyFormat}
+          setCopyFormat={setCopyFormat}
+          copyScale={copyScale}
+          setCopyScale={setCopyScale}
+          copyDefaults={{ copyScale: IMAGE_RECTS_URL_DEFAULTS.copyScale, copyFormat: IMAGE_RECTS_URL_DEFAULTS.copyFormat }}
+          onCopy={handleCopy}
+          copyFeedback={copyFeedback}
+          showExport={false}
+          recordFormat={recordFormat}
+          setRecordFormat={setRecordFormat}
+          isRecording={isRecording}
+          isProcessing={isProcessing}
+          recordingReason={recordingReason}
+          onRecordClick={isRecording ? stopRecording : startRecording}
+          onPlayRecord={startMosaicPlayAndRecord}
+          keyframe={{
+            editingAfter,
+            setEditingAfter,
+            durationSec: keyframeDurationSec,
+            setDurationSec: setKeyframeDurationSec,
+            isPlaying: keyframePlaying,
+            onSetBefore: () => { syncMosaicBeforeFromLive(); setEditingAfter(false); },
+            onSetAfter: () => { syncMosaicAfterFromLive(); setEditingAfter(true); },
+            onPlay: startMosaicKeyframePlay,
+            onStop: stopMosaicKeyframe,
+          }}
+        />
 
         <footer className="relative h-[100px] shrink-0 overflow-hidden border-t border-border-subtle bg-surface-elevated">
           <div className="flex h-full min-h-9 flex-wrap items-center gap-2 overflow-y-auto px-3 py-2">
