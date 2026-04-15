@@ -16,7 +16,9 @@ export const MOSAIC_KEYFRAME_KEYS = [
   'cellGeometryMode',
   'mosaicBgGaps',
   'stitchLumaMax',
-  /** Progress only — mode/duration are sidebar-driven; animating mode would retrigger the built-in reveal effect. */
+  /** Include stitch-in mode so keyframe B can switch Off/Noise/Bleed. */
+  'stitchRevealMode',
+  /** Duration remains sidebar-driven; keyframes can animate mode and reveal progress. */
   'stitchRevealProgress',
   'stitchRevealSeed',
   'stitchRevealScale',
@@ -65,6 +67,7 @@ export function applyMosaicKeyframe(setters, snap) {
   if (snap.cellGeometryMode != null) setters.setCellGeometryMode?.(r(snap.cellGeometryMode, 0, 1));
   if (snap.mosaicBgGaps != null) setters.setMosaicBgGaps?.(!!snap.mosaicBgGaps);
   if (snap.stitchLumaMax != null) setters.setStitchLumaMax?.(f(snap.stitchLumaMax, 0, 1));
+  if (snap.stitchRevealMode != null) setters.setStitchRevealMode?.(r(snap.stitchRevealMode, 0, 2));
   if (snap.stitchRevealProgress != null) setters.setStitchRevealProgress?.(f(snap.stitchRevealProgress, 0, 1));
   if (snap.stitchRevealSeed != null) setters.setStitchRevealSeed?.(r(snap.stitchRevealSeed, 0, 999999));
   if (snap.stitchRevealScale != null) setters.setStitchRevealScale?.(f(snap.stitchRevealScale, 0.02, 0.8));

@@ -8,8 +8,9 @@
  * WebGL: callers should call gl.finish() after draw (see useImageRectsSandbox / useShaderSandbox)
  * so VideoFrame and captureStream see completed frames.
  *
- * MP4: the capture rAF loop shares one session object with stopRecording — set session.active=false
- * and cancel rAF before encoder.flush/close so no tick calls encode() on a closed codec.
+ * MP4: the capture rAF loop shares one session object with stopRecording. During stop, we mark
+ * session inactive/stopping before flush+close so in-flight rAF ticks can bail without surfacing
+ * harmless "closed codec" encode errors.
  *
  * Usage:
  *   const rec = useCanvasRecorder('shaderbox');
@@ -25,6 +26,13 @@ const BITRATE = 5_000_000;
 const KEYFRAME_INTERVAL_S = 2;
 /** Frequent chunks + final blob on stop; avoids sparse data on short clips. */
 const WEBM_TIMESLICE_MS = 250;
+/** Prefer higher H.264 levels for large canvases; fall back to lower levels. */
+const AVC_CODEC_CANDIDATES = [
+  'avc1.640033', // High Profile, Level 5.1
+  'avc1.640032', // High Profile, Level 5.0
+  'avc1.64002A', // High Profile, Level 4.2
+  'avc1.640028', // High Profile, Level 4.0
+];
 
 function pickWebMMimeType() {
   const candidates = [
@@ -36,6 +44,21 @@ function pickWebMMimeType() {
     if (typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported(c)) return c;
   }
   return '';
+}
+
+async function pickSupportedAvcConfig(baseConfig) {
+  if (typeof VideoEncoder?.isConfigSupported !== 'function') {
+    return { ...baseConfig, codec: AVC_CODEC_CANDIDATES[0] };
+  }
+  for (const codec of AVC_CODEC_CANDIDATES) {
+    try {
+      const query = await VideoEncoder.isConfigSupported({ ...baseConfig, codec });
+      if (query?.supported) return query.config ?? { ...baseConfig, codec };
+    } catch {
+      // Ignore and keep trying lower-priority codecs/levels.
+    }
+  }
+  return null;
 }
 
 export const supportsMP4 = typeof VideoEncoder !== 'undefined';
@@ -137,13 +160,18 @@ export function useCanvasRecorder(filePrefix = 'shaderbox') {
         error: (e) => console.error('VideoEncoder error:', e),
       });
 
-      encoder.configure({
-        codec: 'avc1.640028',
+      const baseEncoderConfig = {
         width: w,
         height: h,
         bitrate: BITRATE,
         framerate: FPS,
-      });
+      };
+      const encoderConfig = await pickSupportedAvcConfig(baseEncoderConfig);
+      if (!encoderConfig) {
+        setRecordError(`Recording: MP4 encoder does not support ${w}x${h}. Try WebM or reduce canvas size.`);
+        return;
+      }
+      encoder.configure(encoderConfig);
 
       let frameCount = 0;
       const frameDuration = 1_000_000 / FPS;
@@ -156,6 +184,7 @@ export function useCanvasRecorder(filePrefix = 'shaderbox') {
         target,
         raf: 0,
         active: true,
+        stopping: false,
         canvas,
       };
 
@@ -165,12 +194,22 @@ export function useCanvasRecorder(filePrefix = 'shaderbox') {
         if (now - lastTime >= 1000 / FPS) {
           lastTime = now;
           if (!session.active || encoder.state === 'closed') return;
+          let frame = null;
           try {
-            const frame = new VideoFrame(session.canvas, { timestamp: frameCount * frameDuration });
+            frame = new VideoFrame(session.canvas, { timestamp: frameCount * frameDuration });
             encoder.encode(frame, { keyFrame: frameCount % (FPS * KEYFRAME_INTERVAL_S) === 0 });
-            frame.close();
             frameCount++;
           } catch (e) {
+            const msg = String(e?.message ?? '');
+            const closedCodecRace =
+              !session.active ||
+              session.stopping ||
+              mp4Ref.current !== session ||
+              encoder.state === 'closed' ||
+              /closed codec/i.test(msg);
+            if (closedCodecRace) {
+              return;
+            }
             console.error('useCanvasRecorder: VideoFrame encode failed', e);
             setRecordError(`Recording encode error: ${e?.message ?? 'unknown'}`);
             session.active = false;
@@ -183,6 +222,14 @@ export function useCanvasRecorder(filePrefix = 'shaderbox') {
             setIsRecording(false);
             setRecordingReason(null);
             return;
+          } finally {
+            if (frame) {
+              try {
+                frame.close();
+              } catch {
+                /* ignore */
+              }
+            }
           }
         }
         if (!session.active || !mp4Ref.current || mp4Ref.current !== session) return;
@@ -230,6 +277,8 @@ export function useCanvasRecorder(filePrefix = 'shaderbox') {
       const { encoder, muxer, target, raf } = session;
       /** Stop capture loop first so no rAF tick calls encode() after flush/close. */
       session.active = false;
+      session.stopping = true;
+      if (mp4Ref.current === session) mp4Ref.current = null;
       if (raf) cancelAnimationFrame(raf);
       session.raf = 0;
       setIsProcessing(true);
@@ -244,7 +293,6 @@ export function useCanvasRecorder(filePrefix = 'shaderbox') {
         } catch { /* ignore */ }
         const blob = new Blob([target.buffer], { type: 'video/mp4' });
         const filename = `${filePrefix}-${Date.now()}.mp4`;
-        if (mp4Ref.current === session) mp4Ref.current = null;
         if (!blob.size) {
           setRecordError('Recording: empty MP4 — try recording longer or use WebM.');
         } else {
@@ -253,7 +301,6 @@ export function useCanvasRecorder(filePrefix = 'shaderbox') {
       } catch (e) {
         console.error('useCanvasRecorder: MP4 finalize failed', e);
         setRecordError(`Recording failed: ${e?.message ?? 'unknown error'}`);
-        if (mp4Ref.current === session) mp4Ref.current = null;
       } finally {
         setIsProcessing(false);
         setIsRecording(false);
