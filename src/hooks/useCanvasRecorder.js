@@ -248,7 +248,20 @@ export function useCanvasRecorder(filePrefix = 'shaderbox') {
             setRecordError(`Recording failed: ${e?.message ?? 'muxer metadata error'}`);
           }
         },
-        error: (e) => console.error('VideoEncoder error:', e),
+        error: (e) => {
+          console.error('VideoEncoder error:', e);
+          const live = mp4Ref.current;
+          if (live) {
+            live.active = false;
+            live.stopping = true;
+            if (live.raf) cancelAnimationFrame(live.raf);
+            live.raf = 0;
+            mp4Ref.current = null;
+          }
+          setRecordError(`Recording encode error: ${e?.message ?? 'unknown'}`);
+          setIsRecording(false);
+          setRecordingReason(null);
+        },
       });
 
       encoder.configure(selectedEncoderConfig);
