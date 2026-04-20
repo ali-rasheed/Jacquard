@@ -3,6 +3,7 @@
  * When warp/weft gradient flags are off, both gradient stops use the corresponding **warp** / **weft** shade (flat thread color).
  * Compiles vertex + fragment shaders, uploads fullscreen quad, runs animation loop.
  * Pattern data is uploaded as a texture; uniforms include u_tileW, u_tileH for the selected pattern.
+ * Stitch-in: u_stitchReveal* — optional per-cell reveal order + progress (see fragment.glsl).
  *
  * Shader source is read from refs so that code changes (e.g. HMR on .glsl save) only trigger
  * a program recompile, not a full canvas teardown and re-run.
@@ -73,6 +74,16 @@ function getUniformLocs(gl, program) {
     colorwayBleedDraftCoupled: gl.getUniformLocation(program, 'u_colorwayBleedDraftCoupled'),
     colorwayInclude0123: gl.getUniformLocation(program, 'u_colorwayInclude0123'),
     colorwayInclude4: gl.getUniformLocation(program, 'u_colorwayInclude4'),
+    stitchRevealMode: gl.getUniformLocation(program, 'u_stitchRevealMode'),
+    stitchRevealProgress: gl.getUniformLocation(program, 'u_stitchRevealProgress'),
+    stitchRevealSeed: gl.getUniformLocation(program, 'u_stitchRevealSeed'),
+    stitchRevealScale: gl.getUniformLocation(program, 'u_stitchRevealScale'),
+    stitchRevealNoiseScale: gl.getUniformLocation(program, 'u_stitchRevealNoiseScale'),
+    stitchRevealSoftness: gl.getUniformLocation(program, 'u_stitchRevealSoftness'),
+    stitchRevealBleedAnisotropy: gl.getUniformLocation(program, 'u_stitchRevealBleedAnisotropy'),
+    stitchRevealBleedRotation: gl.getUniformLocation(program, 'u_stitchRevealBleedRotation'),
+    stitchRevealBleedCrossFiber: gl.getUniformLocation(program, 'u_stitchRevealBleedCrossFiber'),
+    stitchRevealBleedDraftCoupled: gl.getUniformLocation(program, 'u_stitchRevealBleedDraftCoupled'),
   };
 }
 
@@ -121,7 +132,7 @@ function getPaletteColor(paletteIndex, shadeIndex) {
   return PALETTE_RGBA[p][s];
 }
 
-export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, palette, bgShade, warpShade, weftShade, gridSize, warpGradient, weftGradient, warpGradientEnabled, weftGradientEnabled, gradSteps, rectAspect, cornerRadius, shimmer, shimmerSpeed, shimmerWidth, shimmerIntensity, shimmerPosition, shimmerRotation, shimmerNoise, shimmerNoiseSeed, shimmerNoiseMin, shimmerNoiseMax, shimmerBlendMode, useAllColorways, colorwaySeed, colorwayNoiseScale, colorwayNoiseMode, colorwayNoiseOctaves, colorwayNoisePersistence, colorwayNoiseLacunarity, colorwayNoiseBias, colorwayNoiseX, colorwayBleedAnisotropy, colorwayBleedRotation, colorwayBleedCrossFiber, colorwayBleedDraftCoupled, colorwayIncludeMask, shimmerPlaying, shimmerPausedAtTime, shimmerPhase, onShimmerTime, patterns, onFpsChange, onCaptureReady) {
+export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, palette, bgShade, warpShade, weftShade, gridSize, warpGradient, weftGradient, warpGradientEnabled, weftGradientEnabled, gradSteps, rectAspect, cornerRadius, shimmer, shimmerSpeed, shimmerWidth, shimmerIntensity, shimmerPosition, shimmerRotation, shimmerNoise, shimmerNoiseSeed, shimmerNoiseMin, shimmerNoiseMax, shimmerBlendMode, useAllColorways, colorwaySeed, colorwayNoiseScale, colorwayNoiseMode, colorwayNoiseOctaves, colorwayNoisePersistence, colorwayNoiseLacunarity, colorwayNoiseBias, colorwayNoiseX, colorwayBleedAnisotropy, colorwayBleedRotation, colorwayBleedCrossFiber, colorwayBleedDraftCoupled, colorwayIncludeMask, stitchRevealMode, stitchRevealProgress, stitchRevealSeed, stitchRevealScale, stitchRevealNoiseScale, stitchRevealSoftness, stitchRevealBleedAnisotropy, stitchRevealBleedRotation, stitchRevealBleedCrossFiber, stitchRevealBleedDraftCoupled, shimmerPlaying, shimmerPausedAtTime, shimmerPhase, onShimmerTime, patterns, onFpsChange, onCaptureReady) {
   const canvasRef = useRef(null);
   const containerRef = useRef(null);
   const vertexSourceRef = useRef(vertexSource);
@@ -186,6 +197,16 @@ export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, pal
   const colorwayBleedCrossFiberRef = useRef(colorwayBleedCrossFiber);
   const colorwayBleedDraftCoupledRef = useRef(colorwayBleedDraftCoupled);
   const colorwayIncludeMaskRef = useRef(colorwayIncludeMask);
+  const stitchRevealModeRef = useRef(stitchRevealMode);
+  const stitchRevealProgressRef = useRef(stitchRevealProgress);
+  const stitchRevealSeedRef = useRef(stitchRevealSeed);
+  const stitchRevealScaleRef = useRef(stitchRevealScale);
+  const stitchRevealNoiseScaleRef = useRef(stitchRevealNoiseScale);
+  const stitchRevealSoftnessRef = useRef(stitchRevealSoftness);
+  const stitchRevealBleedAnisotropyRef = useRef(stitchRevealBleedAnisotropy);
+  const stitchRevealBleedRotationRef = useRef(stitchRevealBleedRotation);
+  const stitchRevealBleedCrossFiberRef = useRef(stitchRevealBleedCrossFiber);
+  const stitchRevealBleedDraftCoupledRef = useRef(stitchRevealBleedDraftCoupled);
   patternIndexRef.current = patternIndex;
   paletteRef.current = palette;
   bgShadeRef.current = bgShade;
@@ -223,6 +244,19 @@ export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, pal
   colorwayIncludeMaskRef.current = Number.isFinite(vMask)
     ? Math.max(0, Math.min(31, Math.floor(vMask)))
     : WEAVING_URL_DEFAULTS.colorwayIncludeMask;
+  stitchRevealModeRef.current = stitchRevealMode ?? WEAVING_URL_DEFAULTS.weaveStitchRevealMode;
+  stitchRevealProgressRef.current = stitchRevealProgress ?? WEAVING_URL_DEFAULTS.weaveStitchRevealProgress;
+  stitchRevealSeedRef.current = stitchRevealSeed ?? WEAVING_URL_DEFAULTS.weaveStitchRevealSeed;
+  stitchRevealScaleRef.current = stitchRevealScale ?? WEAVING_URL_DEFAULTS.weaveStitchRevealScale;
+  stitchRevealNoiseScaleRef.current = stitchRevealNoiseScale ?? WEAVING_URL_DEFAULTS.weaveStitchRevealNoiseScale;
+  stitchRevealSoftnessRef.current = stitchRevealSoftness ?? WEAVING_URL_DEFAULTS.weaveStitchRevealSoftness;
+  stitchRevealBleedAnisotropyRef.current = stitchRevealBleedAnisotropy ?? WEAVING_URL_DEFAULTS.weaveStitchRevealBleedAnisotropy;
+  stitchRevealBleedRotationRef.current = stitchRevealBleedRotation ?? WEAVING_URL_DEFAULTS.weaveStitchRevealBleedRotation;
+  stitchRevealBleedCrossFiberRef.current = stitchRevealBleedCrossFiber ?? WEAVING_URL_DEFAULTS.weaveStitchRevealBleedCrossFiber;
+  stitchRevealBleedDraftCoupledRef.current =
+    stitchRevealBleedDraftCoupled != null
+      ? (Number(stitchRevealBleedDraftCoupled) !== 0 ? 1 : 0)
+      : (WEAVING_URL_DEFAULTS.weaveStitchRevealBleedDraftCoupled ? 1 : 0);
   shimmerPlayingRef.current = shimmerPlaying ?? true;
   shimmerPausedAtTimeRef.current = shimmerPausedAtTime ?? 0;
   shimmerPhaseRef.current = shimmerPhase ?? 0;
@@ -373,6 +407,17 @@ export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, pal
         );
       }
       if (uniformLocs.colorwayInclude4 != null) gl.uniform1f(uniformLocs.colorwayInclude4, cm & 16 ? 1 : 0);
+
+      if (uniformLocs.stitchRevealMode != null) gl.uniform1f(uniformLocs.stitchRevealMode, stitchRevealModeRef.current);
+      if (uniformLocs.stitchRevealProgress != null) gl.uniform1f(uniformLocs.stitchRevealProgress, stitchRevealProgressRef.current);
+      if (uniformLocs.stitchRevealSeed != null) gl.uniform1f(uniformLocs.stitchRevealSeed, stitchRevealSeedRef.current);
+      if (uniformLocs.stitchRevealScale != null) gl.uniform1f(uniformLocs.stitchRevealScale, stitchRevealScaleRef.current);
+      if (uniformLocs.stitchRevealNoiseScale != null) gl.uniform1f(uniformLocs.stitchRevealNoiseScale, stitchRevealNoiseScaleRef.current);
+      if (uniformLocs.stitchRevealSoftness != null) gl.uniform1f(uniformLocs.stitchRevealSoftness, stitchRevealSoftnessRef.current);
+      if (uniformLocs.stitchRevealBleedAnisotropy != null) gl.uniform1f(uniformLocs.stitchRevealBleedAnisotropy, stitchRevealBleedAnisotropyRef.current);
+      if (uniformLocs.stitchRevealBleedRotation != null) gl.uniform1f(uniformLocs.stitchRevealBleedRotation, stitchRevealBleedRotationRef.current);
+      if (uniformLocs.stitchRevealBleedCrossFiber != null) gl.uniform1f(uniformLocs.stitchRevealBleedCrossFiber, stitchRevealBleedCrossFiberRef.current);
+      if (uniformLocs.stitchRevealBleedDraftCoupled != null) gl.uniform1f(uniformLocs.stitchRevealBleedDraftCoupled, stitchRevealBleedDraftCoupledRef.current);
 
       gl.clearColor(0, 0, 0, 0);
       gl.clear(gl.COLOR_BUFFER_BIT);

@@ -14,7 +14,8 @@ import { getMosaicKeyframeSnapshot, applyMosaicKeyframe } from './keyframe/mosai
 import { CaptureToolbar } from './components/CaptureToolbar';
 import { PATTERNS } from './patterns';
 import { EXPORT_MAX_DIMENSION, GRID_SNAPS, getGridSizeIndex, URL_STATE_MAX_LEN, WEAVE_ICONS } from './constants';
-import { IMAGE_RECTS_URL_DEFAULTS } from './urlDefaults';
+import { IMAGE_RECTS_URL_DEFAULTS, KEYFRAME_ANIM_DEFAULT_SEC } from './urlDefaults';
+import { decodeKeyframeSnapshot, encodeKeyframeSnapshot } from './keyframe/keyframeUrlCodec';
 import {
   PALETTE_NAMES,
   PALETTE_SWATCH_COLORS,
@@ -174,6 +175,11 @@ function parseUrlStateV2(search) {
     const n = Number(srsc);
     if (Number.isFinite(n)) out.stitchRevealScale = Math.max(0.02, Math.min(0.8, n / 1000));
   }
+  const srns = params.get('srns');
+  if (srns != null) {
+    const n = Number(srns);
+    if (Number.isFinite(n)) out.stitchRevealNoiseScale = Math.max(0.25, Math.min(4, n / 100));
+  }
   const srso = params.get('srso');
   if (srso != null) {
     const n = Number(srso);
@@ -193,6 +199,24 @@ function parseUrlStateV2(search) {
   const srbd = params.get('srbd');
   if (srbd === '1') out.stitchRevealBleedDraftCoupled = 1;
   if (srbd === '0') out.stitchRevealBleedDraftCoupled = 0;
+  const kad = params.get('kad');
+  if (kad != null) {
+    const n = Number(kad);
+    if (Number.isFinite(n)) out.keyframeAnimDurationSec = Math.max(0.5, Math.min(30, n / 100));
+  }
+  const kfe = params.get('kfe');
+  if (kfe === '1') out.keyframeEditingAfter = true;
+  else if (kfe === '0') out.keyframeEditingAfter = false;
+  const kfa = params.get('kfa');
+  if (kfa) {
+    const o = decodeKeyframeSnapshot(kfa);
+    if (o) out.keyframeSnapshotA = o;
+  }
+  const kfb = params.get('kfb');
+  if (kfb) {
+    const o = decodeKeyframeSnapshot(kfb);
+    if (o) out.keyframeSnapshotB = o;
+  }
   return out;
 }
 
@@ -232,12 +256,34 @@ function buildUrlStateV2(state) {
   if (state.stitchRevealDurationSec !== def.stitchRevealDurationSec) p.set('srd', String(Math.round(state.stitchRevealDurationSec * 100)));
   if (state.stitchRevealSeed !== def.stitchRevealSeed) p.set('srs', String(Math.round(state.stitchRevealSeed)));
   if (state.stitchRevealScale !== def.stitchRevealScale) p.set('srsc', String(Math.round(state.stitchRevealScale * 1000)));
+  if (state.stitchRevealNoiseScale !== def.stitchRevealNoiseScale) p.set('srns', String(Math.round(state.stitchRevealNoiseScale * 100)));
   if (state.stitchRevealSoftness !== def.stitchRevealSoftness) p.set('srso', String(Math.round(state.stitchRevealSoftness * 1000)));
   if (state.stitchRevealBleedAnisotropy !== def.stitchRevealBleedAnisotropy) p.set('srba', String(Math.round(state.stitchRevealBleedAnisotropy)));
   if (state.stitchRevealBleedRotation !== def.stitchRevealBleedRotation) p.set('srbr', String(Math.round(state.stitchRevealBleedRotation * 1000)));
   if (state.stitchRevealBleedCrossFiber !== def.stitchRevealBleedCrossFiber) p.set('srbc', String(Math.round(state.stitchRevealBleedCrossFiber * 1000)));
   if (state.stitchRevealBleedDraftCoupled !== def.stitchRevealBleedDraftCoupled) p.set('srbd', state.stitchRevealBleedDraftCoupled ? '1' : '0');
-  const s = p.toString();
+  const kd =
+    state.keyframeAnimDurationSec != null && Number.isFinite(state.keyframeAnimDurationSec)
+      ? state.keyframeAnimDurationSec
+      : KEYFRAME_ANIM_DEFAULT_SEC;
+  if (Math.abs(kd - KEYFRAME_ANIM_DEFAULT_SEC) > 1e-6) {
+    p.set('kad', String(Math.round(kd * 100)));
+  }
+  if (state.keyframeEditingAfter) p.set('kfe', '1');
+  const encMA = encodeKeyframeSnapshot(state.keyframeSnapshotA);
+  const encMB = encodeKeyframeSnapshot(state.keyframeSnapshotB);
+  if (encMA) p.set('kfa', encMA);
+  if (encMB) p.set('kfb', encMB);
+  let s = p.toString();
+  if (s.length > URL_STATE_MAX_LEN) {
+    p.delete('kfa');
+    p.delete('kfb');
+    s = p.toString();
+  }
+  if (s.length > URL_STATE_MAX_LEN) {
+    p.delete('kad');
+    s = p.toString();
+  }
   return s.length <= URL_STATE_MAX_LEN ? s : '';
 }
 
@@ -275,6 +321,7 @@ export default function AppV2({
   const [stitchRevealDurationSec, setStitchRevealDurationSec] = useState(IMAGE_RECTS_URL_DEFAULTS.stitchRevealDurationSec);
   const [stitchRevealSeed, setStitchRevealSeed] = useState(IMAGE_RECTS_URL_DEFAULTS.stitchRevealSeed);
   const [stitchRevealScale, setStitchRevealScale] = useState(IMAGE_RECTS_URL_DEFAULTS.stitchRevealScale);
+  const [stitchRevealNoiseScale, setStitchRevealNoiseScale] = useState(IMAGE_RECTS_URL_DEFAULTS.stitchRevealNoiseScale);
   const [stitchRevealSoftness, setStitchRevealSoftness] = useState(IMAGE_RECTS_URL_DEFAULTS.stitchRevealSoftness);
   const [stitchRevealBleedAnisotropy, setStitchRevealBleedAnisotropy] = useState(IMAGE_RECTS_URL_DEFAULTS.stitchRevealBleedAnisotropy);
   const [stitchRevealBleedRotation, setStitchRevealBleedRotation] = useState(IMAGE_RECTS_URL_DEFAULTS.stitchRevealBleedRotation);
@@ -301,6 +348,9 @@ export default function AppV2({
   const canvasRef = useRef(null);
   const imageRectsCaptureRef = useRef(null);            // { captureAtResolution(w, h) } when canvas ready
   const appliedUrlRef = useRef(false);
+  /** Stash kad/kfe/kfa/kfb until `useKeyframePlayback` setters exist. */
+  const keyframeUrlHydrateRef = useRef(null);
+  const mosaicKeyframeSkipAfterSyncRef = useRef(false);
   const mosaicKeyframeStitchOverrideRef = useRef(false);
 
   const IMAGE_RECTS_DPR = 2; // matches useImageRectsSandbox DPR
@@ -440,6 +490,7 @@ export default function AppV2({
     stitchRevealProgress,
     stitchRevealSeed,
     stitchRevealScale,
+    stitchRevealNoiseScale,
     stitchRevealSoftness,
     stitchRevealBleedAnisotropy,
     stitchRevealBleedRotation,
@@ -476,6 +527,7 @@ export default function AppV2({
     setStitchRevealProgress,
     setStitchRevealSeed,
     setStitchRevealScale,
+    setStitchRevealNoiseScale,
     setStitchRevealSoftness,
     setStitchRevealBleedAnisotropy,
     setStitchRevealBleedRotation,
@@ -500,6 +552,8 @@ export default function AppV2({
     editingAfter,
     setEditingAfter,
     before: mosaicBefore,
+    after: mosaicAfter,
+    setBefore: setMosaicBefore,
     setAfter: setMosaicAfter,
     durationSec: keyframeDurationSec,
     setDurationSec: setKeyframeDurationSec,
@@ -513,11 +567,29 @@ export default function AppV2({
     getBefore: () => ({ ...mosaicSnapRef.current }),
     getAfter: () => ({ ...mosaicSnapRef.current }),
     applySnapshot: applyMosaicSnapshot,
-    defaultDurationSec: 2,
+    defaultDurationSec: KEYFRAME_ANIM_DEFAULT_SEC,
   });
 
   useEffect(() => {
+    const h = keyframeUrlHydrateRef.current;
+    if (!h) return;
+    keyframeUrlHydrateRef.current = null;
+    if (h.duration != null && Number.isFinite(h.duration)) setKeyframeDurationSec(h.duration);
+    if (typeof h.editingAfter === 'boolean') setEditingAfter(h.editingAfter);
+    if (h.before != null) setMosaicBefore(h.before);
+    if (h.after != null) {
+      setMosaicAfter(h.after);
+      mosaicKeyframeSkipAfterSyncRef.current = true;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount hydration only
+  }, []);
+
+  useEffect(() => {
     if (!editingAfter) return;
+    if (mosaicKeyframeSkipAfterSyncRef.current) {
+      mosaicKeyframeSkipAfterSyncRef.current = false;
+      return;
+    }
     setMosaicAfter({ ...mosaicSnapRef.current });
   }, [
     editingAfter,
@@ -539,6 +611,7 @@ export default function AppV2({
     stitchRevealProgress,
     stitchRevealSeed,
     stitchRevealScale,
+    stitchRevealNoiseScale,
     stitchRevealSoftness,
     stitchRevealBleedAnisotropy,
     stitchRevealBleedRotation,
@@ -695,6 +768,7 @@ export default function AppV2({
     setStitchRevealDurationSec(Number(rand(1, 5).toFixed(1)));
     setStitchRevealSeed(Math.floor(Math.random() * 999999));
     setStitchRevealScale(Number(rand(0.05, 0.35).toFixed(2)));
+    setStitchRevealNoiseScale(Number(rand(0.35, 2.5).toFixed(2)));
     setStitchRevealSoftness(Number(rand(0.03, 0.14).toFixed(2)));
     setStitchRevealBleedAnisotropy(Number(rand(1.5, 8).toFixed(1)));
     setStitchRevealBleedRotation(Number(rand(0, 1).toFixed(2)));
@@ -733,6 +807,7 @@ export default function AppV2({
     setStitchRevealDurationSec(IMAGE_RECTS_URL_DEFAULTS.stitchRevealDurationSec);
     setStitchRevealSeed(IMAGE_RECTS_URL_DEFAULTS.stitchRevealSeed);
     setStitchRevealScale(IMAGE_RECTS_URL_DEFAULTS.stitchRevealScale);
+    setStitchRevealNoiseScale(IMAGE_RECTS_URL_DEFAULTS.stitchRevealNoiseScale);
     setStitchRevealSoftness(IMAGE_RECTS_URL_DEFAULTS.stitchRevealSoftness);
     setStitchRevealBleedAnisotropy(IMAGE_RECTS_URL_DEFAULTS.stitchRevealBleedAnisotropy);
     setStitchRevealBleedRotation(IMAGE_RECTS_URL_DEFAULTS.stitchRevealBleedRotation);
@@ -750,6 +825,18 @@ export default function AppV2({
     if (appliedUrlRef.current) return;
     appliedUrlRef.current = true;
     const q = parseUrlStateV2(window.location.search);
+    keyframeUrlHydrateRef.current =
+      q.keyframeAnimDurationSec != null ||
+      typeof q.keyframeEditingAfter === 'boolean' ||
+      q.keyframeSnapshotA != null ||
+      q.keyframeSnapshotB != null
+        ? {
+            duration: q.keyframeAnimDurationSec,
+            editingAfter: q.keyframeEditingAfter,
+            before: q.keyframeSnapshotA,
+            after: q.keyframeSnapshotB,
+          }
+        : null;
     if (Object.keys(q).length === 0) return;
     if (q.gridSize != null) setGridSize(GRID_SNAPS.includes(q.gridSize) ? q.gridSize : GRID_SNAPS[getGridSizeIndex(q.gridSize)]);
     if (q.palette != null) setPalette(q.palette);
@@ -779,6 +866,7 @@ export default function AppV2({
     if (q.stitchRevealDurationSec != null) setStitchRevealDurationSec(q.stitchRevealDurationSec);
     if (q.stitchRevealSeed != null) setStitchRevealSeed(q.stitchRevealSeed);
     if (q.stitchRevealScale != null) setStitchRevealScale(q.stitchRevealScale);
+    if (q.stitchRevealNoiseScale != null) setStitchRevealNoiseScale(q.stitchRevealNoiseScale);
     if (q.stitchRevealSoftness != null) setStitchRevealSoftness(q.stitchRevealSoftness);
     if (q.stitchRevealBleedAnisotropy != null) setStitchRevealBleedAnisotropy(q.stitchRevealBleedAnisotropy);
     if (q.stitchRevealBleedRotation != null) setStitchRevealBleedRotation(q.stitchRevealBleedRotation);
@@ -799,8 +887,12 @@ export default function AppV2({
         gridSize, palette, bgShade, bgColorMode, bgCustomColor, rectColorSource, quantizeSteps, quantizeMode, quantizeGamma, quantizeDither, patternIndex,
         patternWarpShade, patternWeftShade, lumaSizeMix, lumaSizeInvert, lumaSizeFloor, cellGeometryMode, stitchLumaMax,
         rectRadius, rectAspect, rectRatio, copyFormat, copyScale, menuHidden, mosaicBgGaps, patternFit,
-        stitchRevealMode, stitchRevealDurationSec, stitchRevealSeed, stitchRevealScale, stitchRevealSoftness,
+        stitchRevealMode, stitchRevealDurationSec, stitchRevealSeed, stitchRevealScale, stitchRevealNoiseScale, stitchRevealSoftness,
         stitchRevealBleedAnisotropy, stitchRevealBleedRotation, stitchRevealBleedCrossFiber, stitchRevealBleedDraftCoupled,
+        keyframeAnimDurationSec: keyframeDurationSec,
+        keyframeEditingAfter: editingAfter,
+        keyframeSnapshotA: mosaicBefore,
+        keyframeSnapshotB: mosaicAfter,
       });
       const url = search ? `${window.location.pathname}?${search}` : window.location.pathname;
       if (window.location.pathname + (window.location.search || '') !== url) {
@@ -808,7 +900,7 @@ export default function AppV2({
       }
     }, 400);
     return () => { clearTimeout(urlSyncTimeoutRef.current); };
-  }, [gridSize, palette, bgShade, bgColorMode, bgCustomColor, rectColorSource, quantizeSteps, quantizeMode, quantizeGamma, quantizeDither, patternIndex, patternWarpShade, patternWeftShade, lumaSizeMix, lumaSizeInvert, lumaSizeFloor, cellGeometryMode, stitchLumaMax, rectRadius, rectAspect, rectRatio, copyFormat, copyScale, menuHidden, mosaicBgGaps, patternFit, stitchRevealMode, stitchRevealDurationSec, stitchRevealSeed, stitchRevealScale, stitchRevealSoftness, stitchRevealBleedAnisotropy, stitchRevealBleedRotation, stitchRevealBleedCrossFiber, stitchRevealBleedDraftCoupled]);
+  }, [gridSize, palette, bgShade, bgColorMode, bgCustomColor, rectColorSource, quantizeSteps, quantizeMode, quantizeGamma, quantizeDither, patternIndex, patternWarpShade, patternWeftShade, lumaSizeMix, lumaSizeInvert, lumaSizeFloor, cellGeometryMode, stitchLumaMax, rectRadius, rectAspect, rectRatio, copyFormat, copyScale, menuHidden, mosaicBgGaps, patternFit, stitchRevealMode, stitchRevealDurationSec, stitchRevealSeed, stitchRevealScale, stitchRevealNoiseScale, stitchRevealSoftness, stitchRevealBleedAnisotropy, stitchRevealBleedRotation, stitchRevealBleedCrossFiber, stitchRevealBleedDraftCoupled, keyframeDurationSec, editingAfter, mosaicBefore, mosaicAfter]);
 
   /** Keyboard shortcuts: Mod+C copy, Mod+Shift+R / F5 reload (no presets in v2). */
   useEffect(() => {
@@ -1257,6 +1349,22 @@ export default function AppV2({
                       />
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
+                      <GroupIcon name="tune" title="FBM detail / frequency for stitch-in noise and bleed" />
+                      <Label.Root className="sr-only" htmlFor="stitch-reveal-noise-scale-v2">Reveal noise scale</Label.Root>
+                      <SliderWithInput
+                        id="stitch-reveal-noise-scale-v2"
+                        value={stitchRevealNoiseScale}
+                        onValueChange={setStitchRevealNoiseScale}
+                        defaultValue={IMAGE_RECTS_URL_DEFAULTS.stitchRevealNoiseScale}
+                        onReset={() => setStitchRevealNoiseScale(IMAGE_RECTS_URL_DEFAULTS.stitchRevealNoiseScale)}
+                        min={0.25}
+                        max={4}
+                        step={0.05}
+                        format={(n) => n.toFixed(2)}
+                        aria-label="Stitch-in FBM frequency multiplier"
+                      />
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
                       <GroupIcon name="gradient" title="Edge softness between revealed and not yet" />
                       <Label.Root className="sr-only" htmlFor="stitch-reveal-soft-v2">Reveal softness</Label.Root>
                       <SliderWithInput
@@ -1399,6 +1507,7 @@ export default function AppV2({
             stitchRevealProgress={stitchRevealProgress}
             stitchRevealSeed={stitchRevealSeed}
             stitchRevealScale={stitchRevealScale}
+            stitchRevealNoiseScale={stitchRevealNoiseScale}
             stitchRevealSoftness={stitchRevealSoftness}
             stitchRevealBleedAnisotropy={stitchRevealBleedAnisotropy}
             stitchRevealBleedRotation={stitchRevealBleedRotation}

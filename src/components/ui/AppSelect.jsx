@@ -1,7 +1,7 @@
 /**
  * Radix Select wired to uiConstants (selectTrigger, selectContent, selectItem).
  * Value is always string from Radix; parent may coerce to number.
- * @param {{ value: string | number, onValueChange: (v: string) => void, options: Array<{ value: string | number, label: string, icon?: string }>, placeholder?: string, title?: string, id?: string, labelText?: string, defaultValue?: string | number, onReset?: () => void }} props
+ * @param {{ value: string | number, onValueChange: (v: string) => void, options: Array<{ value: string | number, label: string, icon?: string }>, placeholder?: string, title?: string, id?: string, labelText?: string, defaultValue?: string | number, onReset?: () => void, contentFooter?: import('react').ReactNode }} props
  */
 import * as Select from '@radix-ui/react-select';
 import * as Label from '@radix-ui/react-label';
@@ -10,7 +10,7 @@ import { IconButton } from './IconButton';
 import { AppTooltip } from './AppTooltip';
 import { selectTrigger, selectContent, selectItem, iconMd, iconLg, iconResetGlyphMd } from '../../uiConstants';
 
-export function AppSelect({ value, onValueChange, options, placeholder, title, id: idProp, labelText, defaultValue, onReset }) {
+export function AppSelect({ value, onValueChange, options, placeholder, title, id: idProp, labelText, defaultValue, onReset, contentFooter }) {
   const selected = options.find((o) => String(o.value) === String(value));
   const label = labelText ?? title;
   const isDirty = defaultValue != null && String(value) !== String(defaultValue);
@@ -43,6 +43,11 @@ export function AppSelect({ value, onValueChange, options, placeholder, title, i
                 </Select.Item>
               ))}
             </Select.Viewport>
+            {contentFooter != null ? (
+              <div className="border-t border-border-subtle" onPointerDown={(e) => e.preventDefault()}>
+                {contentFooter}
+              </div>
+            ) : null}
           </Select.Content>
         </Select.Portal>
       </Select.Root>
