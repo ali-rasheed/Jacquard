@@ -1,6 +1,7 @@
 /**
  * Bottom-anchored capture bar: copy/export/record settings and optional keyframe play controls.
- * Tooltips use Radix (150ms) on grouped icon+label rows via AppTooltip.
+ * Keyframe **Play** and **+ Record** share one segmented control in the Animate row (preview vs play-and-capture);
+ * Video keeps **Record** only. Tooltips use Radix (150ms) on grouped icon+label rows via AppTooltip.
  */
 import { COPY_SCALES, EXPORT_SCALES } from '../constants';
 import { supportsMP4 } from '../hooks/useCanvasRecorder';
@@ -205,22 +206,6 @@ export function CaptureToolbar({
               <span className={`${typeLabel} hidden sm:inline`}>{isRecording ? 'Stop' : 'Record'}</span>
             </span>
           </AppTooltip>
-          {onPlayRecord && (
-            <AppTooltip content="Play keyframe animation and record for the same duration, then stop">
-              <button type="button" className={btnGhost} onClick={onPlayRecord} disabled={isProcessing || keyframe?.isPlaying}>
-                <Icon name="movie_creation" className={iconSm} />
-                <span className={typeLabel}>Play + record</span>
-              </button>
-            </AppTooltip>
-          )}
-          {isRecording && (
-            <AppTooltip content="Stop current recording immediately">
-              <button type="button" className={btnGhost} onClick={onRecordClick} disabled={isProcessing}>
-                <Icon name="stop_circle" className={iconSm} />
-                <span className={typeLabel}>Stop record</span>
-              </button>
-            </AppTooltip>
-          )}
         </div>
 
         {keyframe && (
@@ -263,12 +248,41 @@ export function CaptureToolbar({
                 <span className="text-text-muted">s</span>
               </label>
             </AppTooltip>
-            <AppTooltip content="Preview animation without recording">
-              <button type="button" className={btnGhost} onClick={keyframe.onPlay} disabled={keyframe.isPlaying || isProcessing}>
-                <Icon name="play_arrow" className={iconSm} />
-                <span className={typeLabel}>Play</span>
-              </button>
-            </AppTooltip>
+            {onPlayRecord ? (
+              <div className="inline-flex items-center gap-1">
+                <SegmentedControl>
+                  <div className="flex h-full">
+                    <AppTooltip content="Preview keyframe animation (A→B) without recording">
+                      <SegmentedControlButton
+                        aria-label="Play keyframe preview without recording"
+                        onClick={keyframe.onPlay}
+                        disabled={isProcessing || keyframe.isPlaying}
+                      >
+                        <Icon name="play_arrow" className={iconSm} />
+                        <span className={typeLabel}>Play</span>
+                      </SegmentedControlButton>
+                    </AppTooltip>
+                    <AppTooltip content="Play A→B and record for the duration above, then stop">
+                      <SegmentedControlButton
+                        aria-label="Play keyframe animation and record"
+                        onClick={onPlayRecord}
+                        disabled={isProcessing || keyframe.isPlaying}
+                      >
+                        <Icon name="movie_creation" className={iconSm} />
+                        <span className={typeLabel}>+ Record</span>
+                      </SegmentedControlButton>
+                    </AppTooltip>
+                  </div>
+                </SegmentedControl>
+              </div>
+            ) : (
+              <AppTooltip content="Preview animation without recording">
+                <button type="button" className={btnGhost} onClick={keyframe.onPlay} disabled={keyframe.isPlaying || isProcessing}>
+                  <Icon name="play_arrow" className={iconSm} />
+                  <span className={typeLabel}>Play</span>
+                </button>
+              </AppTooltip>
+            )}
             {keyframe.isPlaying && (
               <AppTooltip content="Stop animation (recording stops too if Play + record)">
                 <button type="button" className={btnGhost} onClick={keyframe.onStop}>

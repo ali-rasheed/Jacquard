@@ -1,7 +1,8 @@
 /**
  * WeavingHalftoneStage — Renders weaving as the image source for Halftone CMYK.
  * Renders a hidden ShaderCanvas, captures it to a data URL (on param change + throttled when
- * shimmer is on), and passes the URL to HalftoneCmyk. Main area shows only the halftone result.
+ * shimmer is on or **weave stitch-in** mode is active), and passes the URL to HalftoneCmyk.
+ * Main area shows only the halftone result.
  */
 import { useRef, useState, useEffect, useCallback } from 'react';
 import { HalftoneCmyk } from '@paper-design/shaders-react';
@@ -58,6 +59,16 @@ export function WeavingHalftoneStage({
   colorwayBleedCrossFiber = WEAVING_URL_DEFAULTS.colorwayBleedCrossFiber,
   colorwayBleedDraftCoupled = WEAVING_URL_DEFAULTS.colorwayBleedDraftCoupled,
   colorwayIncludeMask = WEAVING_URL_DEFAULTS.colorwayIncludeMask,
+  weaveStitchRevealMode = WEAVING_URL_DEFAULTS.weaveStitchRevealMode,
+  weaveStitchRevealProgress = WEAVING_URL_DEFAULTS.weaveStitchRevealProgress,
+  weaveStitchRevealSeed = WEAVING_URL_DEFAULTS.weaveStitchRevealSeed,
+  weaveStitchRevealScale = WEAVING_URL_DEFAULTS.weaveStitchRevealScale,
+  weaveStitchRevealNoiseScale = WEAVING_URL_DEFAULTS.weaveStitchRevealNoiseScale,
+  weaveStitchRevealSoftness = WEAVING_URL_DEFAULTS.weaveStitchRevealSoftness,
+  weaveStitchRevealBleedAnisotropy = WEAVING_URL_DEFAULTS.weaveStitchRevealBleedAnisotropy,
+  weaveStitchRevealBleedRotation = WEAVING_URL_DEFAULTS.weaveStitchRevealBleedRotation,
+  weaveStitchRevealBleedCrossFiber = WEAVING_URL_DEFAULTS.weaveStitchRevealBleedCrossFiber,
+  weaveStitchRevealBleedDraftCoupled = WEAVING_URL_DEFAULTS.weaveStitchRevealBleedDraftCoupled,
   // Halftone params
   size,
   softness,
@@ -142,12 +153,21 @@ export function WeavingHalftoneStage({
     shimmerNoiseMin,
     shimmerNoiseMax,
     shimmerBlendMode,
+    weaveStitchRevealMode,
+    weaveStitchRevealSeed,
+    weaveStitchRevealScale,
+    weaveStitchRevealNoiseScale,
+    weaveStitchRevealSoftness,
+    weaveStitchRevealBleedAnisotropy,
+    weaveStitchRevealBleedRotation,
+    weaveStitchRevealBleedCrossFiber,
+    weaveStitchRevealBleedDraftCoupled,
     capture,
   ]);
 
-  // Throttled capture loop when shimmer is on.
+  // Throttled capture loop when shimmer is on or stitch-in mode is on (progress animates every frame).
   useEffect(() => {
-    if (!shimmer) return;
+    if (!shimmer && !(weaveStitchRevealMode > 0)) return;
     let last = 0;
     const tick = (now) => {
       rafRef.current = requestAnimationFrame(tick);
@@ -159,7 +179,7 @@ export function WeavingHalftoneStage({
     return () => {
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
     };
-  }, [shimmer, capture]);
+  }, [shimmer, weaveStitchRevealMode, capture]);
 
   const handleCanvasRef = useCallback((el) => {
     weavingCanvasRef.current = el;
@@ -274,6 +294,16 @@ export function WeavingHalftoneStage({
           colorwayBleedCrossFiber={colorwayBleedCrossFiber}
           colorwayBleedDraftCoupled={colorwayBleedDraftCoupled}
           colorwayIncludeMask={colorwayIncludeMask}
+          weaveStitchRevealMode={weaveStitchRevealMode}
+          weaveStitchRevealProgress={weaveStitchRevealProgress}
+          weaveStitchRevealSeed={weaveStitchRevealSeed}
+          weaveStitchRevealScale={weaveStitchRevealScale}
+          weaveStitchRevealNoiseScale={weaveStitchRevealNoiseScale}
+          weaveStitchRevealSoftness={weaveStitchRevealSoftness}
+          weaveStitchRevealBleedAnisotropy={weaveStitchRevealBleedAnisotropy}
+          weaveStitchRevealBleedRotation={weaveStitchRevealBleedRotation}
+          weaveStitchRevealBleedCrossFiber={weaveStitchRevealBleedCrossFiber}
+          weaveStitchRevealBleedDraftCoupled={!!weaveStitchRevealBleedDraftCoupled}
           patterns={patterns ?? []}
           onCanvasRef={handleCanvasRef}
         />

@@ -51,6 +51,7 @@ uniform float u_stitchRevealMode;
 uniform float u_stitchRevealProgress; // 0..1 global ramp
 uniform float u_stitchRevealSeed;
 uniform float u_stitchRevealScale;
+uniform float u_stitchRevealNoiseScale;
 uniform float u_stitchRevealSoftness;
 uniform float u_stitchRevealBleedAnisotropy;
 uniform float u_stitchRevealBleedRotation;
@@ -215,13 +216,15 @@ float mosaicFbm(vec2 p) {
 
 float stitchRevealOrderNoise(vec2 cellID) {
   float scale = max(0.001, u_stitchRevealScale);
+  float nfreq = max(0.05, u_stitchRevealNoiseScale);
   vec2 seedOff = vec2(u_stitchRevealSeed * 0.103511, u_stitchRevealSeed * 0.097369);
   vec2 p = cellID.xy * scale + seedOff;
-  return mosaicFbm(p);
+  return mosaicFbm(p * nfreq);
 }
 
 float stitchRevealOrderBleed(vec2 cellID, float isWeft) {
   float scale = max(0.001, u_stitchRevealScale);
+  float nfreq = max(0.05, u_stitchRevealNoiseScale);
   vec2 seedOff = vec2(u_stitchRevealSeed * 0.103511, u_stitchRevealSeed * 0.097369);
   float ani = max(0.35, min(12.0, u_stitchRevealBleedAnisotropy));
   float ang = u_stitchRevealBleedRotation * 6.28318530718;
@@ -229,15 +232,15 @@ float stitchRevealOrderBleed(vec2 cellID, float isWeft) {
   float si = sin(ang);
   vec2 rc = vec2(co * cellID.x - si * cellID.y, si * cellID.x + co * cellID.y);
   vec2 pRot = vec2(rc.x * ani, rc.y / ani) * scale + seedOff;
-  float tStrip = mosaicFbm(pRot);
+  float tStrip = mosaicFbm(pRot * nfreq);
   vec2 pH = vec2(cellID.x * ani, cellID.y / ani) * scale + seedOff;
   vec2 pV = vec2(cellID.x / ani, cellID.y * ani) * scale + seedOff;
-  float tH = mosaicFbm(pH);
-  float tV = mosaicFbm(pV);
+  float tH = mosaicFbm(pH * nfreq);
+  float tV = mosaicFbm(pV * nfreq);
   float tMix = mix(tH, tV, isWeft);
   float tDraft = u_stitchRevealBleedDraftCoupled > 0.5 ? tMix : tStrip;
   vec2 pIso = cellID.xy * scale + seedOff + vec2(17.13, 23.71);
-  float tIso = mosaicFbm(pIso);
+  float tIso = mosaicFbm(pIso * nfreq);
   float xf = clamp(u_stitchRevealBleedCrossFiber, 0.0, 1.0);
   return mix(tDraft, tIso, xf);
 }

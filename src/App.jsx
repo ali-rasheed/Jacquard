@@ -1,7 +1,7 @@
 /**
  * ENS Warp&Weft — root shell: Weave, Mosaic, Print mosaic; URL sync; shared sidebars / lazy stages.
  */
-import { useState, useCallback, useRef, useEffect, useLayoutEffect, useMemo, lazy, Suspense } from 'react';
+import { useState, useCallback, useRef, useEffect, useLayoutEffect, useMemo, useId, lazy, Suspense } from 'react';
 import { motion } from 'motion/react';
 import * as Select from '@radix-ui/react-select';
 import * as Label from '@radix-ui/react-label';
@@ -37,7 +37,14 @@ import {
   WEAVING_URL_DEFAULTS,
   HALFTONE_DEFAULTS,
   COMBO_DEFAULTS,
+  KEYFRAME_ANIM_DEFAULT_SEC,
 } from './urlDefaults';
+import { encodeKeyframeSnapshot, decodeKeyframeSnapshot } from './keyframe/keyframeUrlCodec';
+import {
+  encodeColorwayAnimPlaying,
+  clampColorwayAnimBits,
+  decodeColorwayAnimBitsToPartial,
+} from './colorwayAnimUrl';
 import {
   PALETTE_NAMES,
   PALETTE_SWATCH_COLORS,
@@ -57,6 +64,7 @@ import {
   selectContent,
   selectItem,
   pill,
+  inputNumber,
   sidebarGroup,
   sidebarGroupSticky,
   sidebarGroupTitle,
@@ -93,6 +101,13 @@ const COMBO_RECT_COLOR_OPTIONS = [
   { value: 0, label: 'Brand' },
   { value: 1, label: 'Image' },
   { value: 2, label: 'Pattern' },
+];
+
+/** Weave stitch-in: same modes as Mosaic (fragmentImageRects). */
+const STITCH_REVEAL_MODE_OPTIONS = [
+  { value: 0, label: 'Off' },
+  { value: 1, label: 'Noise' },
+  { value: 2, label: 'Bleed' },
 ];
 
 const COMBO_CELL_GEOMETRY_OPTIONS = [
@@ -156,7 +171,10 @@ function colorwayOscClamped(tMs, periodMs, minV, maxV, origin) {
 const COLORWAY_NOISE_X_PLAY_MIN = -500;
 const COLORWAY_NOISE_X_PLAY_MAX = 500;
 
-/** Which colorway params are auto-animated (single rAF loop in App). */
+/**
+ * Which colorway params are auto-animated (single rAF loop in App).
+ * Key set/order must stay aligned with `COLORWAY_ANIM_KEY_ORDER` in `colorwayAnimUrl.js` (URL `cwp` bitmask).
+ */
 const COLORWAY_ANIM_INITIAL = {
   seed: false,
   noiseScale: false,
@@ -264,6 +282,57 @@ function parseUrlState(search) {
   num('shimmerNMin', 'shimmerNoiseMin', 0, 2);
   num('shimmerNMax', 'shimmerNoiseMax', 0, 2);
   num('shimmerBlend', 'shimmerBlendMode', 0, 10);
+  const cwp = params.get('cwp');
+  if (cwp != null) {
+    const n = Number(cwp);
+    if (Number.isFinite(n)) out.colorwayPlayBits = clampColorwayAnimBits(n);
+  }
+  const shp = params.get('shp');
+  if (shp === '0') out.shimmerPlaying = false;
+  else if (shp === '1') out.shimmerPlaying = true;
+  num('srm', 'weaveStitchRevealMode', 0, 2);
+  const wsrd = params.get('srd');
+  if (wsrd != null) {
+    const n = Number(wsrd);
+    if (Number.isFinite(n)) out.weaveStitchRevealDurationSec = Math.max(0.25, Math.min(30, n / 100));
+  }
+  const wsrs = params.get('srs');
+  if (wsrs != null) {
+    const n = Number(wsrs);
+    if (Number.isFinite(n)) out.weaveStitchRevealSeed = Math.max(0, Math.min(999999, n));
+  }
+  const wsrsc = params.get('srsc');
+  if (wsrsc != null) {
+    const n = Number(wsrsc);
+    if (Number.isFinite(n)) out.weaveStitchRevealScale = Math.max(0.02, Math.min(0.8, n / 1000));
+  }
+  const wsrns = params.get('srns');
+  if (wsrns != null) {
+    const n = Number(wsrns);
+    if (Number.isFinite(n)) out.weaveStitchRevealNoiseScale = Math.max(0.25, Math.min(4, n / 100));
+  }
+  const wsrso = params.get('srso');
+  if (wsrso != null) {
+    const n = Number(wsrso);
+    if (Number.isFinite(n)) out.weaveStitchRevealSoftness = Math.max(0.01, Math.min(0.35, n / 1000));
+  }
+  num('srba', 'weaveStitchRevealBleedAnisotropy', 0, 12);
+  const wsrbr = params.get('srbr');
+  if (wsrbr != null) {
+    const n = Number(wsrbr);
+    if (Number.isFinite(n)) out.weaveStitchRevealBleedRotation = Math.max(0, Math.min(1, n / 1000));
+  }
+  const wsrbc = params.get('srbc');
+  if (wsrbc != null) {
+    const n = Number(wsrbc);
+    if (Number.isFinite(n)) out.weaveStitchRevealBleedCrossFiber = Math.max(0, Math.min(1, n / 1000));
+  }
+  const wsrbd = params.get('srbd');
+  if (wsrbd === '1') out.weaveStitchRevealBleedDraftCoupled = 1;
+  if (wsrbd === '0') out.weaveStitchRevealBleedDraftCoupled = 0;
+  const srkm = params.get('srkm');
+  if (srkm === '1') out.weaveStitchRevealKeyframeDrive = true;
+  else if (srkm === '0') out.weaveStitchRevealKeyframeDrive = false;
   num('hp', 'halftonePresetIndex', 0, halftoneCmykPresets.length - 1);
   num('hs', 'halftoneSize', 0.01, 1);
   num('hsoft', 'halftoneSoftness', 0, 1);
@@ -341,6 +410,24 @@ function parseUrlState(search) {
   if (display === 'fill' || display === 'fit') out.patternFit = display;
   const menu = params.get('menu');
   if (menu === '1') out.menuHidden = false; // menu=1 → sidebar always visible
+  const kad = params.get('kad');
+  if (kad != null) {
+    const n = Number(kad);
+    if (Number.isFinite(n)) out.keyframeAnimDurationSec = Math.max(0.5, Math.min(30, n / 100));
+  }
+  const kfe = params.get('kfe');
+  if (kfe === '1') out.keyframeEditingAfter = true;
+  else if (kfe === '0') out.keyframeEditingAfter = false;
+  const kfa = params.get('kfa');
+  if (kfa) {
+    const o = decodeKeyframeSnapshot(kfa);
+    if (o) out.keyframeSnapshotA = o;
+  }
+  const kfb = params.get('kfb');
+  if (kfb) {
+    const o = decodeKeyframeSnapshot(kfb);
+    if (o) out.keyframeSnapshotB = o;
+  }
   return out;
 }
 function getInitialView() {
@@ -402,6 +489,17 @@ function buildUrlState(state) {
   if (state.colorwayBleedCrossFiber !== def.colorwayBleedCrossFiber) p.set('cbx', String(Number(state.colorwayBleedCrossFiber.toFixed(2))));
   if (!!state.colorwayBleedDraftCoupled !== !!def.colorwayBleedDraftCoupled) p.set('cbd', state.colorwayBleedDraftCoupled ? '1' : '0');
   if (state.colorwayIncludeMask !== def.colorwayIncludeMask) p.set('cpm', String(Math.round(state.colorwayIncludeMask)));
+  if (state.weaveStitchRevealMode !== def.weaveStitchRevealMode) p.set('srm', String(state.weaveStitchRevealMode));
+  if (state.weaveStitchRevealDurationSec !== def.weaveStitchRevealDurationSec) p.set('srd', String(Math.round(state.weaveStitchRevealDurationSec * 100)));
+  if (state.weaveStitchRevealSeed !== def.weaveStitchRevealSeed) p.set('srs', String(Math.round(state.weaveStitchRevealSeed)));
+  if (state.weaveStitchRevealScale !== def.weaveStitchRevealScale) p.set('srsc', String(Math.round(state.weaveStitchRevealScale * 1000)));
+  if (state.weaveStitchRevealNoiseScale !== def.weaveStitchRevealNoiseScale) p.set('srns', String(Math.round(state.weaveStitchRevealNoiseScale * 100)));
+  if (state.weaveStitchRevealSoftness !== def.weaveStitchRevealSoftness) p.set('srso', String(Math.round(state.weaveStitchRevealSoftness * 1000)));
+  if (state.weaveStitchRevealBleedAnisotropy !== def.weaveStitchRevealBleedAnisotropy) p.set('srba', String(Math.round(state.weaveStitchRevealBleedAnisotropy)));
+  if (state.weaveStitchRevealBleedRotation !== def.weaveStitchRevealBleedRotation) p.set('srbr', String(Math.round(state.weaveStitchRevealBleedRotation * 1000)));
+  if (state.weaveStitchRevealBleedCrossFiber !== def.weaveStitchRevealBleedCrossFiber) p.set('srbc', String(Math.round(state.weaveStitchRevealBleedCrossFiber * 1000)));
+  if (state.weaveStitchRevealBleedDraftCoupled !== def.weaveStitchRevealBleedDraftCoupled) p.set('srbd', state.weaveStitchRevealBleedDraftCoupled ? '1' : '0');
+  if (!!state.weaveStitchRevealKeyframeDrive !== !!def.weaveStitchRevealKeyframeDrive) p.set('srkm', state.weaveStitchRevealKeyframeDrive ? '1' : '0');
   if (state.shimmer !== def.shimmer) p.set('shimmer', state.shimmer ? '1' : '0');
   if (state.shimmerSpeed !== def.shimmerSpeed) p.set('shimmerSp', String(Math.round(state.shimmerSpeed)));
   if (state.shimmerWidth !== def.shimmerWidth) p.set('shimmerW', String(Number(state.shimmerWidth.toFixed(2))));
@@ -413,6 +511,9 @@ function buildUrlState(state) {
   if (state.shimmerNoiseMin !== def.shimmerNoiseMin) p.set('shimmerNMin', String(Number(state.shimmerNoiseMin.toFixed(2))));
   if (state.shimmerNoiseMax !== def.shimmerNoiseMax) p.set('shimmerNMax', String(Number(state.shimmerNoiseMax.toFixed(2))));
   if (state.shimmerBlendMode !== def.shimmerBlendMode) p.set('shimmerBlend', String(state.shimmerBlendMode));
+  const cwBits = encodeColorwayAnimPlaying(state.colorwayAnimPlaying || COLORWAY_ANIM_INITIAL);
+  if (cwBits !== 0) p.set('cwp', String(cwBits));
+  if (state.shimmerPlaying === false) p.set('shp', '0');
   if (state.patternFit !== def.patternFit) p.set('display', state.patternFit);
   if (state.halftonePresetIndex !== HALFTONE_DEFAULTS.presetIndex) p.set('hp', String(state.halftonePresetIndex));
   if (state.halftoneSize !== HALFTONE_DEFAULTS.size) p.set('hs', String(Number(state.halftoneSize.toFixed(2))));
@@ -452,8 +553,89 @@ function buildUrlState(state) {
   if (state.comboRectAspect !== COMBO_DEFAULTS.rectAspect) p.set('cra', String(Number(state.comboRectAspect.toFixed(2))));
   if (state.comboRectRatio !== COMBO_DEFAULTS.rectRatio) p.set('cratio', String(Number(state.comboRectRatio.toFixed(2))));
   if (state.menuHidden === false) p.set('menu', '1');
-  const s = p.toString();
+  const kd =
+    state.keyframeAnimDurationSec != null && Number.isFinite(state.keyframeAnimDurationSec)
+      ? state.keyframeAnimDurationSec
+      : KEYFRAME_ANIM_DEFAULT_SEC;
+  if (Math.abs(kd - KEYFRAME_ANIM_DEFAULT_SEC) > 1e-6) {
+    p.set('kad', String(Math.round(kd * 100)));
+  }
+  if (state.keyframeEditingAfter) p.set('kfe', '1');
+  const encA = encodeKeyframeSnapshot(state.keyframeSnapshotA);
+  const encB = encodeKeyframeSnapshot(state.keyframeSnapshotB);
+  if (encA) p.set('kfa', encA);
+  if (encB) p.set('kfb', encB);
+  let s = p.toString();
+  if (s.length > URL_STATE_MAX_LEN) {
+    p.delete('kfa');
+    p.delete('kfb');
+    s = p.toString();
+  }
+  if (s.length > URL_STATE_MAX_LEN) {
+    p.delete('kad');
+    s = p.toString();
+  }
   return s.length <= URL_STATE_MAX_LEN ? s : '';
+}
+
+/**
+ * Canvas aspect preset dropdown footer: enter width and height (W÷H) and Apply (clamped 0.5–2 like URL `canvas`).
+ * Syncs fields from `canvasAspect` when the value changes (e.g. picking a preset).
+ */
+function CanvasAspectCustomFooter({ canvasAspect, onApply }) {
+  const id = useId();
+  const wId = `${id}-w`;
+  const hId = `${id}-h`;
+  const [w, setW] = useState('');
+  const [h, setH] = useState('');
+  useEffect(() => {
+    setW(String(Number(canvasAspect.toFixed(4))));
+    setH('1');
+  }, [canvasAspect]);
+  const apply = useCallback(() => {
+    const wf = parseFloat(String(w).replace(',', '.'));
+    const hf = parseFloat(String(h).replace(',', '.'));
+    if (!Number.isFinite(wf) || !Number.isFinite(hf) || hf === 0) return;
+    const r = wf / hf;
+    onApply(Math.max(0.5, Math.min(2, r)));
+  }, [w, h, onApply]);
+  return (
+    <div className="px-2.5 py-2">
+      <div className={`${typeLabel} mb-1.5 text-text-muted`}>Custom W∶H</div>
+      <div className="flex flex-wrap items-center gap-1.5">
+        <Label.Root className="sr-only" htmlFor={wId}>Custom aspect width</Label.Root>
+        <input
+          id={wId}
+          type="text"
+          inputMode="decimal"
+          value={w}
+          onChange={(e) => setW(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') apply();
+          }}
+          className={inputNumber}
+          size={6}
+        />
+        <span className={`${typeCaption} text-text-muted`} aria-hidden>∶</span>
+        <Label.Root className="sr-only" htmlFor={hId}>Custom aspect height</Label.Root>
+        <input
+          id={hId}
+          type="text"
+          inputMode="decimal"
+          value={h}
+          onChange={(e) => setH(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') apply();
+          }}
+          className={inputNumber}
+          size={6}
+        />
+        <button type="button" className={btnGhost} onClick={apply}>
+          Apply
+        </button>
+      </div>
+    </div>
+  );
 }
 
 export default function App() {
@@ -514,6 +696,21 @@ export default function App() {
   const [colorwayBleedDraftCoupled, setColorwayBleedDraftCoupled] = useState(WEAVING_URL_DEFAULTS.colorwayBleedDraftCoupled);
   /** Bitmask: which palettes 0–4 are in the all-colorways pool (default 31 = all). */
   const [colorwayIncludeMask, setColorwayIncludeMask] = useState(WEAVING_URL_DEFAULTS.colorwayIncludeMask);
+  /** Weave stitch-in (Mosaic-parity); URL srm/srd/… */
+  const [weaveStitchRevealMode, setWeaveStitchRevealMode] = useState(WEAVING_URL_DEFAULTS.weaveStitchRevealMode);
+  const [weaveStitchRevealDurationSec, setWeaveStitchRevealDurationSec] = useState(WEAVING_URL_DEFAULTS.weaveStitchRevealDurationSec);
+  const [weaveStitchRevealProgress, setWeaveStitchRevealProgress] = useState(WEAVING_URL_DEFAULTS.weaveStitchRevealProgress);
+  const [weaveStitchRevealSeed, setWeaveStitchRevealSeed] = useState(WEAVING_URL_DEFAULTS.weaveStitchRevealSeed);
+  const [weaveStitchRevealScale, setWeaveStitchRevealScale] = useState(WEAVING_URL_DEFAULTS.weaveStitchRevealScale);
+  const [weaveStitchRevealNoiseScale, setWeaveStitchRevealNoiseScale] = useState(WEAVING_URL_DEFAULTS.weaveStitchRevealNoiseScale);
+  const [weaveStitchRevealSoftness, setWeaveStitchRevealSoftness] = useState(WEAVING_URL_DEFAULTS.weaveStitchRevealSoftness);
+  const [weaveStitchRevealBleedAnisotropy, setWeaveStitchRevealBleedAnisotropy] = useState(WEAVING_URL_DEFAULTS.weaveStitchRevealBleedAnisotropy);
+  const [weaveStitchRevealBleedRotation, setWeaveStitchRevealBleedRotation] = useState(WEAVING_URL_DEFAULTS.weaveStitchRevealBleedRotation);
+  const [weaveStitchRevealBleedCrossFiber, setWeaveStitchRevealBleedCrossFiber] = useState(WEAVING_URL_DEFAULTS.weaveStitchRevealBleedCrossFiber);
+  const [weaveStitchRevealBleedDraftCoupled, setWeaveStitchRevealBleedDraftCoupled] = useState(WEAVING_URL_DEFAULTS.weaveStitchRevealBleedDraftCoupled);
+  /** False = timed ramp (`srd`); true = slider + keyframe A/B (`srkm`). */
+  const [weaveStitchRevealKeyframeDrive, setWeaveStitchRevealKeyframeDrive] = useState(WEAVING_URL_DEFAULTS.weaveStitchRevealKeyframeDrive);
+  const [weaveStitchRevealPlayToken, setWeaveStitchRevealPlayToken] = useState(0);
   /** Per-param play: rAF drives sweeps/cycles while each flag is true (only when “Use all 5 colorways” is on). */
   const [colorwayAnimPlaying, setColorwayAnimPlaying] = useState(() => ({ ...COLORWAY_ANIM_INITIAL }));
   const colorwayAnimPlayingRef = useRef(colorwayAnimPlaying);
@@ -562,6 +759,8 @@ export default function App() {
   const [randomizeRectAspect, setRandomizeRectAspect] = useState(true);
   const [randomizeCornerRadius, setRandomizeCornerRadius] = useState(true);
   const canvasRef = useRef(null);
+  const weaveKeyframeStitchOverrideRef = useRef(false);
+  const weaveStitchPlayRecordTimeoutRef = useRef(null);
   const halftoneContainerRef = useRef(null);
   const halftoneCanvasRef = useRef(null);
   /** Set by ShaderCanvas when view is weaving: { captureAtResolution(w,h) }. Used for high-res export. */
@@ -667,10 +866,25 @@ export default function App() {
 
   /** On load: parse URL and set state. If preset is set, apply preset then overlay other params. Grid snapped to GRID_SNAPS. */
   const appliedUrlRef = useRef(false);
+  /** Stash keyframe URL fields until `useKeyframePlayback` mounts setters (kad/kfe/kfa/kfb). */
+  const keyframeUrlHydrateRef = useRef(null);
+  const weaveKeyframeSkipAfterSyncRef = useRef(false);
   useEffect(() => {
     if (appliedUrlRef.current) return;
     appliedUrlRef.current = true;
     const q = parseUrlState(window.location.search);
+    keyframeUrlHydrateRef.current =
+      q.keyframeAnimDurationSec != null ||
+      typeof q.keyframeEditingAfter === 'boolean' ||
+      q.keyframeSnapshotA != null ||
+      q.keyframeSnapshotB != null
+        ? {
+            duration: q.keyframeAnimDurationSec,
+            editingAfter: q.keyframeEditingAfter,
+            before: q.keyframeSnapshotA,
+            after: q.keyframeSnapshotB,
+          }
+        : null;
     if (Object.keys(q).length === 0) return;
     if (q.presetIndex != null && q.presetIndex >= 0 && q.presetIndex < PRESETS.length) {
       applyPreset(q.presetIndex);
@@ -706,6 +920,17 @@ export default function App() {
     if (q.colorwayBleedCrossFiber != null) setColorwayBleedCrossFiber(q.colorwayBleedCrossFiber);
     if (q.colorwayBleedDraftCoupled != null) setColorwayBleedDraftCoupled(!!q.colorwayBleedDraftCoupled);
     if (q.colorwayIncludeMask != null) setColorwayIncludeMask(Math.round(q.colorwayIncludeMask));
+    if (q.weaveStitchRevealMode != null) setWeaveStitchRevealMode(q.weaveStitchRevealMode);
+    if (q.weaveStitchRevealDurationSec != null) setWeaveStitchRevealDurationSec(q.weaveStitchRevealDurationSec);
+    if (q.weaveStitchRevealSeed != null) setWeaveStitchRevealSeed(q.weaveStitchRevealSeed);
+    if (q.weaveStitchRevealScale != null) setWeaveStitchRevealScale(q.weaveStitchRevealScale);
+    if (q.weaveStitchRevealNoiseScale != null) setWeaveStitchRevealNoiseScale(q.weaveStitchRevealNoiseScale);
+    if (q.weaveStitchRevealSoftness != null) setWeaveStitchRevealSoftness(q.weaveStitchRevealSoftness);
+    if (q.weaveStitchRevealBleedAnisotropy != null) setWeaveStitchRevealBleedAnisotropy(q.weaveStitchRevealBleedAnisotropy);
+    if (q.weaveStitchRevealBleedRotation != null) setWeaveStitchRevealBleedRotation(q.weaveStitchRevealBleedRotation);
+    if (q.weaveStitchRevealBleedCrossFiber != null) setWeaveStitchRevealBleedCrossFiber(q.weaveStitchRevealBleedCrossFiber);
+    if (q.weaveStitchRevealBleedDraftCoupled != null) setWeaveStitchRevealBleedDraftCoupled(q.weaveStitchRevealBleedDraftCoupled);
+    if (q.weaveStitchRevealKeyframeDrive != null) setWeaveStitchRevealKeyframeDrive(!!q.weaveStitchRevealKeyframeDrive);
     if (q.shimmer != null) setShimmer(!!q.shimmer);
     if (q.shimmerSpeed != null) setShimmerSpeed(Math.min(16, Math.max(1, Number(q.shimmerSpeed))));
     if (q.shimmerWidth != null) setShimmerWidth(q.shimmerWidth);
@@ -717,6 +942,10 @@ export default function App() {
     if (q.shimmerNoiseMin != null) setShimmerNoiseMin(Math.min(2, Math.max(0, Number(q.shimmerNoiseMin))));
     if (q.shimmerNoiseMax != null) setShimmerNoiseMax(Math.min(2, Math.max(0, Number(q.shimmerNoiseMax))));
     if (q.shimmerBlendMode != null) setShimmerBlendMode(Math.min(10, Math.max(0, Math.floor(Number(q.shimmerBlendMode)))));
+    if (q.colorwayPlayBits != null) {
+      setColorwayAnimPlaying({ ...COLORWAY_ANIM_INITIAL, ...decodeColorwayAnimBitsToPartial(q.colorwayPlayBits) });
+    }
+    if (typeof q.shimmerPlaying === 'boolean') setShimmerPlaying(q.shimmerPlaying);
     if (q.halftonePresetIndex != null) setHalftonePresetIndex(q.halftonePresetIndex);
     if (q.halftoneSize != null) setHalftoneSize(q.halftoneSize);
     if (q.halftoneSoftness != null) setHalftoneSoftness(q.halftoneSoftness);
@@ -755,27 +984,6 @@ export default function App() {
     if (q.menuHidden === false) setMenuHidden(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- run once on mount; applyPreset is stable
   }, []);
-
-  /** Sync state to URL (debounced). Only writes params that differ from defaults; keeps URL under ~2k chars. */
-  const urlSyncTimeoutRef = useRef(null);
-  useEffect(() => {
-    if (view === 'imageRects') return undefined;
-    urlSyncTimeoutRef.current = setTimeout(() => {
-      const search = buildUrlState({
-        view, weaveHalftoneOn, menuHidden, presetIndex, pattern, palette, bgShade, warpShade, weftShade, gridSize,
-        warpGradient, weftGradient, warpGradientEnabled, weftGradientEnabled, gradSteps, rectAspect, cornerRadius, canvasAspect, patternFit, copyFormat, copyScale,
-        useAllColorways, colorwaySeed, colorwayNoiseScale, colorwayNoiseMode, colorwayNoiseOctaves, colorwayNoisePersistence, colorwayNoiseLacunarity, colorwayNoiseBias, colorwayNoiseX, colorwayBleedAnisotropy, colorwayBleedRotation, colorwayBleedCrossFiber, colorwayBleedDraftCoupled, colorwayIncludeMask, shimmer, shimmerSpeed, shimmerWidth, shimmerIntensity, shimmerPosition, shimmerRotation, shimmerNoise, shimmerNoiseSeed, shimmerNoiseMin, shimmerNoiseMax, shimmerBlendMode,
-        halftonePresetIndex, halftoneSize, halftoneSoftness, halftoneGridNoise, halftoneContrast, halftoneType,
-        halftoneColorBack, halftoneColorC, halftoneColorM, halftoneColorY, halftoneColorK, halftoneFloodC, halftoneGainC, halftoneGainY,
-        comboGridSize, comboPalette, comboBgShade, comboRectColorSource, comboQuantizeSteps, comboQuantizeMode, comboQuantizeGamma, comboQuantizeDither, comboPatternIndex, comboPatternWarpShade, comboPatternWeftShade, comboLumaSizeMix, comboLumaSizeInvert, comboLumaSizeFloor, comboCellGeometryMode, comboStitchLumaMax, comboRectRadius, comboRectAspect, comboRectRatio,
-      });
-      const url = search ? `${window.location.pathname}?${search}` : window.location.pathname;
-      if (window.location.pathname + (window.location.search || '') !== url) {
-        window.history.replaceState(null, '', url);
-      }
-    }, 400);
-    return () => { clearTimeout(urlSyncTimeoutRef.current); };
-  }, [view, weaveHalftoneOn, menuHidden, presetIndex, pattern, palette, bgShade, warpShade, weftShade, gridSize, warpGradient, weftGradient, warpGradientEnabled, weftGradientEnabled, gradSteps, rectAspect, cornerRadius, canvasAspect, patternFit, copyFormat, copyScale, useAllColorways, colorwaySeed, colorwayNoiseScale, colorwayNoiseMode, colorwayNoiseOctaves, colorwayNoisePersistence, colorwayNoiseLacunarity, colorwayNoiseBias, colorwayNoiseX, colorwayBleedAnisotropy, colorwayBleedRotation, colorwayBleedCrossFiber, colorwayBleedDraftCoupled, colorwayIncludeMask, shimmer, shimmerSpeed, shimmerWidth, shimmerIntensity, shimmerPosition, shimmerRotation, shimmerNoise, shimmerNoiseSeed, shimmerNoiseMin, shimmerNoiseMax, shimmerBlendMode, halftonePresetIndex, halftoneSize, halftoneSoftness, halftoneGridNoise, halftoneContrast, halftoneType, halftoneColorBack, halftoneColorC, halftoneColorM, halftoneColorY, halftoneColorK, halftoneFloodC, halftoneGainC, halftoneGainY, comboGridSize, comboPalette, comboBgShade, comboRectColorSource, comboQuantizeSteps, comboQuantizeMode, comboQuantizeGamma, comboQuantizeDither, comboPatternIndex, comboPatternWarpShade, comboPatternWeftShade, comboLumaSizeMix, comboLumaSizeInvert, comboLumaSizeFloor, comboCellGeometryMode, comboStitchLumaMax, comboRectRadius, comboRectAspect, comboRectRatio]);
 
   /** Auto-animate colorway params from captured slider origins; each loop repeats (see `colorwayAnimMetaRef`). */
   useEffect(() => {
@@ -1103,6 +1311,17 @@ export default function App() {
       colorwayBleedCrossFiber,
       colorwayBleedDraftCoupled,
       colorwayIncludeMask,
+      weaveStitchRevealMode,
+      weaveStitchRevealDurationSec,
+      weaveStitchRevealProgress,
+      weaveStitchRevealSeed,
+      weaveStitchRevealScale,
+      weaveStitchRevealNoiseScale,
+      weaveStitchRevealSoftness,
+      weaveStitchRevealBleedAnisotropy,
+      weaveStitchRevealBleedRotation,
+      weaveStitchRevealBleedCrossFiber,
+      weaveStitchRevealBleedDraftCoupled,
       halftonePresetIndex,
       halftoneSize,
       halftoneSoftness,
@@ -1178,6 +1397,17 @@ export default function App() {
       colorwayBleedCrossFiber,
       colorwayBleedDraftCoupled,
       colorwayIncludeMask,
+      weaveStitchRevealMode,
+      weaveStitchRevealDurationSec,
+      weaveStitchRevealProgress,
+      weaveStitchRevealSeed,
+      weaveStitchRevealScale,
+      weaveStitchRevealNoiseScale,
+      weaveStitchRevealSoftness,
+      weaveStitchRevealBleedAnisotropy,
+      weaveStitchRevealBleedRotation,
+      weaveStitchRevealBleedCrossFiber,
+      weaveStitchRevealBleedDraftCoupled,
       halftonePresetIndex,
       halftoneSize,
       halftoneSoftness,
@@ -1256,6 +1486,17 @@ export default function App() {
     setColorwayBleedCrossFiber,
     setColorwayBleedDraftCoupled,
     setColorwayIncludeMask,
+    setWeaveStitchRevealMode,
+    setWeaveStitchRevealDurationSec,
+    setWeaveStitchRevealProgress,
+    setWeaveStitchRevealSeed,
+    setWeaveStitchRevealScale,
+    setWeaveStitchRevealNoiseScale,
+    setWeaveStitchRevealSoftness,
+    setWeaveStitchRevealBleedAnisotropy,
+    setWeaveStitchRevealBleedRotation,
+    setWeaveStitchRevealBleedCrossFiber,
+    setWeaveStitchRevealBleedDraftCoupled,
     setHalftonePresetIndex,
     setHalftoneSize,
     setHalftoneSoftness,
@@ -1302,6 +1543,8 @@ export default function App() {
     editingAfter: weaveEditingAfter,
     setEditingAfter: setWeaveEditingAfter,
     before: weaveBefore,
+    after: weaveAfter,
+    setBefore: setWeaveBefore,
     setAfter: setWeaveAfter,
     durationSec: weaveKeyframeDurationSec,
     setDurationSec: setWeaveKeyframeDurationSec,
@@ -1315,25 +1558,135 @@ export default function App() {
     getBefore: () => getWeaveAppKeyframeSnapshot(view, weaveHalftoneOn, weaveKeyframeState),
     getAfter: () => getWeaveAppKeyframeSnapshot(view, weaveHalftoneOn, weaveKeyframeState),
     applySnapshot: applyWeaveKeyframeSnapshot,
-    defaultDurationSec: 2,
+    defaultDurationSec: KEYFRAME_ANIM_DEFAULT_SEC,
   });
+
+  /** One-shot: apply `kad` / `kfe` / `kfa` / `kfb` after keyframe hook exists. */
+  useEffect(() => {
+    const h = keyframeUrlHydrateRef.current;
+    if (!h) return;
+    keyframeUrlHydrateRef.current = null;
+    if (h.duration != null && Number.isFinite(h.duration)) setWeaveKeyframeDurationSec(h.duration);
+    if (typeof h.editingAfter === 'boolean') setWeaveEditingAfter(h.editingAfter);
+    if (h.before != null) setWeaveBefore(h.before);
+    if (h.after != null) {
+      setWeaveAfter(h.after);
+      weaveKeyframeSkipAfterSyncRef.current = true;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount hydration only
+  }, []);
 
   useEffect(() => {
     if (!weaveEditingAfter) return;
+    if (weaveKeyframeSkipAfterSyncRef.current) {
+      weaveKeyframeSkipAfterSyncRef.current = false;
+      return;
+    }
     setWeaveAfter(getWeaveAppKeyframeSnapshot(view, weaveHalftoneOn, weaveKeyframeState));
   }, [weaveEditingAfter, view, weaveHalftoneOn, weaveKeyframeState, setWeaveAfter]);
 
+  /** Sync state to URL (debounced). Only writes params that differ from defaults; keeps URL under ~2k chars. */
+  const urlSyncTimeoutRef = useRef(null);
+  useEffect(() => {
+    if (view === 'imageRects') return undefined;
+    urlSyncTimeoutRef.current = setTimeout(() => {
+      const search = buildUrlState({
+        view, weaveHalftoneOn, menuHidden, presetIndex, pattern, palette, bgShade, warpShade, weftShade, gridSize,
+        warpGradient, weftGradient, warpGradientEnabled, weftGradientEnabled, gradSteps, rectAspect, cornerRadius, canvasAspect, patternFit, copyFormat, copyScale,
+        useAllColorways, colorwaySeed, colorwayNoiseScale, colorwayNoiseMode, colorwayNoiseOctaves, colorwayNoisePersistence, colorwayNoiseLacunarity, colorwayNoiseBias, colorwayNoiseX, colorwayBleedAnisotropy, colorwayBleedRotation, colorwayBleedCrossFiber, colorwayBleedDraftCoupled, colorwayIncludeMask,
+        weaveStitchRevealMode, weaveStitchRevealDurationSec, weaveStitchRevealKeyframeDrive, weaveStitchRevealSeed, weaveStitchRevealScale, weaveStitchRevealNoiseScale, weaveStitchRevealSoftness, weaveStitchRevealBleedAnisotropy, weaveStitchRevealBleedRotation, weaveStitchRevealBleedCrossFiber, weaveStitchRevealBleedDraftCoupled,
+        colorwayAnimPlaying,
+        shimmer, shimmerPlaying, shimmerSpeed, shimmerWidth, shimmerIntensity, shimmerPosition, shimmerRotation, shimmerNoise, shimmerNoiseSeed, shimmerNoiseMin, shimmerNoiseMax, shimmerBlendMode,
+        halftonePresetIndex, halftoneSize, halftoneSoftness, halftoneGridNoise, halftoneContrast, halftoneType,
+        halftoneColorBack, halftoneColorC, halftoneColorM, halftoneColorY, halftoneColorK, halftoneFloodC, halftoneGainC, halftoneGainY,
+        comboGridSize, comboPalette, comboBgShade, comboRectColorSource, comboQuantizeSteps, comboQuantizeMode, comboQuantizeGamma, comboQuantizeDither, comboPatternIndex, comboPatternWarpShade, comboPatternWeftShade, comboLumaSizeMix, comboLumaSizeInvert, comboLumaSizeFloor, comboCellGeometryMode, comboStitchLumaMax, comboRectRadius, comboRectAspect, comboRectRatio,
+        keyframeAnimDurationSec: weaveKeyframeDurationSec,
+        keyframeEditingAfter: weaveEditingAfter,
+        keyframeSnapshotA: weaveBefore,
+        keyframeSnapshotB: weaveAfter,
+      });
+      const url = search ? `${window.location.pathname}?${search}` : window.location.pathname;
+      if (window.location.pathname + (window.location.search || '') !== url) {
+        window.history.replaceState(null, '', url);
+      }
+    }, 400);
+    return () => { clearTimeout(urlSyncTimeoutRef.current); };
+  }, [view, weaveHalftoneOn, menuHidden, presetIndex, pattern, palette, bgShade, warpShade, weftShade, gridSize, warpGradient, weftGradient, warpGradientEnabled, weftGradientEnabled, gradSteps, rectAspect, cornerRadius, canvasAspect, patternFit, copyFormat, copyScale, useAllColorways, colorwaySeed, colorwayNoiseScale, colorwayNoiseMode, colorwayNoiseOctaves, colorwayNoisePersistence, colorwayNoiseLacunarity, colorwayNoiseBias, colorwayNoiseX, colorwayBleedAnisotropy, colorwayBleedRotation, colorwayBleedCrossFiber, colorwayBleedDraftCoupled, colorwayIncludeMask, colorwayAnimPlaying, weaveStitchRevealMode, weaveStitchRevealDurationSec, weaveStitchRevealKeyframeDrive, weaveStitchRevealSeed, weaveStitchRevealScale, weaveStitchRevealNoiseScale, weaveStitchRevealSoftness, weaveStitchRevealBleedAnisotropy, weaveStitchRevealBleedRotation, weaveStitchRevealBleedCrossFiber, weaveStitchRevealBleedDraftCoupled, shimmer, shimmerPlaying, shimmerSpeed, shimmerWidth, shimmerIntensity, shimmerPosition, shimmerRotation, shimmerNoise, shimmerNoiseSeed, shimmerNoiseMin, shimmerNoiseMax, shimmerBlendMode, halftonePresetIndex, halftoneSize, halftoneSoftness, halftoneGridNoise, halftoneContrast, halftoneType, halftoneColorBack, halftoneColorC, halftoneColorM, halftoneColorY, halftoneColorK, halftoneFloodC, halftoneGainC, halftoneGainY, comboGridSize, comboPalette, comboBgShade, comboRectColorSource, comboQuantizeSteps, comboQuantizeMode, comboQuantizeGamma, comboQuantizeDither, comboPatternIndex, comboPatternWarpShade, comboPatternWeftShade, comboLumaSizeMix, comboLumaSizeInvert, comboLumaSizeFloor, comboCellGeometryMode, comboStitchLumaMax, comboRectRadius, comboRectAspect, comboRectRatio, weaveKeyframeDurationSec, weaveEditingAfter, weaveBefore, weaveAfter]);
+
+  /** Ramp weave stitch-in 0→1 when Noise/Bleed is on; skipped while keyframe playback drives progress. */
+  useEffect(() => {
+    if (weaveKeyframeStitchOverrideRef.current) return undefined;
+    if (weaveStitchRevealMode === 0) {
+      setWeaveStitchRevealProgress(1);
+      return undefined;
+    }
+    if (weaveStitchRevealKeyframeDrive) return undefined;
+    setWeaveStitchRevealProgress(0);
+    const durationMs = Math.max(0.05, weaveStitchRevealDurationSec) * 1000;
+    const start = performance.now();
+    let rafId = 0;
+    const tick = (now) => {
+      const t = Math.min(1, (now - start) / durationMs);
+      setWeaveStitchRevealProgress(t);
+      if (t < 1) rafId = requestAnimationFrame(tick);
+    };
+    rafId = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafId);
+  }, [weaveStitchRevealMode, weaveStitchRevealPlayToken, pattern, weaveStitchRevealDurationSec, weaveStitchRevealKeyframeDrive]);
+
+  useEffect(() => {
+    if (!weaveKeyframePlaying) weaveKeyframeStitchOverrideRef.current = false;
+  }, [weaveKeyframePlaying]);
+
+  useEffect(() => {
+    if (isRecording) return;
+    if (weaveStitchPlayRecordTimeoutRef.current != null) {
+      clearTimeout(weaveStitchPlayRecordTimeoutRef.current);
+      weaveStitchPlayRecordTimeoutRef.current = null;
+    }
+  }, [isRecording]);
+
+  const replayWeaveStitchReveal = useCallback(() => {
+    if (weaveStitchRevealKeyframeDrive) {
+      setWeaveStitchRevealProgress(0);
+      return;
+    }
+    setWeaveStitchRevealPlayToken((t) => t + 1);
+  }, [weaveStitchRevealKeyframeDrive]);
+
   const startWeaveKeyframePlay = useCallback(() => {
+    weaveKeyframeStitchOverrideRef.current = true;
     applyWeaveKeyframeSnapshot(weaveBefore);
     playWeaveKeyframe();
   }, [applyWeaveKeyframeSnapshot, weaveBefore, playWeaveKeyframe]);
 
   const startWeavePlayAndRecord = useCallback(() => {
+    if (view === 'weaving' && weaveStitchRevealMode > 0 && !weaveStitchRevealKeyframeDrive) {
+      const canvas = getCopyCanvas(copyExportView(view, weaveHalftoneOn), canvasRef, halftoneCanvasRef, halftoneContainerRef);
+      if (!canvas) return;
+      if (weaveStitchPlayRecordTimeoutRef.current != null) {
+        clearTimeout(weaveStitchPlayRecordTimeoutRef.current);
+        weaveStitchPlayRecordTimeoutRef.current = null;
+      }
+      weaveKeyframeStitchOverrideRef.current = false;
+      setWeaveStitchRevealProgress(0);
+      recStart(canvas, { reason: 'manual' });
+      requestAnimationFrame(() => {
+        setWeaveStitchRevealPlayToken((t) => t + 1);
+      });
+      const durationMs = Math.max(0.25, weaveStitchRevealDurationSec) * 1000;
+      weaveStitchPlayRecordTimeoutRef.current = setTimeout(() => {
+        weaveStitchPlayRecordTimeoutRef.current = null;
+        void stopRecording();
+      }, durationMs + 250);
+      return;
+    }
+    weaveKeyframeStitchOverrideRef.current = true;
     applyWeaveKeyframeSnapshot(weaveBefore);
     playAndRecordWeaveKeyframe(recStart, stopRecording, () =>
       getCopyCanvas(copyExportView(view, weaveHalftoneOn), canvasRef, halftoneCanvasRef, halftoneContainerRef),
     );
-  }, [applyWeaveKeyframeSnapshot, weaveBefore, playAndRecordWeaveKeyframe, recStart, stopRecording, view, weaveHalftoneOn]);
+  }, [applyWeaveKeyframeSnapshot, weaveBefore, playAndRecordWeaveKeyframe, recStart, stopRecording, view, weaveHalftoneOn, weaveStitchRevealMode, weaveStitchRevealDurationSec, weaveStitchRevealKeyframeDrive]);
 
   const applyPreset = useCallback((index) => {
     if (index == null || index < 0 || index >= PRESETS.length) return;
@@ -1420,6 +1773,18 @@ export default function App() {
     setColorwayBleedCrossFiber(WEAVING_URL_DEFAULTS.colorwayBleedCrossFiber);
     setColorwayBleedDraftCoupled(WEAVING_URL_DEFAULTS.colorwayBleedDraftCoupled);
     setColorwayIncludeMask(WEAVING_URL_DEFAULTS.colorwayIncludeMask);
+    setWeaveStitchRevealMode(WEAVING_URL_DEFAULTS.weaveStitchRevealMode);
+    setWeaveStitchRevealDurationSec(WEAVING_URL_DEFAULTS.weaveStitchRevealDurationSec);
+    setWeaveStitchRevealProgress(WEAVING_URL_DEFAULTS.weaveStitchRevealProgress);
+    setWeaveStitchRevealSeed(WEAVING_URL_DEFAULTS.weaveStitchRevealSeed);
+    setWeaveStitchRevealScale(WEAVING_URL_DEFAULTS.weaveStitchRevealScale);
+    setWeaveStitchRevealNoiseScale(WEAVING_URL_DEFAULTS.weaveStitchRevealNoiseScale);
+    setWeaveStitchRevealSoftness(WEAVING_URL_DEFAULTS.weaveStitchRevealSoftness);
+    setWeaveStitchRevealBleedAnisotropy(WEAVING_URL_DEFAULTS.weaveStitchRevealBleedAnisotropy);
+    setWeaveStitchRevealBleedRotation(WEAVING_URL_DEFAULTS.weaveStitchRevealBleedRotation);
+    setWeaveStitchRevealBleedCrossFiber(WEAVING_URL_DEFAULTS.weaveStitchRevealBleedCrossFiber);
+    setWeaveStitchRevealBleedDraftCoupled(WEAVING_URL_DEFAULTS.weaveStitchRevealBleedDraftCoupled);
+    setWeaveStitchRevealKeyframeDrive(WEAVING_URL_DEFAULTS.weaveStitchRevealKeyframeDrive);
     setColorwayAnimPlaying({ ...COLORWAY_ANIM_INITIAL });
     setCopyFormat(WEAVING_URL_DEFAULTS.copyFormat);
     setCopyScale(WEAVING_URL_DEFAULTS.copyScale);
@@ -1572,6 +1937,16 @@ export default function App() {
     }
     return base;
   }, [canvasAspect]);
+
+  const applyCanvasAspectCustom = useCallback((r) => {
+    setPresetIndex(null);
+    setCanvasAspect(r);
+  }, []);
+
+  const canvasAspectSelectFooter = useMemo(
+    () => <CanvasAspectCustomFooter canvasAspect={canvasAspect} onApply={applyCanvasAspectCustom} />,
+    [canvasAspect, applyCanvasAspectCustom],
+  );
 
   /** Main bar: Fit|Fill in one segment control, right-aligned (`flex-1` spacer before it; same `?display=` everywhere). */
   const navViewportFitFill = (
@@ -2133,6 +2508,7 @@ export default function App() {
                         setCanvasAspect(Number(v));
                       }}
                       options={canvasAspectSelectOptions}
+                      contentFooter={canvasAspectSelectFooter}
                       title="Canvas aspect"
                       placeholder="Aspect"
                       defaultValue={canvasAspectKey(WEAVING_URL_DEFAULTS.canvasAspect)}
@@ -2188,6 +2564,232 @@ export default function App() {
                   </div>
                   )}
                 </div>
+                {view === 'weaving' && (
+                <div className={sidebarGroup}>
+                  <div className={sidebarGroupTitle}>Stitch-in</div>
+                  <div className="flex flex-col gap-1.5">
+                    <span className={`${typeLabel} text-text-muted`}>From blank (Mosaic-parity)</span>
+                    <AppSelect
+                      id="weave-stitch-reveal-mode"
+                      labelText="Reveal order"
+                      value={weaveStitchRevealMode}
+                      onValueChange={(v) => setWeaveStitchRevealMode(Number(v))}
+                      defaultValue={WEAVING_URL_DEFAULTS.weaveStitchRevealMode}
+                      onReset={() => setWeaveStitchRevealMode(WEAVING_URL_DEFAULTS.weaveStitchRevealMode)}
+                      options={STITCH_REVEAL_MODE_OPTIONS}
+                      title="Off: full weave immediately. Noise: FBM order. Bleed: streaks along fibers."
+                      placeholder="Stitch-in"
+                    />
+                    {weaveStitchRevealMode > 0 && (
+                      <>
+                        {/**
+                         * Drive: timed ramp vs manual 0–1 progress (stored in keyframe A/B). `srkm` when not default.
+                         */}
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className={`${controlLabel} ${typeLabel}`}>Drive</span>
+                          <SegmentedControl>
+                            <div className="flex h-full">
+                              <SegmentedControlButton
+                                active={!weaveStitchRevealKeyframeDrive}
+                                aria-pressed={!weaveStitchRevealKeyframeDrive}
+                                aria-label="Stitch-in driven by duration"
+                                title="Animate from blank over Reveal duration"
+                                onClick={() => {
+                                  setWeaveStitchRevealKeyframeDrive(false);
+                                  setWeaveStitchRevealPlayToken((t) => t + 1);
+                                }}
+                              >
+                                Duration
+                              </SegmentedControlButton>
+                              <SegmentedControlButton
+                                active={weaveStitchRevealKeyframeDrive}
+                                aria-pressed={weaveStitchRevealKeyframeDrive}
+                                aria-label="Stitch-in progress from slider and keyframes A and B"
+                                title="Scrub progress; use Set A / Set B in the capture bar, then Play"
+                                onClick={() => setWeaveStitchRevealKeyframeDrive(true)}
+                              >
+                                A↔B
+                              </SegmentedControlButton>
+                            </div>
+                          </SegmentedControl>
+                        </div>
+                        {weaveStitchRevealKeyframeDrive ? (
+                          <div className="flex flex-col gap-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <GroupIcon name="linear_scale" title="How much of the weave is revealed (0 = blank, 1 = full)" />
+                              <Label.Root className="sr-only" htmlFor="weave-stitch-reveal-progress">Reveal progress</Label.Root>
+                              <SliderWithInput
+                                id="weave-stitch-reveal-progress"
+                                value={weaveStitchRevealProgress}
+                                onValueChange={setWeaveStitchRevealProgress}
+                                defaultValue={WEAVING_URL_DEFAULTS.weaveStitchRevealProgress}
+                                onReset={() => setWeaveStitchRevealProgress(WEAVING_URL_DEFAULTS.weaveStitchRevealProgress)}
+                                min={0}
+                                max={1}
+                                step={0.01}
+                                snapPointCount={11}
+                                format={(n) => n.toFixed(2)}
+                                aria-label="Stitch-in reveal progress"
+                              />
+                            </div>
+                            <span className={`${typeCaption} text-text-muted`}>Set A / Set B capture this value; Play blends like other params. Replay jumps to 0.</span>
+                          </div>
+                        ) : (
+                          <>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <Label.Root className="sr-only" htmlFor="weave-stitch-reveal-dur">Reveal duration</Label.Root>
+                              <SliderWithInput
+                                id="weave-stitch-reveal-dur"
+                                value={weaveStitchRevealDurationSec}
+                                onValueChange={setWeaveStitchRevealDurationSec}
+                                defaultValue={WEAVING_URL_DEFAULTS.weaveStitchRevealDurationSec}
+                                onReset={() => setWeaveStitchRevealDurationSec(WEAVING_URL_DEFAULTS.weaveStitchRevealDurationSec)}
+                                min={0.25}
+                                max={12}
+                                step={0.25}
+                                format={(n) => `${n.toFixed(2)}s`}
+                                aria-label="Stitch-in duration in seconds"
+                              />
+                            </div>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <button type="button" className={btnGhost} onClick={replayWeaveStitchReveal} aria-label="Replay stitch-in animation" title="Replay from blank">
+                                <Icon name="replay" className={iconMd} />
+                                <span>Replay</span>
+                              </button>
+                              <button
+                                type="button"
+                                className={btnGhost}
+                                onClick={() => {
+                                  setWeaveStitchRevealSeed(Math.floor(Math.random() * 999999));
+                                  replayWeaveStitchReveal();
+                                }}
+                                aria-label="New random seed and replay"
+                                title="New seed"
+                              >
+                                <Icon name="shuffle" className={iconMd} />
+                                <span>New seed</span>
+                              </button>
+                            </div>
+                          </>
+                        )}
+                        <div className="flex flex-wrap items-center gap-2">
+                          <GroupIcon name="blur_on" title="Spatial scale for reveal pattern" />
+                          <Label.Root className="sr-only" htmlFor="weave-stitch-reveal-scale">Reveal pattern scale</Label.Root>
+                          <SliderWithInput
+                            id="weave-stitch-reveal-scale"
+                            value={weaveStitchRevealScale}
+                            onValueChange={setWeaveStitchRevealScale}
+                            defaultValue={WEAVING_URL_DEFAULTS.weaveStitchRevealScale}
+                            onReset={() => setWeaveStitchRevealScale(WEAVING_URL_DEFAULTS.weaveStitchRevealScale)}
+                            min={0.02}
+                            max={0.5}
+                            step={0.01}
+                            format={(n) => n.toFixed(2)}
+                            aria-label="Noise / bleed pattern scale on the grid"
+                          />
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <GroupIcon name="tune" title="FBM detail / frequency for stitch-in noise and bleed" />
+                          <Label.Root className="sr-only" htmlFor="weave-stitch-reveal-noise-scale">Reveal noise scale</Label.Root>
+                          <SliderWithInput
+                            id="weave-stitch-reveal-noise-scale"
+                            value={weaveStitchRevealNoiseScale}
+                            onValueChange={setWeaveStitchRevealNoiseScale}
+                            defaultValue={WEAVING_URL_DEFAULTS.weaveStitchRevealNoiseScale}
+                            onReset={() => setWeaveStitchRevealNoiseScale(WEAVING_URL_DEFAULTS.weaveStitchRevealNoiseScale)}
+                            min={0.25}
+                            max={4}
+                            step={0.05}
+                            format={(n) => n.toFixed(2)}
+                            aria-label="Stitch-in FBM frequency multiplier"
+                          />
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <GroupIcon name="gradient" title="Edge softness between revealed and not yet" />
+                          <Label.Root className="sr-only" htmlFor="weave-stitch-reveal-soft">Reveal softness</Label.Root>
+                          <SliderWithInput
+                            id="weave-stitch-reveal-soft"
+                            value={weaveStitchRevealSoftness}
+                            onValueChange={setWeaveStitchRevealSoftness}
+                            defaultValue={WEAVING_URL_DEFAULTS.weaveStitchRevealSoftness}
+                            onReset={() => setWeaveStitchRevealSoftness(WEAVING_URL_DEFAULTS.weaveStitchRevealSoftness)}
+                            min={0.01}
+                            max={0.25}
+                            step={0.005}
+                            format={(n) => n.toFixed(3)}
+                            aria-label="Softness of the stitch-in ramp per cell"
+                          />
+                        </div>
+                        {weaveStitchRevealMode === 2 && (
+                          <>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <GroupIcon name="texture" title="Bleed streak length" />
+                              <Label.Root className="sr-only" htmlFor="weave-stitch-reveal-bleed-ani">Bleed anisotropy</Label.Root>
+                              <SliderWithInput
+                                id="weave-stitch-reveal-bleed-ani"
+                                value={weaveStitchRevealBleedAnisotropy}
+                                onValueChange={setWeaveStitchRevealBleedAnisotropy}
+                                defaultValue={WEAVING_URL_DEFAULTS.weaveStitchRevealBleedAnisotropy}
+                                onReset={() => setWeaveStitchRevealBleedAnisotropy(WEAVING_URL_DEFAULTS.weaveStitchRevealBleedAnisotropy)}
+                                min={0.5}
+                                max={12}
+                                step={0.25}
+                                format={(n) => n.toFixed(2)}
+                                aria-label="Bleed streak anisotropy"
+                              />
+                            </div>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <GroupIcon name="rotate_right" title="Bleed direction" />
+                              <Label.Root className="sr-only" htmlFor="weave-stitch-reveal-bleed-rot">Bleed rotation</Label.Root>
+                              <SliderWithInput
+                                id="weave-stitch-reveal-bleed-rot"
+                                value={weaveStitchRevealBleedRotation}
+                                onValueChange={setWeaveStitchRevealBleedRotation}
+                                defaultValue={WEAVING_URL_DEFAULTS.weaveStitchRevealBleedRotation}
+                                onReset={() => setWeaveStitchRevealBleedRotation(WEAVING_URL_DEFAULTS.weaveStitchRevealBleedRotation)}
+                                min={0}
+                                max={1}
+                                step={0.005}
+                                format={(n) => n.toFixed(2)}
+                                aria-label="Rotation of bleed streaks (turns)"
+                              />
+                            </div>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <GroupIcon name="blur_linear" title="Mix isotropic noise into bleed" />
+                              <Label.Root className="sr-only" htmlFor="weave-stitch-reveal-bleed-xf">Cross-fiber mix</Label.Root>
+                              <SliderWithInput
+                                id="weave-stitch-reveal-bleed-xf"
+                                value={weaveStitchRevealBleedCrossFiber}
+                                onValueChange={setWeaveStitchRevealBleedCrossFiber}
+                                defaultValue={WEAVING_URL_DEFAULTS.weaveStitchRevealBleedCrossFiber}
+                                onReset={() => setWeaveStitchRevealBleedCrossFiber(WEAVING_URL_DEFAULTS.weaveStitchRevealBleedCrossFiber)}
+                                min={0}
+                                max={1}
+                                step={0.02}
+                                format={(n) => n.toFixed(2)}
+                                aria-label="Cross-fiber noise mix for bleed"
+                              />
+                            </div>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <button
+                                type="button"
+                                className={`${toggleBtn} ${weaveStitchRevealBleedDraftCoupled ? toggleBtnActive : ''}`}
+                                aria-pressed={!!weaveStitchRevealBleedDraftCoupled}
+                                aria-label="Draft-coupled bleed: streaks follow warp vs weft"
+                                title="When on, horizontal vs vertical streak blend follows the weave draft"
+                                onClick={() => setWeaveStitchRevealBleedDraftCoupled((v) => (v ? 0 : 1))}
+                              >
+                                <Icon name="view_quilt" className={iconSm} />
+                                <span className={typeLabel}>Draft-coupled bleed</span>
+                              </button>
+                            </div>
+                          </>
+                        )}
+                      </>
+                    )}
+                  </div>
+                </div>
+                )}
                 <div className={sidebarGroup}>
                   <div className={sidebarGroupTitle}>Shimmer</div>
                   <div className="flex flex-wrap items-center gap-1.5">
@@ -2862,6 +3464,16 @@ export default function App() {
                 colorwayBleedCrossFiber={colorwayBleedCrossFiber}
                 colorwayBleedDraftCoupled={colorwayBleedDraftCoupled}
                 colorwayIncludeMask={colorwayIncludeMask}
+                weaveStitchRevealMode={weaveStitchRevealMode}
+                weaveStitchRevealProgress={weaveStitchRevealProgress}
+                weaveStitchRevealSeed={weaveStitchRevealSeed}
+                weaveStitchRevealScale={weaveStitchRevealScale}
+                weaveStitchRevealNoiseScale={weaveStitchRevealNoiseScale}
+                weaveStitchRevealSoftness={weaveStitchRevealSoftness}
+                weaveStitchRevealBleedAnisotropy={weaveStitchRevealBleedAnisotropy}
+                weaveStitchRevealBleedRotation={weaveStitchRevealBleedRotation}
+                weaveStitchRevealBleedCrossFiber={weaveStitchRevealBleedCrossFiber}
+                weaveStitchRevealBleedDraftCoupled={!!weaveStitchRevealBleedDraftCoupled}
                 shimmerPlaying={shimmerPlaying}
                 shimmerPausedAtTime={shimmerPausedAtTime}
                 shimmerPhase={shimmerPhase}
@@ -2968,6 +3580,16 @@ export default function App() {
                     colorwayBleedCrossFiber={colorwayBleedCrossFiber}
                     colorwayBleedDraftCoupled={colorwayBleedDraftCoupled}
                     colorwayIncludeMask={colorwayIncludeMask}
+                    weaveStitchRevealMode={weaveStitchRevealMode}
+                    weaveStitchRevealProgress={weaveStitchRevealProgress}
+                    weaveStitchRevealSeed={weaveStitchRevealSeed}
+                    weaveStitchRevealScale={weaveStitchRevealScale}
+                    weaveStitchRevealNoiseScale={weaveStitchRevealNoiseScale}
+                    weaveStitchRevealSoftness={weaveStitchRevealSoftness}
+                    weaveStitchRevealBleedAnisotropy={weaveStitchRevealBleedAnisotropy}
+                    weaveStitchRevealBleedRotation={weaveStitchRevealBleedRotation}
+                    weaveStitchRevealBleedCrossFiber={weaveStitchRevealBleedCrossFiber}
+                    weaveStitchRevealBleedDraftCoupled={!!weaveStitchRevealBleedDraftCoupled}
                     size={halftoneSize}
                     softness={halftoneSoftness}
                     gridNoise={halftoneGridNoise}

@@ -70,6 +70,7 @@ export function ImageRectsCapture({
     1,
     0,
     0.12,
+    1,
     0.06,
     3,
     0,

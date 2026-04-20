@@ -15,6 +15,9 @@ const WEAVE_CORE_KEYS = [
   'colorwayNoisePersistence', 'colorwayNoiseLacunarity', 'colorwayNoiseBias', 'colorwayNoiseX',
   'colorwayBleedAnisotropy', 'colorwayBleedRotation', 'colorwayBleedCrossFiber', 'colorwayBleedDraftCoupled',
   'colorwayIncludeMask',
+  'weaveStitchRevealMode', 'weaveStitchRevealDurationSec', 'weaveStitchRevealProgress', 'weaveStitchRevealSeed',
+  'weaveStitchRevealScale', 'weaveStitchRevealNoiseScale', 'weaveStitchRevealSoftness', 'weaveStitchRevealBleedAnisotropy', 'weaveStitchRevealBleedRotation',
+  'weaveStitchRevealBleedCrossFiber', 'weaveStitchRevealBleedDraftCoupled',
 ];
 
 const HALFTONE_KEYS = [
@@ -101,6 +104,19 @@ export function applyWeaveAppKeyframe(view, weaveHalftoneOn, setters, snap) {
     if (snap.colorwayBleedCrossFiber != null) setters.setColorwayBleedCrossFiber?.(clamp(Number(snap.colorwayBleedCrossFiber), 0, 1));
     if (snap.colorwayBleedDraftCoupled != null) setters.setColorwayBleedDraftCoupled?.(!!snap.colorwayBleedDraftCoupled);
     if (snap.colorwayIncludeMask != null) setters.setColorwayIncludeMask?.(Math.round(clamp(Number(snap.colorwayIncludeMask), 0, 31)));
+    if (snap.weaveStitchRevealMode != null) setters.setWeaveStitchRevealMode?.(Math.round(clamp(Number(snap.weaveStitchRevealMode), 0, 2)));
+    if (snap.weaveStitchRevealDurationSec != null) setters.setWeaveStitchRevealDurationSec?.(Math.max(0.25, Math.min(30, Number(snap.weaveStitchRevealDurationSec))));
+    if (snap.weaveStitchRevealProgress != null) setters.setWeaveStitchRevealProgress?.(clamp(Number(snap.weaveStitchRevealProgress), 0, 1));
+    if (snap.weaveStitchRevealSeed != null) setters.setWeaveStitchRevealSeed?.(Math.round(clamp(Number(snap.weaveStitchRevealSeed), 0, 999999)));
+    if (snap.weaveStitchRevealScale != null) setters.setWeaveStitchRevealScale?.(clamp(Number(snap.weaveStitchRevealScale), 0.02, 0.8));
+    if (snap.weaveStitchRevealNoiseScale != null) setters.setWeaveStitchRevealNoiseScale?.(clamp(Number(snap.weaveStitchRevealNoiseScale), 0.25, 4));
+    if (snap.weaveStitchRevealSoftness != null) setters.setWeaveStitchRevealSoftness?.(clamp(Number(snap.weaveStitchRevealSoftness), 0.01, 0.35));
+    if (snap.weaveStitchRevealBleedAnisotropy != null) setters.setWeaveStitchRevealBleedAnisotropy?.(clamp(Number(snap.weaveStitchRevealBleedAnisotropy), 0, 12));
+    if (snap.weaveStitchRevealBleedRotation != null) setters.setWeaveStitchRevealBleedRotation?.(clamp(Number(snap.weaveStitchRevealBleedRotation), 0, 1));
+    if (snap.weaveStitchRevealBleedCrossFiber != null) setters.setWeaveStitchRevealBleedCrossFiber?.(clamp(Number(snap.weaveStitchRevealBleedCrossFiber), 0, 1));
+    if (snap.weaveStitchRevealBleedDraftCoupled != null) {
+      setters.setWeaveStitchRevealBleedDraftCoupled?.(snap.weaveStitchRevealBleedDraftCoupled ? 1 : 0);
+    }
   };
 
   const applyHalftone = () => {

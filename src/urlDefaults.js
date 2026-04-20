@@ -55,6 +55,21 @@ export const WEAVING_URL_DEFAULTS = {
   /** When false, warp threads use flat **warp** shade only (gradient fields kept for when toggled back on). */
   warpGradientEnabled: true,
   weftGradientEnabled: true,
+  /** 0 = off, 1 = noise (FBM), 2 = dye-bleed stitch-in from blank (URL srm; same semantics as Mosaic). */
+  weaveStitchRevealMode: 0,
+  weaveStitchRevealDurationSec: 2.5,
+  weaveStitchRevealProgress: 1,
+  weaveStitchRevealSeed: 0,
+  weaveStitchRevealScale: 0.12,
+  /** FBM frequency multiplier for stitch-in noise/bleed (1 = default). */
+  weaveStitchRevealNoiseScale: 1,
+  weaveStitchRevealSoftness: 0.06,
+  weaveStitchRevealBleedAnisotropy: 3,
+  weaveStitchRevealBleedRotation: 0,
+  weaveStitchRevealBleedCrossFiber: 0.2,
+  weaveStitchRevealBleedDraftCoupled: 0,
+  /** When true, stitch-in progress is manual / keyframe A↔B; when false, timed duration ramp (default). URL `srkm`. */
+  weaveStitchRevealKeyframeDrive: false,
 };
 
 export const IMAGE_RECTS_URL_DEFAULTS = {
@@ -100,6 +115,7 @@ export const IMAGE_RECTS_URL_DEFAULTS = {
   stitchRevealDurationSec: 2.5,
   stitchRevealSeed: 0,
   stitchRevealScale: 0.12,
+  stitchRevealNoiseScale: 1,
   stitchRevealSoftness: 0.06,
   stitchRevealBleedAnisotropy: 3,
   stitchRevealBleedRotation: 0,
@@ -123,6 +139,9 @@ export const HALFTONE_DEFAULTS = {
   gainC: 0.3,
   gainY: 0.2,
 };
+
+/** Default A→B animation length (seconds); matches `useKeyframePlayback` default. */
+export const KEYFRAME_ANIM_DEFAULT_SEC = 2;
 
 export const COMBO_DEFAULTS = {
   gridSize: 32,

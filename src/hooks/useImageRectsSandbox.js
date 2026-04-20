@@ -8,6 +8,7 @@ const DPR = 2;
 import { useRef, useEffect, useCallback, useState } from 'react';
 import { buildPatternTexture, PATTERNS } from '../patterns';
 import { EXPORT_MAX_DIMENSION } from '../constants';
+import { IMAGE_RECTS_URL_DEFAULTS } from '../urlDefaults';
 
 const QUAD_POSITIONS = new Float32Array([-1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1]);
 
@@ -85,7 +86,7 @@ function hexToRgb01(hex, fallback = [0.95, 0.95, 0.95]) {
  * mediaTextureKind: staticImage = one upload after load; video = HTMLVideoElement, upload while playing;
  * gif = HTMLImageElement (animated GIF), upload every frame so frames advance.
  */
-export function useImageRectsSandbox(vertexSource, fragmentSource, imageSource, gridSize, palette, bgShade, bgColorMode, bgCustomColor, rectColorSource, quantizeSteps, quantizeMode, quantizeGamma, quantizeDither, rectShade, shadeFrom, patternWarpShade, patternWeftShade, patternIndex, patterns, rectRadius, rectAspect, rectRatio, lumaSizeMix, lumaSizeInvert, lumaSizeFloor, cellGeometryMode, stitchLumaMax, nonStitchShowsBg, stitchRevealMode, stitchRevealProgress, stitchRevealSeed, stitchRevealScale, stitchRevealSoftness, stitchRevealBleedAnisotropy, stitchRevealBleedRotation, stitchRevealBleedCrossFiber, stitchRevealBleedDraftCoupled, onFpsChange, onImageSize, onCaptureReady, mediaTextureKind = 'staticImage') {
+export function useImageRectsSandbox(vertexSource, fragmentSource, imageSource, gridSize, palette, bgShade, bgColorMode, bgCustomColor, rectColorSource, quantizeSteps, quantizeMode, quantizeGamma, quantizeDither, rectShade, shadeFrom, patternWarpShade, patternWeftShade, patternIndex, patterns, rectRadius, rectAspect, rectRatio, lumaSizeMix, lumaSizeInvert, lumaSizeFloor, cellGeometryMode, stitchLumaMax, nonStitchShowsBg, stitchRevealMode, stitchRevealProgress, stitchRevealSeed, stitchRevealScale, stitchRevealNoiseScale, stitchRevealSoftness, stitchRevealBleedAnisotropy, stitchRevealBleedRotation, stitchRevealBleedCrossFiber, stitchRevealBleedDraftCoupled, onFpsChange, onImageSize, onCaptureReady, mediaTextureKind = 'staticImage') {
   const canvasRef = useRef(null);
   const containerRef = useRef(null);
   const onFpsChangeRef = useRef(onFpsChange);
@@ -201,6 +202,7 @@ export function useImageRectsSandbox(vertexSource, fragmentSource, imageSource, 
       gl.uniform1f(uniformLocs.stitchRevealProgress, stitchRevealProgress ?? 1);
       gl.uniform1f(uniformLocs.stitchRevealSeed, stitchRevealSeed ?? 0);
       gl.uniform1f(uniformLocs.stitchRevealScale, stitchRevealScale ?? 0.12);
+      gl.uniform1f(uniformLocs.stitchRevealNoiseScale, stitchRevealNoiseScale ?? IMAGE_RECTS_URL_DEFAULTS.stitchRevealNoiseScale);
       gl.uniform1f(uniformLocs.stitchRevealSoftness, stitchRevealSoftness ?? 0.06);
       gl.uniform1f(uniformLocs.stitchRevealBleedAnisotropy, stitchRevealBleedAnisotropy ?? 3);
       gl.uniform1f(uniformLocs.stitchRevealBleedRotation, stitchRevealBleedRotation ?? 0);
@@ -269,6 +271,7 @@ export function useImageRectsSandbox(vertexSource, fragmentSource, imageSource, 
         stitchRevealProgress: gl.getUniformLocation(program, 'u_stitchRevealProgress'),
         stitchRevealSeed: gl.getUniformLocation(program, 'u_stitchRevealSeed'),
         stitchRevealScale: gl.getUniformLocation(program, 'u_stitchRevealScale'),
+        stitchRevealNoiseScale: gl.getUniformLocation(program, 'u_stitchRevealNoiseScale'),
         stitchRevealSoftness: gl.getUniformLocation(program, 'u_stitchRevealSoftness'),
         stitchRevealBleedAnisotropy: gl.getUniformLocation(program, 'u_stitchRevealBleedAnisotropy'),
         stitchRevealBleedRotation: gl.getUniformLocation(program, 'u_stitchRevealBleedRotation'),
@@ -449,7 +452,7 @@ export function useImageRectsSandbox(vertexSource, fragmentSource, imageSource, 
       if (patternTexture) gl.deleteTexture(patternTexture);
       if (program) gl.deleteProgram(program);
     };
-  }, [vertexSource, fragmentSource, imageSource, gridSize, palette, bgShade, bgColorMode, bgCustomColor, rectColorSource, quantizeSteps, quantizeMode, quantizeGamma, quantizeDither, rectShade, shadeFrom, patternWarpShade, patternWeftShade, patternIndex, patterns, rectRadius, rectAspect, rectRatio, lumaSizeMix, lumaSizeInvert, lumaSizeFloor, cellGeometryMode, stitchLumaMax, nonStitchShowsBg, stitchRevealMode, stitchRevealProgress, stitchRevealSeed, stitchRevealScale, stitchRevealSoftness, stitchRevealBleedAnisotropy, stitchRevealBleedRotation, stitchRevealBleedCrossFiber, stitchRevealBleedDraftCoupled, mediaTextureKind]);
+  }, [vertexSource, fragmentSource, imageSource, gridSize, palette, bgShade, bgColorMode, bgCustomColor, rectColorSource, quantizeSteps, quantizeMode, quantizeGamma, quantizeDither, rectShade, shadeFrom, patternWarpShade, patternWeftShade, patternIndex, patterns, rectRadius, rectAspect, rectRatio, lumaSizeMix, lumaSizeInvert, lumaSizeFloor, cellGeometryMode, stitchLumaMax, nonStitchShowsBg, stitchRevealMode, stitchRevealProgress, stitchRevealSeed, stitchRevealScale, stitchRevealNoiseScale, stitchRevealSoftness, stitchRevealBleedAnisotropy, stitchRevealBleedRotation, stitchRevealBleedCrossFiber, stitchRevealBleedDraftCoupled, mediaTextureKind]);
 
   useEffect(() => {
     const cleanup = run();

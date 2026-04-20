@@ -1,4 +1,5 @@
 // Weaving draft fragment shader — grid of warp/weft rounded rects, palette colors, gradients, reveal animation.
+// Optional stitch-in: ramp u_stitchRevealProgress 0→1 so threads appear from BG-only (Noise = FBM order, Bleed = dye streaks; same math as Mosaic fragmentImageRects).
 // WebGL 1 / GLSL ES 1.00. Uniforms set from useShaderSandbox; pattern data from src/patterns/index.js.
 precision mediump float;
 
@@ -73,6 +74,17 @@ uniform float u_revealStartTime;
 uniform float u_rectAspect;
 uniform float u_cornerRadius;     // Rounded rect corner radius in cell space (~0.18 ≈ 6/40)
 
+// Stitch-in reveal: 0 = off; 1 = noise (FBM); 2 = bleed (aligned with Mosaic u_stitchReveal*).
+uniform float u_stitchRevealMode;
+uniform float u_stitchRevealProgress;
+uniform float u_stitchRevealSeed;
+uniform float u_stitchRevealScale;
+uniform float u_stitchRevealNoiseScale;
+uniform float u_stitchRevealSoftness;
+uniform float u_stitchRevealBleedAnisotropy;
+uniform float u_stitchRevealBleedRotation;
+uniform float u_stitchRevealBleedCrossFiber;
+uniform float u_stitchRevealBleedDraftCoupled;
 
 // ============================================================
 // ENS LABS WEAVING DRAFT SHADER
@@ -265,6 +277,78 @@ vec4 sampleGradient2(vec4 startColor, vec4 endColor, float dir, float startPos, 
     return mix(startColor, endColor, tGrad);
 }
 
+// --- Stitch-in (same gradient noise + FBM as fragmentImageRects / Mosaic) ---
+vec2 mosaicHash22(vec2 p) {
+  vec3 p3 = fract(vec3(p.xyx) * vec3(0.1031, 0.1030, 0.0973));
+  p3 += dot(p3, p3.yzx + 33.33);
+  return fract((p3.xx + p3.yz) * p3.zy);
+}
+
+float mosaicPerlin01(vec2 p) {
+  vec2 i = floor(p);
+  vec2 f = fract(p);
+  vec2 u = f * f * (3.0 - 2.0 * f);
+  vec2 g00 = mosaicHash22(i + vec2(0.0, 0.0)) * 2.0 - 1.0;
+  vec2 g10 = mosaicHash22(i + vec2(1.0, 0.0)) * 2.0 - 1.0;
+  vec2 g01 = mosaicHash22(i + vec2(0.0, 1.0)) * 2.0 - 1.0;
+  vec2 g11 = mosaicHash22(i + vec2(1.0, 1.0)) * 2.0 - 1.0;
+  float n00 = dot(g00, f - vec2(0.0, 0.0));
+  float n10 = dot(g10, f - vec2(1.0, 0.0));
+  float n01 = dot(g01, f - vec2(0.0, 1.0));
+  float n11 = dot(g11, f - vec2(1.0, 1.0));
+  float nx = mix(n00, n10, u.x);
+  float ny = mix(n01, n11, u.x);
+  float n = mix(nx, ny, u.y);
+  return clamp(n * 0.65 + 0.5, 0.0, 1.0);
+}
+
+float mosaicFbm(vec2 p) {
+  float per = 0.5;
+  float lac = 2.0;
+  float sum = 0.0;
+  float amp = 0.5;
+  float norm = 0.0;
+  float freq = 1.0;
+  for (int i = 0; i < 3; i++) {
+    sum += amp * mosaicPerlin01(p * freq);
+    norm += amp;
+    amp *= per;
+    freq *= lac;
+  }
+  return sum / max(norm, 1e-4);
+}
+
+float stitchRevealOrderNoise(vec2 cellID) {
+  float scale = max(0.001, u_stitchRevealScale);
+  float nfreq = max(0.05, u_stitchRevealNoiseScale);
+  vec2 seedOff = vec2(u_stitchRevealSeed * 0.103511, u_stitchRevealSeed * 0.097369);
+  vec2 p = cellID.xy * scale + seedOff;
+  return mosaicFbm(p * nfreq);
+}
+
+float stitchRevealOrderBleed(vec2 cellID, float isWeft) {
+  float scale = max(0.001, u_stitchRevealScale);
+  float nfreq = max(0.05, u_stitchRevealNoiseScale);
+  vec2 seedOff = vec2(u_stitchRevealSeed * 0.103511, u_stitchRevealSeed * 0.097369);
+  float ani = max(0.35, min(12.0, u_stitchRevealBleedAnisotropy));
+  float ang = u_stitchRevealBleedRotation * 6.28318530718;
+  float co = cos(ang);
+  float si = sin(ang);
+  vec2 rc = vec2(co * cellID.x - si * cellID.y, si * cellID.x + co * cellID.y);
+  vec2 pRot = vec2(rc.x * ani, rc.y / ani) * scale + seedOff;
+  float tStrip = mosaicFbm(pRot * nfreq);
+  vec2 pH = vec2(cellID.x * ani, cellID.y / ani) * scale + seedOff;
+  vec2 pV = vec2(cellID.x / ani, cellID.y * ani) * scale + seedOff;
+  float tH = mosaicFbm(pH * nfreq);
+  float tV = mosaicFbm(pV * nfreq);
+  float tMix = mix(tH, tV, isWeft);
+  float tDraft = u_stitchRevealBleedDraftCoupled > 0.5 ? tMix : tStrip;
+  vec2 pIso = cellID.xy * scale + seedOff + vec2(17.13, 23.71);
+  float tIso = mosaicFbm(pIso * nfreq);
+  float xf = clamp(u_stitchRevealBleedCrossFiber, 0.0, 1.0);
+  return mix(tDraft, tIso, xf);
+}
+
 void main() {
     // --- GRID SETUP ---
     // Normalize pixel coordinates to 0..1 range
@@ -304,6 +388,16 @@ void main() {
     // WebGL 1 has no fwidth(); use ~1 pixel in cell space for AA.
     float edge = gridSize / min(u_resolution.x, u_resolution.y);
     float cell = 1.0 - smoothstep(-edge, edge, d);
+
+    float revealMul = 1.0;
+    if (u_stitchRevealMode > 0.5) {
+      float orderT = u_stitchRevealMode < 1.5
+        ? stitchRevealOrderNoise(cellID)
+        : stitchRevealOrderBleed(cellID, isWeft);
+      float soft = max(0.001, u_stitchRevealSoftness);
+      revealMul = smoothstep(orderT - soft, orderT + soft, u_stitchRevealProgress);
+    }
+    cell *= revealMul;
 
     // --- COLORING ---
     vec4 bgVec = getPaletteColor(u_palette, u_bgShade);

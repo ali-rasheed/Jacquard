@@ -24,6 +24,7 @@ export const MOSAIC_KEYFRAME_KEYS = [
   'stitchRevealProgress',
   'stitchRevealSeed',
   'stitchRevealScale',
+  'stitchRevealNoiseScale',
   'stitchRevealSoftness',
   'stitchRevealBleedAnisotropy',
   'stitchRevealBleedRotation',
@@ -75,6 +76,7 @@ export function applyMosaicKeyframe(setters, snap) {
   if (snap.stitchRevealProgress != null) setters.setStitchRevealProgress?.(f(snap.stitchRevealProgress, 0, 1));
   if (snap.stitchRevealSeed != null) setters.setStitchRevealSeed?.(r(snap.stitchRevealSeed, 0, 999999));
   if (snap.stitchRevealScale != null) setters.setStitchRevealScale?.(f(snap.stitchRevealScale, 0.02, 0.8));
+  if (snap.stitchRevealNoiseScale != null) setters.setStitchRevealNoiseScale?.(f(snap.stitchRevealNoiseScale, 0.25, 4));
   if (snap.stitchRevealSoftness != null) setters.setStitchRevealSoftness?.(f(snap.stitchRevealSoftness, 0.01, 0.35));
   if (snap.stitchRevealBleedAnisotropy != null) setters.setStitchRevealBleedAnisotropy?.(f(snap.stitchRevealBleedAnisotropy, 0, 12));
   if (snap.stitchRevealBleedRotation != null) setters.setStitchRevealBleedRotation?.(f(snap.stitchRevealBleedRotation, 0, 1));
