@@ -19,6 +19,7 @@ export const WEAVING_URL_DEFAULTS = {
   cornerRadius: 0.18,
   canvasAspect: 1,
   patternFit: 'fit',
+  stageTranslateX: 0,
   copyFormat: 'png',
   copyScale: 2,
   exportScale: 6,
@@ -109,6 +110,7 @@ export const IMAGE_RECTS_URL_DEFAULTS = {
   mosaicBgGaps: false,
   /** Mosaic canvas: 'fit' = contain in stage, 'fill' = grow to fill main area. */
   patternFit: 'fit',
+  stageTranslateX: 0,
   /** 0 = off, 1 = noise (FBM), 2 = dye-bleed stitch-in from blank. */
   stitchRevealMode: 0,
   /** Seconds for one full 0→1 reveal when mode is noise or bleed. */

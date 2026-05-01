@@ -11,6 +11,7 @@ import { useCanvasRecorder } from './hooks/useCanvasRecorder';
 import { useKeyframePlayback } from './hooks/useKeyframePlayback';
 import { getWeaveAppKeyframeSnapshot, applyWeaveAppKeyframe } from './keyframe/weaveAppKeyframe';
 import { CaptureToolbar } from './components/CaptureToolbar';
+import { ShaderEmbedExportModal } from './components/ShaderEmbedExportModal.jsx';
 import { halftoneCmykPresets } from '@paper-design/shaders-react';
 import { PATTERNS } from './patterns';
 import { getCopyCanvas } from './copyHelpers';
@@ -45,6 +46,7 @@ import {
   clampColorwayAnimBits,
   decodeColorwayAnimBitsToPartial,
 } from './colorwayAnimUrl';
+import { getShaderEmbedDriverAutoBits } from './export/shaderEmbedInferAnimation';
 import {
   PALETTE_NAMES,
   PALETTE_SWATCH_COLORS,
@@ -241,6 +243,7 @@ function parseUrlState(search) {
   num('warp', 'warpShade', 0, 5);
   num('weft', 'weftShade', 0, 5);
   num('grid', 'gridSize', 8, 256);
+  num('stx', 'stageTranslateX', -400, 400);
   num('preset', 'presetIndex', 0, PRESETS.length - 1);
   grad('warp');
   grad('weft');
@@ -459,6 +462,7 @@ function buildUrlState(state) {
   if (state.warpShade !== def.warpShade) p.set('warp', String(state.warpShade));
   if (state.weftShade !== def.weftShade) p.set('weft', String(state.weftShade));
   if (state.gridSize !== def.gridSize) p.set('grid', String(state.gridSize));
+  if ((state.stageTranslateX ?? 0) !== def.stageTranslateX) p.set('stx', String(Math.round(state.stageTranslateX || 0)));
   const wg = state.warpGradient;
   if (wg && (wg.startShade !== def.warpGradient.startShade || wg.endShade !== def.warpGradient.endShade || wg.direction !== def.warpGradient.direction || wg.range[0] !== def.warpGradient.range[0] || wg.range[1] !== def.warpGradient.range[1])) {
     p.set('warpG', [wg.startShade, wg.endShade, wg.direction, wg.range[0], wg.range[1]].join(','));
@@ -514,6 +518,24 @@ function buildUrlState(state) {
   const cwBits = encodeColorwayAnimPlaying(state.colorwayAnimPlaying || COLORWAY_ANIM_INITIAL);
   if (cwBits !== 0) p.set('cwp', String(cwBits));
   if (state.shimmerPlaying === false) p.set('shp', '0');
+  /** Weave: bitmask of embed driver auto/controlled state (bit index = DRIVER_ORDER in shaderEmbedInferAnimation); omit when same as fresh defaults. */
+  if (state.view === 'weaving') {
+    const inferState = { ...def, ...state };
+    const inferOpts = {
+      smartAuto: true,
+      isKeyframePlaying: !!state.weaveKeyframePlaying,
+      shimmerPlaying: state.shimmerPlaying !== false,
+      staticMode: false,
+      colorwayAnimPlaying: state.colorwayAnimPlaying || COLORWAY_ANIM_INITIAL,
+    };
+    const embedBits = getShaderEmbedDriverAutoBits(inferState, inferOpts);
+    const defaultEmbedBits = getShaderEmbedDriverAutoBits(
+      { ...def },
+      { smartAuto: true, isKeyframePlaying: false, shimmerPlaying: true, staticMode: false },
+    );
+    if (embedBits !== defaultEmbedBits) p.set('epl', String(embedBits));
+    if (state.weaveKeyframePlaying) p.set('wkp', '1');
+  }
   if (state.patternFit !== def.patternFit) p.set('display', state.patternFit);
   if (state.halftonePresetIndex !== HALFTONE_DEFAULTS.presetIndex) p.set('hp', String(state.halftonePresetIndex));
   if (state.halftoneSize !== HALFTONE_DEFAULTS.size) p.set('hs', String(Number(state.halftoneSize.toFixed(2))));
@@ -660,7 +682,13 @@ export default function App() {
   const [cornerRadius, setCornerRadius] = useState(WEAVING_URL_DEFAULTS.cornerRadius);
   const [canvasAspect, setCanvasAspect] = useState(WEAVING_URL_DEFAULTS.canvasAspect);
   const [patternFit, setPatternFit] = useState(WEAVING_URL_DEFAULTS.patternFit); // 'fill' = cover view, 'fit' = contain
+  const [stageTranslateX, setStageTranslateX] = useState(WEAVING_URL_DEFAULTS.stageTranslateX);
+  const [embedExportOpen, setEmbedExportOpen] = useState(false);
   const [fps, setFps] = useState(0);
+
+  useEffect(() => {
+    if (view !== 'weaving' && embedExportOpen) setEmbedExportOpen(false);
+  }, [view, embedExportOpen]);
   /** Shimmer: looping highlight band; speed, width, intensity, position. */
   const [shimmer, setShimmer] = useState(WEAVING_URL_DEFAULTS.shimmer);
   /** When false, shimmer band is frozen at current position (u_shimmerTime paused). */
@@ -904,6 +932,7 @@ export default function App() {
     if (q.cornerRadius != null) setCornerRadius(q.cornerRadius);
     if (q.canvasAspect != null) setCanvasAspect(q.canvasAspect);
     if (q.patternFit != null) setPatternFit(q.patternFit);
+    if (q.stageTranslateX != null) setStageTranslateX(Math.round(q.stageTranslateX));
     if (q.copyFormat != null) setCopyFormat(q.copyFormat);
     if (q.copyScale != null) setCopyScale(q.copyScale);
     if (q.useAllColorways != null) setUseAllColorways(!!q.useAllColorways);
@@ -1592,6 +1621,8 @@ export default function App() {
     urlSyncTimeoutRef.current = setTimeout(() => {
       const search = buildUrlState({
         view, weaveHalftoneOn, menuHidden, presetIndex, pattern, palette, bgShade, warpShade, weftShade, gridSize,
+        stageTranslateX,
+        weaveKeyframePlaying,
         warpGradient, weftGradient, warpGradientEnabled, weftGradientEnabled, gradSteps, rectAspect, cornerRadius, canvasAspect, patternFit, copyFormat, copyScale,
         useAllColorways, colorwaySeed, colorwayNoiseScale, colorwayNoiseMode, colorwayNoiseOctaves, colorwayNoisePersistence, colorwayNoiseLacunarity, colorwayNoiseBias, colorwayNoiseX, colorwayBleedAnisotropy, colorwayBleedRotation, colorwayBleedCrossFiber, colorwayBleedDraftCoupled, colorwayIncludeMask,
         weaveStitchRevealMode, weaveStitchRevealDurationSec, weaveStitchRevealKeyframeDrive, weaveStitchRevealSeed, weaveStitchRevealScale, weaveStitchRevealNoiseScale, weaveStitchRevealSoftness, weaveStitchRevealBleedAnisotropy, weaveStitchRevealBleedRotation, weaveStitchRevealBleedCrossFiber, weaveStitchRevealBleedDraftCoupled,
@@ -1611,7 +1642,7 @@ export default function App() {
       }
     }, 400);
     return () => { clearTimeout(urlSyncTimeoutRef.current); };
-  }, [view, weaveHalftoneOn, menuHidden, presetIndex, pattern, palette, bgShade, warpShade, weftShade, gridSize, warpGradient, weftGradient, warpGradientEnabled, weftGradientEnabled, gradSteps, rectAspect, cornerRadius, canvasAspect, patternFit, copyFormat, copyScale, useAllColorways, colorwaySeed, colorwayNoiseScale, colorwayNoiseMode, colorwayNoiseOctaves, colorwayNoisePersistence, colorwayNoiseLacunarity, colorwayNoiseBias, colorwayNoiseX, colorwayBleedAnisotropy, colorwayBleedRotation, colorwayBleedCrossFiber, colorwayBleedDraftCoupled, colorwayIncludeMask, colorwayAnimPlaying, weaveStitchRevealMode, weaveStitchRevealDurationSec, weaveStitchRevealKeyframeDrive, weaveStitchRevealSeed, weaveStitchRevealScale, weaveStitchRevealNoiseScale, weaveStitchRevealSoftness, weaveStitchRevealBleedAnisotropy, weaveStitchRevealBleedRotation, weaveStitchRevealBleedCrossFiber, weaveStitchRevealBleedDraftCoupled, shimmer, shimmerPlaying, shimmerSpeed, shimmerWidth, shimmerIntensity, shimmerPosition, shimmerRotation, shimmerNoise, shimmerNoiseSeed, shimmerNoiseMin, shimmerNoiseMax, shimmerBlendMode, halftonePresetIndex, halftoneSize, halftoneSoftness, halftoneGridNoise, halftoneContrast, halftoneType, halftoneColorBack, halftoneColorC, halftoneColorM, halftoneColorY, halftoneColorK, halftoneFloodC, halftoneGainC, halftoneGainY, comboGridSize, comboPalette, comboBgShade, comboRectColorSource, comboQuantizeSteps, comboQuantizeMode, comboQuantizeGamma, comboQuantizeDither, comboPatternIndex, comboPatternWarpShade, comboPatternWeftShade, comboLumaSizeMix, comboLumaSizeInvert, comboLumaSizeFloor, comboCellGeometryMode, comboStitchLumaMax, comboRectRadius, comboRectAspect, comboRectRatio, weaveKeyframeDurationSec, weaveEditingAfter, weaveBefore, weaveAfter]);
+  }, [view, weaveHalftoneOn, menuHidden, presetIndex, pattern, palette, bgShade, warpShade, weftShade, gridSize, stageTranslateX, weaveKeyframePlaying, warpGradient, weftGradient, warpGradientEnabled, weftGradientEnabled, gradSteps, rectAspect, cornerRadius, canvasAspect, patternFit, copyFormat, copyScale, useAllColorways, colorwaySeed, colorwayNoiseScale, colorwayNoiseMode, colorwayNoiseOctaves, colorwayNoisePersistence, colorwayNoiseLacunarity, colorwayNoiseBias, colorwayNoiseX, colorwayBleedAnisotropy, colorwayBleedRotation, colorwayBleedCrossFiber, colorwayBleedDraftCoupled, colorwayIncludeMask, colorwayAnimPlaying, weaveStitchRevealMode, weaveStitchRevealDurationSec, weaveStitchRevealKeyframeDrive, weaveStitchRevealSeed, weaveStitchRevealScale, weaveStitchRevealNoiseScale, weaveStitchRevealSoftness, weaveStitchRevealBleedAnisotropy, weaveStitchRevealBleedRotation, weaveStitchRevealBleedCrossFiber, weaveStitchRevealBleedDraftCoupled, shimmer, shimmerPlaying, shimmerSpeed, shimmerWidth, shimmerIntensity, shimmerPosition, shimmerRotation, shimmerNoise, shimmerNoiseSeed, shimmerNoiseMin, shimmerNoiseMax, shimmerBlendMode, halftonePresetIndex, halftoneSize, halftoneSoftness, halftoneGridNoise, halftoneContrast, halftoneType, halftoneColorBack, halftoneColorC, halftoneColorM, halftoneColorY, halftoneColorK, halftoneFloodC, halftoneGainC, halftoneGainY, comboGridSize, comboPalette, comboBgShade, comboRectColorSource, comboQuantizeSteps, comboQuantizeMode, comboQuantizeGamma, comboQuantizeDither, comboPatternIndex, comboPatternWarpShade, comboPatternWeftShade, comboLumaSizeMix, comboLumaSizeInvert, comboLumaSizeFloor, comboCellGeometryMode, comboStitchLumaMax, comboRectRadius, comboRectAspect, comboRectRatio, weaveKeyframeDurationSec, weaveEditingAfter, weaveBefore, weaveAfter]);
 
   /** Ramp weave stitch-in 0→1 when Noise/Bleed is on; skipped while keyframe playback drives progress. */
   useEffect(() => {
@@ -1744,6 +1775,7 @@ export default function App() {
     setCornerRadius(WEAVING_URL_DEFAULTS.cornerRadius);
     setCanvasAspect(WEAVING_URL_DEFAULTS.canvasAspect);
     setPatternFit(WEAVING_URL_DEFAULTS.patternFit);
+    setStageTranslateX(WEAVING_URL_DEFAULTS.stageTranslateX);
     setWeaveHalftoneOn(false);
     setShimmer(WEAVING_URL_DEFAULTS.shimmer);
     setShimmerPlaying(true);
@@ -2003,7 +2035,13 @@ export default function App() {
         </nav>
         <div className="min-h-0 flex-1 overflow-hidden">
           <Suspense fallback={<div className="flex h-full items-center justify-center text-text-secondary">Loading…</div>}>
-            <AppV2 menuHidden={menuHidden} patternFit={patternFit} onPatternFitChange={setPatternFit} />
+            <AppV2
+              menuHidden={menuHidden}
+              patternFit={patternFit}
+              onPatternFitChange={setPatternFit}
+              stageTranslateX={stageTranslateX}
+              onStageTranslateXChange={setStageTranslateX}
+            />
           </Suspense>
         </div>
       </div>
@@ -3421,6 +3459,7 @@ export default function App() {
                 ? 'flex min-h-0 flex-1 flex-col items-stretch overflow-hidden p-4'
                 : 'flex min-h-0 flex-1 flex-col overflow-hidden p-4'
             }
+            style={view === 'weaving' ? undefined : { transform: `translateX(${stageTranslateX}px)` }}
           >
             {view === 'weaving' && !weaveHalftoneOn && (
               <ShaderCanvas
@@ -3474,6 +3513,7 @@ export default function App() {
                 weaveStitchRevealBleedRotation={weaveStitchRevealBleedRotation}
                 weaveStitchRevealBleedCrossFiber={weaveStitchRevealBleedCrossFiber}
                 weaveStitchRevealBleedDraftCoupled={!!weaveStitchRevealBleedDraftCoupled}
+                stageTranslateX={stageTranslateX}
                 shimmerPlaying={shimmerPlaying}
                 shimmerPausedAtTime={shimmerPausedAtTime}
                 shimmerPhase={shimmerPhase}
@@ -3590,6 +3630,7 @@ export default function App() {
                     weaveStitchRevealBleedRotation={weaveStitchRevealBleedRotation}
                     weaveStitchRevealBleedCrossFiber={weaveStitchRevealBleedCrossFiber}
                     weaveStitchRevealBleedDraftCoupled={!!weaveStitchRevealBleedDraftCoupled}
+                    stageTranslateX={stageTranslateX}
                     size={halftoneSize}
                     softness={halftoneSoftness}
                     gridNoise={halftoneGridNoise}
@@ -3620,7 +3661,11 @@ export default function App() {
             copyDefaults={{ copyScale: WEAVING_URL_DEFAULTS.copyScale, copyFormat: WEAVING_URL_DEFAULTS.copyFormat }}
             onCopy={handleCopy}
             copyFeedback={copyFeedback}
+            stageTranslateX={stageTranslateX}
+            setStageTranslateX={setStageTranslateX}
             showExport
+            showEmbedExport={view === 'weaving'}
+            onOpenEmbedExport={() => setEmbedExportOpen(true)}
             exportScale={exportScale}
             setExportScale={setExportScale}
             exportDefaults={{ exportScale: WEAVING_URL_DEFAULTS.exportScale }}
@@ -3644,6 +3689,17 @@ export default function App() {
               onPlay: startWeaveKeyframePlay,
               onStop: stopWeaveKeyframe,
             }}
+          />
+          <ShaderEmbedExportModal
+            open={embedExportOpen}
+            onClose={() => setEmbedExportOpen(false)}
+            currentState={weaveKeyframeState}
+            snapshotA={weaveBefore}
+            snapshotB={weaveAfter}
+            isKeyframePlaying={weaveKeyframePlaying}
+            shimmerPlaying={shimmerPlaying}
+            stageTranslateX={stageTranslateX}
+            colorwayAnimPlaying={colorwayAnimPlaying}
           />
 
           <footer className="relative h-[100px] shrink-0 overflow-hidden border-t border-border-subtle bg-surface-elevated">

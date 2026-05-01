@@ -86,6 +86,16 @@ uniform float u_stitchRevealBleedRotation;
 uniform float u_stitchRevealBleedCrossFiber;
 uniform float u_stitchRevealBleedDraftCoupled;
 
+// Export embed hover interaction (optional): pointer-driven ripple + reveal.
+uniform float u_hoverReactive;
+uniform float u_hoverRevealOnly;
+uniform float u_hoverMovementBoost;
+uniform vec2 u_pointerUv;
+uniform float u_hoverStrength;
+uniform float u_hoverVelocity;
+uniform float u_ripplePhase;
+uniform float u_rippleWidth;
+
 // ============================================================
 // ENS LABS WEAVING DRAFT SHADER
 // ============================================================
@@ -367,6 +377,7 @@ void main() {
     // floor = which cell we're in (integer ID)
     vec2 cellUV = fract(gridUV);
     vec2 cellID = floor(gridUV);
+    vec2 cellCenter = cellID + vec2(0.5, 0.5);
 
     // --- WEAVE MATRIX LOOKUP ---
     // Look up the binary matrix to decide: warp or weft?
@@ -388,6 +399,23 @@ void main() {
     // WebGL 1 has no fwidth(); use ~1 pixel in cell space for AA.
     float edge = gridSize / min(u_resolution.x, u_resolution.y);
     float cell = 1.0 - smoothstep(-edge, edge, d);
+
+    // Pointer-centered ripple in cell-space with quantized response per rounded-rect cell.
+    vec2 pointerGrid = vec2(u_pointerUv.x * aspect, u_pointerUv.y) * gridSize;
+    float pointerDist = length(cellCenter - pointerGrid);
+    float rippleWidth = max(0.02, u_rippleWidth);
+    float rippleSignal = 0.0;
+    if (u_hoverReactive > 0.5) {
+      float wave = sin(pointerDist * 2.7 - u_ripplePhase);
+      float wave01 = wave * 0.5 + 0.5;
+      float ring = smoothstep(1.0 - rippleWidth, 1.0, wave01);
+      float stepped = floor(clamp(ring, 0.0, 0.999) * 4.0) / 3.0;
+      rippleSignal = stepped * clamp(u_hoverStrength, 0.0, 1.0);
+      if (u_hoverMovementBoost > 0.5) {
+        rippleSignal += stepped * clamp(u_hoverVelocity, 0.0, 1.0) * 0.85;
+      }
+      rippleSignal = clamp(rippleSignal, 0.0, 1.0);
+    }
 
     float revealMul = 1.0;
     if (u_stitchRevealMode > 0.5) {
@@ -449,6 +477,10 @@ void main() {
       weftColor = sampleGradient2(u_weftStart, u_weftEnd, u_weftDir, u_weftStartPos, u_weftEndPos, tWeft);
     }
     vec4 threadVec = mix(warpColor, weftColor, isWeft);
+    if (u_hoverReactive > 0.5) {
+      vec3 accent = getPaletteColor(u_palette, 3.0).rgb;
+      threadVec.rgb = mix(threadVec.rgb, accent, rippleSignal * 0.42);
+    }
     // Transparent thread (alpha=0) shows background through
     vec4 inRectVec = threadVec.a > 0.001 ? threadVec : vec4(bgVec.rgb, 1.0);
 
@@ -460,6 +492,10 @@ void main() {
     float reveal = smoothstep(1.0, 0.0, wave);            // 1 ahead of wave, 0 behind
 
     cell *= reveal;
+    if (u_hoverReactive > 0.5 && u_hoverRevealOnly > 0.5) {
+      float revealByHover = clamp(u_hoverStrength * 0.25 + rippleSignal, 0.0, 1.0);
+      cell *= revealByHover;
+    }
 
     vec4 outColor = mix(bgVec, inRectVec, cell);
 
@@ -516,5 +552,9 @@ void main() {
       }
     }
 
+    if (u_hoverReactive > 0.5 && u_hoverRevealOnly > 0.5) {
+      // In reveal-only mode keep background transparent so tiles appear only on interaction.
+      outColor.a = cell;
+    }
     gl_FragColor = outColor;
 }

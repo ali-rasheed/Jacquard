@@ -33,6 +33,12 @@ export function CaptureToolbar({
   onRecordClick,
   onPlayRecord,
   keyframe,
+  stageTranslateX = 0,
+  setStageTranslateX,
+  stageTranslateMin = -400,
+  stageTranslateMax = 400,
+  showEmbedExport = false,
+  onOpenEmbedExport,
 }) {
   const recordTitle = isProcessing
     ? 'Processing…'
@@ -48,6 +54,36 @@ export function CaptureToolbar({
     >
       <div className="flex min-h-0 flex-wrap items-center gap-x-3 gap-y-2">
         <div className="flex min-w-0 flex-wrap items-center gap-2">
+          {typeof setStageTranslateX === 'function' && (
+            <div className="inline-flex items-center gap-1 border-r border-border-subtle pr-2">
+              <span className={`${typeLabel} shrink-0 text-text-muted`}>Stage X</span>
+              <input
+                type="range"
+                min={stageTranslateMin}
+                max={stageTranslateMax}
+                step={1}
+                value={stageTranslateX}
+                onChange={(e) => setStageTranslateX(Math.round(Number(e.target.value) || 0))}
+                aria-label="Stage horizontal offset"
+              />
+              <input
+                type="number"
+                className="w-16 rounded border border-border-subtle bg-surface-input px-1 py-0.5 text-xs text-text"
+                min={stageTranslateMin}
+                max={stageTranslateMax}
+                step={1}
+                value={stageTranslateX}
+                onChange={(e) => setStageTranslateX(Math.max(stageTranslateMin, Math.min(stageTranslateMax, Math.round(Number(e.target.value) || 0))))}
+                aria-label="Stage horizontal offset in pixels"
+              />
+              {stageTranslateX !== 0 && (
+                <IconButton size="resetSm" aria-label="Reset Stage X" onClick={() => setStageTranslateX(0)}>
+                  <Icon name="restart_alt" className={iconResetGlyph} />
+                </IconButton>
+              )}
+            </div>
+          )}
+
           <span className={`${typeLabel} shrink-0 text-text-muted`}>Image</span>
           <AppTooltip content="Resolution multiplier for clipboard copy (PNG or WebP)">
             <div className="inline-flex items-center gap-1">
@@ -108,6 +144,16 @@ export function CaptureToolbar({
                   <Icon name="restart_alt" className={iconResetGlyph} />
                 </IconButton>
                 <span className={`${typeLabel} hidden md:inline`}>Reset copy</span>
+              </span>
+            </AppTooltip>
+          )}
+          {showEmbedExport && typeof onOpenEmbedExport === 'function' && (
+            <AppTooltip content="Generate embeddable React and HTML shader snippets">
+              <span className="inline-flex cursor-default items-center gap-1">
+                <IconButton size="sm" aria-label="Export embed code" onClick={onOpenEmbedExport}>
+                  <Icon name="code" className={iconSm} />
+                </IconButton>
+                <span className={`${typeLabel} hidden md:inline`}>Export Embed</span>
               </span>
             </AppTooltip>
           )}

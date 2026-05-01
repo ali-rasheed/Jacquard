@@ -4,6 +4,7 @@
  * Compiles vertex + fragment shaders, uploads fullscreen quad, runs animation loop.
  * Pattern data is uploaded as a texture; uniforms include u_tileW, u_tileH for the selected pattern.
  * Stitch-in: u_stitchReveal* — optional per-cell reveal order + progress (see fragment.glsl).
+ * **stageTranslateX** (pixels): **u_stageTranslateX** — horizontal shift of the weave sample in fragment space (see fragment.glsl).
  *
  * Shader source is read from refs so that code changes (e.g. HMR on .glsl save) only trigger
  * a program recompile, not a full canvas teardown and re-run.
@@ -84,6 +85,15 @@ function getUniformLocs(gl, program) {
     stitchRevealBleedRotation: gl.getUniformLocation(program, 'u_stitchRevealBleedRotation'),
     stitchRevealBleedCrossFiber: gl.getUniformLocation(program, 'u_stitchRevealBleedCrossFiber'),
     stitchRevealBleedDraftCoupled: gl.getUniformLocation(program, 'u_stitchRevealBleedDraftCoupled'),
+    stageTranslateX: gl.getUniformLocation(program, 'u_stageTranslateX'),
+    hoverReactive: gl.getUniformLocation(program, 'u_hoverReactive'),
+    hoverRevealOnly: gl.getUniformLocation(program, 'u_hoverRevealOnly'),
+    hoverMovementBoost: gl.getUniformLocation(program, 'u_hoverMovementBoost'),
+    pointerUv: gl.getUniformLocation(program, 'u_pointerUv'),
+    hoverStrength: gl.getUniformLocation(program, 'u_hoverStrength'),
+    hoverVelocity: gl.getUniformLocation(program, 'u_hoverVelocity'),
+    ripplePhase: gl.getUniformLocation(program, 'u_ripplePhase'),
+    rippleWidth: gl.getUniformLocation(program, 'u_rippleWidth'),
   };
 }
 
@@ -132,7 +142,7 @@ function getPaletteColor(paletteIndex, shadeIndex) {
   return PALETTE_RGBA[p][s];
 }
 
-export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, palette, bgShade, warpShade, weftShade, gridSize, warpGradient, weftGradient, warpGradientEnabled, weftGradientEnabled, gradSteps, rectAspect, cornerRadius, shimmer, shimmerSpeed, shimmerWidth, shimmerIntensity, shimmerPosition, shimmerRotation, shimmerNoise, shimmerNoiseSeed, shimmerNoiseMin, shimmerNoiseMax, shimmerBlendMode, useAllColorways, colorwaySeed, colorwayNoiseScale, colorwayNoiseMode, colorwayNoiseOctaves, colorwayNoisePersistence, colorwayNoiseLacunarity, colorwayNoiseBias, colorwayNoiseX, colorwayBleedAnisotropy, colorwayBleedRotation, colorwayBleedCrossFiber, colorwayBleedDraftCoupled, colorwayIncludeMask, stitchRevealMode, stitchRevealProgress, stitchRevealSeed, stitchRevealScale, stitchRevealNoiseScale, stitchRevealSoftness, stitchRevealBleedAnisotropy, stitchRevealBleedRotation, stitchRevealBleedCrossFiber, stitchRevealBleedDraftCoupled, shimmerPlaying, shimmerPausedAtTime, shimmerPhase, onShimmerTime, patterns, onFpsChange, onCaptureReady) {
+export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, palette, bgShade, warpShade, weftShade, gridSize, warpGradient, weftGradient, warpGradientEnabled, weftGradientEnabled, gradSteps, rectAspect, cornerRadius, shimmer, shimmerSpeed, shimmerWidth, shimmerIntensity, shimmerPosition, shimmerRotation, shimmerNoise, shimmerNoiseSeed, shimmerNoiseMin, shimmerNoiseMax, shimmerBlendMode, useAllColorways, colorwaySeed, colorwayNoiseScale, colorwayNoiseMode, colorwayNoiseOctaves, colorwayNoisePersistence, colorwayNoiseLacunarity, colorwayNoiseBias, colorwayNoiseX, colorwayBleedAnisotropy, colorwayBleedRotation, colorwayBleedCrossFiber, colorwayBleedDraftCoupled, colorwayIncludeMask, stitchRevealMode, stitchRevealProgress, stitchRevealSeed, stitchRevealScale, stitchRevealNoiseScale, stitchRevealSoftness, stitchRevealBleedAnisotropy, stitchRevealBleedRotation, stitchRevealBleedCrossFiber, stitchRevealBleedDraftCoupled, stageTranslateX, shimmerPlaying, shimmerPausedAtTime, shimmerPhase, onShimmerTime, patterns, onFpsChange, onCaptureReady) {
   const canvasRef = useRef(null);
   const containerRef = useRef(null);
   const vertexSourceRef = useRef(vertexSource);
@@ -257,6 +267,8 @@ export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, pal
     stitchRevealBleedDraftCoupled != null
       ? (Number(stitchRevealBleedDraftCoupled) !== 0 ? 1 : 0)
       : (WEAVING_URL_DEFAULTS.weaveStitchRevealBleedDraftCoupled ? 1 : 0);
+  const stageTranslateXRef = useRef(stageTranslateX ?? 0);
+  stageTranslateXRef.current = Number(stageTranslateX) || 0;
   shimmerPlayingRef.current = shimmerPlaying ?? true;
   shimmerPausedAtTimeRef.current = shimmerPausedAtTime ?? 0;
   shimmerPhaseRef.current = shimmerPhase ?? 0;
@@ -336,6 +348,7 @@ export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, pal
       if (uniformLocs.shimmerPhase != null) gl.uniform1f(uniformLocs.shimmerPhase, shimmerPhaseRef.current);
       onShimmerTimeRef.current?.(time);
       gl.uniform2f(uniformLocs.resolution, canvas.width, canvas.height);
+      if (uniformLocs.stageTranslateX != null) gl.uniform1f(uniformLocs.stageTranslateX, stageTranslateXRef.current);
       gl.uniform1f(uniformLocs.patternIndex, Math.floor(pIndex));
       gl.uniform1f(uniformLocs.tileW, tileW);
       gl.uniform1f(uniformLocs.tileH, tileH);
@@ -418,6 +431,16 @@ export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, pal
       if (uniformLocs.stitchRevealBleedRotation != null) gl.uniform1f(uniformLocs.stitchRevealBleedRotation, stitchRevealBleedRotationRef.current);
       if (uniformLocs.stitchRevealBleedCrossFiber != null) gl.uniform1f(uniformLocs.stitchRevealBleedCrossFiber, stitchRevealBleedCrossFiberRef.current);
       if (uniformLocs.stitchRevealBleedDraftCoupled != null) gl.uniform1f(uniformLocs.stitchRevealBleedDraftCoupled, stitchRevealBleedDraftCoupledRef.current);
+
+      // Embed-only hover uniforms: editor leaves them disabled so weave preview matches pre-hover behavior.
+      if (uniformLocs.hoverReactive != null) gl.uniform1f(uniformLocs.hoverReactive, 0);
+      if (uniformLocs.hoverRevealOnly != null) gl.uniform1f(uniformLocs.hoverRevealOnly, 0);
+      if (uniformLocs.hoverMovementBoost != null) gl.uniform1f(uniformLocs.hoverMovementBoost, 0);
+      if (uniformLocs.pointerUv != null) gl.uniform2f(uniformLocs.pointerUv, 0.5, 0.5);
+      if (uniformLocs.hoverStrength != null) gl.uniform1f(uniformLocs.hoverStrength, 0);
+      if (uniformLocs.hoverVelocity != null) gl.uniform1f(uniformLocs.hoverVelocity, 0);
+      if (uniformLocs.ripplePhase != null) gl.uniform1f(uniformLocs.ripplePhase, 0);
+      if (uniformLocs.rippleWidth != null) gl.uniform1f(uniformLocs.rippleWidth, 0.22);
 
       gl.clearColor(0, 0, 0, 0);
       gl.clear(gl.COLOR_BUFFER_BIT);

@@ -2,6 +2,7 @@
  * WeavingHalftoneStage — Renders weaving as the image source for Halftone CMYK.
  * Renders a hidden ShaderCanvas, captures it to a data URL (on param change + throttled when
  * shimmer is on or **weave stitch-in** mode is active), and passes the URL to HalftoneCmyk.
+ * **stageTranslateX** is passed through to **ShaderCanvas** so the weave source matches the main Weave tab.
  * Main area shows only the halftone result.
  */
 import { useRef, useState, useEffect, useCallback } from 'react';
@@ -69,6 +70,7 @@ export function WeavingHalftoneStage({
   weaveStitchRevealBleedRotation = WEAVING_URL_DEFAULTS.weaveStitchRevealBleedRotation,
   weaveStitchRevealBleedCrossFiber = WEAVING_URL_DEFAULTS.weaveStitchRevealBleedCrossFiber,
   weaveStitchRevealBleedDraftCoupled = WEAVING_URL_DEFAULTS.weaveStitchRevealBleedDraftCoupled,
+  stageTranslateX = 0,
   // Halftone params
   size,
   softness,
@@ -304,6 +306,7 @@ export function WeavingHalftoneStage({
           weaveStitchRevealBleedRotation={weaveStitchRevealBleedRotation}
           weaveStitchRevealBleedCrossFiber={weaveStitchRevealBleedCrossFiber}
           weaveStitchRevealBleedDraftCoupled={!!weaveStitchRevealBleedDraftCoupled}
+          stageTranslateX={stageTranslateX}
           patterns={patterns ?? []}
           onCanvasRef={handleCanvasRef}
         />

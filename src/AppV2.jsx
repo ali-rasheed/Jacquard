@@ -110,6 +110,7 @@ function parseUrlStateV2(search) {
   const display = params.get('display');
   if (display === 'fill' || display === 'fit') out.patternFit = display;
   num('grid', 'gridSize', 8, 256);
+  num('stx', 'stageTranslateX', -400, 400);
   num('pal', 'palette', 0, 4);
   num('bg', 'bgShade', 0, 5);
   num('bgm', 'bgColorMode', 0, 1);
@@ -226,6 +227,7 @@ function buildUrlStateV2(state) {
   const p = new URLSearchParams();
   p.set('v', '2');
   if (state.gridSize !== def.gridSize) p.set('grid', String(state.gridSize));
+  if ((state.stageTranslateX ?? 0) !== def.stageTranslateX) p.set('stx', String(Math.round(state.stageTranslateX || 0)));
   if (state.palette !== def.palette) p.set('pal', String(state.palette));
   if (state.bgShade !== def.bgShade) p.set('bg', String(state.bgShade));
   if (state.bgColorMode !== def.bgColorMode) p.set('bgm', String(state.bgColorMode));
@@ -296,8 +298,11 @@ export default function AppV2({
   viewTitle = 'Mosaic',
   patternFit: patternFitProp = IMAGE_RECTS_URL_DEFAULTS.patternFit,
   onPatternFitChange,
+  stageTranslateX: stageTranslateXProp = IMAGE_RECTS_URL_DEFAULTS.stageTranslateX,
+  onStageTranslateXChange,
 }) {
   const patternFitExternal = typeof onPatternFitChange === 'function';
+  const stageTranslateExternal = typeof onStageTranslateXChange === 'function';
   const [imageSource, setImageSource] = useState('');
   const [mediaTextureKind, setMediaTextureKind] = useState('staticImage');
   const [gridSize, setGridSize] = useState(IMAGE_RECTS_URL_DEFAULTS.gridSize);
@@ -316,6 +321,9 @@ export default function AppV2({
   const [patternFitInternal, setPatternFitInternal] = useState(IMAGE_RECTS_URL_DEFAULTS.patternFit);
   const patternFit = patternFitExternal ? patternFitProp : patternFitInternal;
   const setPatternFit = patternFitExternal ? onPatternFitChange : setPatternFitInternal;
+  const [stageTranslateXInternal, setStageTranslateXInternal] = useState(IMAGE_RECTS_URL_DEFAULTS.stageTranslateX);
+  const stageTranslateX = stageTranslateExternal ? stageTranslateXProp : stageTranslateXInternal;
+  const setStageTranslateX = stageTranslateExternal ? onStageTranslateXChange : setStageTranslateXInternal;
   const [stitchLumaMax, setStitchLumaMax] = useState(IMAGE_RECTS_URL_DEFAULTS.stitchLumaMax);
   const [stitchRevealMode, setStitchRevealMode] = useState(IMAGE_RECTS_URL_DEFAULTS.stitchRevealMode);
   const [stitchRevealDurationSec, setStitchRevealDurationSec] = useState(IMAGE_RECTS_URL_DEFAULTS.stitchRevealDurationSec);
@@ -813,12 +821,13 @@ export default function AppV2({
     setStitchRevealBleedRotation(IMAGE_RECTS_URL_DEFAULTS.stitchRevealBleedRotation);
     setStitchRevealBleedCrossFiber(IMAGE_RECTS_URL_DEFAULTS.stitchRevealBleedCrossFiber);
     setStitchRevealBleedDraftCoupled(IMAGE_RECTS_URL_DEFAULTS.stitchRevealBleedDraftCoupled);
+    setStageTranslateX(IMAGE_RECTS_URL_DEFAULTS.stageTranslateX);
     setMediaTextureKind('staticImage');
     setImageSource((prev) => {
       if (prev) URL.revokeObjectURL(prev);
       return '';
     });
-  }, [setPatternFit]);
+  }, [setPatternFit, setStageTranslateX]);
 
   /** On mount: parse URL and apply to state (once). */
   useEffect(() => {
@@ -876,6 +885,7 @@ export default function AppV2({
       if (typeof onPatternFitChange === 'function') onPatternFitChange(q.patternFit);
       else setPatternFitInternal(q.patternFit);
     }
+    if (q.stageTranslateX != null) setStageTranslateX(Math.round(q.stageTranslateX));
     // eslint-disable-next-line react-hooks/exhaustive-deps -- once on mount; onPatternFitChange is stable (setState)
   }, []);
 
@@ -886,7 +896,7 @@ export default function AppV2({
       const search = buildUrlStateV2({
         gridSize, palette, bgShade, bgColorMode, bgCustomColor, rectColorSource, quantizeSteps, quantizeMode, quantizeGamma, quantizeDither, patternIndex,
         patternWarpShade, patternWeftShade, lumaSizeMix, lumaSizeInvert, lumaSizeFloor, cellGeometryMode, stitchLumaMax,
-        rectRadius, rectAspect, rectRatio, copyFormat, copyScale, menuHidden, mosaicBgGaps, patternFit,
+        rectRadius, rectAspect, rectRatio, copyFormat, copyScale, menuHidden, mosaicBgGaps, patternFit, stageTranslateX,
         stitchRevealMode, stitchRevealDurationSec, stitchRevealSeed, stitchRevealScale, stitchRevealNoiseScale, stitchRevealSoftness,
         stitchRevealBleedAnisotropy, stitchRevealBleedRotation, stitchRevealBleedCrossFiber, stitchRevealBleedDraftCoupled,
         keyframeAnimDurationSec: keyframeDurationSec,
@@ -900,7 +910,7 @@ export default function AppV2({
       }
     }, 400);
     return () => { clearTimeout(urlSyncTimeoutRef.current); };
-  }, [gridSize, palette, bgShade, bgColorMode, bgCustomColor, rectColorSource, quantizeSteps, quantizeMode, quantizeGamma, quantizeDither, patternIndex, patternWarpShade, patternWeftShade, lumaSizeMix, lumaSizeInvert, lumaSizeFloor, cellGeometryMode, stitchLumaMax, rectRadius, rectAspect, rectRatio, copyFormat, copyScale, menuHidden, mosaicBgGaps, patternFit, stitchRevealMode, stitchRevealDurationSec, stitchRevealSeed, stitchRevealScale, stitchRevealNoiseScale, stitchRevealSoftness, stitchRevealBleedAnisotropy, stitchRevealBleedRotation, stitchRevealBleedCrossFiber, stitchRevealBleedDraftCoupled, keyframeDurationSec, editingAfter, mosaicBefore, mosaicAfter]);
+  }, [gridSize, palette, bgShade, bgColorMode, bgCustomColor, rectColorSource, quantizeSteps, quantizeMode, quantizeGamma, quantizeDither, patternIndex, patternWarpShade, patternWeftShade, lumaSizeMix, lumaSizeInvert, lumaSizeFloor, cellGeometryMode, stitchLumaMax, rectRadius, rectAspect, rectRatio, copyFormat, copyScale, menuHidden, mosaicBgGaps, patternFit, stageTranslateX, stitchRevealMode, stitchRevealDurationSec, stitchRevealSeed, stitchRevealScale, stitchRevealNoiseScale, stitchRevealSoftness, stitchRevealBleedAnisotropy, stitchRevealBleedRotation, stitchRevealBleedCrossFiber, stitchRevealBleedDraftCoupled, keyframeDurationSec, editingAfter, mosaicBefore, mosaicAfter]);
 
   /** Keyboard shortcuts: Mod+C copy, Mod+Shift+R / F5 reload (no presets in v2). */
   useEffect(() => {
@@ -1474,7 +1484,7 @@ export default function AppV2({
       </motion.aside>
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-        <main className="flex min-h-0 flex-1 flex-col overflow-hidden p-4">
+        <main className="flex min-h-0 flex-1 flex-col overflow-hidden p-4" style={{ transform: `translateX(${stageTranslateX}px)` }}>
           <ImageRectsCanvas
             imageSource={imageSource}
             mediaTextureKind={mediaTextureKind}
@@ -1524,6 +1534,8 @@ export default function AppV2({
           setCopyFormat={setCopyFormat}
           copyScale={copyScale}
           setCopyScale={setCopyScale}
+          stageTranslateX={stageTranslateX}
+          setStageTranslateX={setStageTranslateX}
           copyDefaults={{ copyScale: IMAGE_RECTS_URL_DEFAULTS.copyScale, copyFormat: IMAGE_RECTS_URL_DEFAULTS.copyFormat }}
           onCopy={handleCopy}
           copyFeedback={copyFeedback}
