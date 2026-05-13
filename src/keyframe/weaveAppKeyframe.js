@@ -1,6 +1,7 @@
 /**
  * App.jsx keyframe snapshots per canvas mode: flat weave, weave+halftone, or print mosaic (combo+halftone).
  * Omits view, menu, copy/export/record, preset index, shadesLocked, shimmer play state, colorway anim toggles, image blobs.
+ * Includes **shimmerPhase** (shimmer band position 0–1) so Set A/B matches the sidebar Position slider and A→B can lerp it.
  */
 
 import { PATTERNS } from '../patterns';
@@ -9,7 +10,7 @@ const WEAVE_CORE_KEYS = [
   'pattern', 'palette', 'bgShade', 'warpShade', 'weftShade', 'gridSize',
   'warpGradient', 'weftGradient', 'warpGradientEnabled', 'weftGradientEnabled', 'gradSteps',
   'rectAspect', 'cornerRadius', 'canvasAspect', 'patternFit',
-  'shimmer', 'shimmerSpeed', 'shimmerWidth', 'shimmerIntensity', 'shimmerPosition', 'shimmerRotation',
+  'shimmer', 'shimmerSpeed', 'shimmerWidth', 'shimmerIntensity', 'shimmerPosition', 'shimmerPhase', 'shimmerRotation',
   'shimmerNoise', 'shimmerNoiseSeed', 'shimmerNoiseMin', 'shimmerNoiseMax', 'shimmerBlendMode',
   'useAllColorways', 'colorwaySeed', 'colorwayNoiseScale', 'colorwayNoiseMode', 'colorwayNoiseOctaves',
   'colorwayNoisePersistence', 'colorwayNoiseLacunarity', 'colorwayNoiseBias', 'colorwayNoiseX',
@@ -84,6 +85,7 @@ export function applyWeaveAppKeyframe(view, weaveHalftoneOn, setters, snap) {
     if (snap.shimmerWidth != null) setters.setShimmerWidth?.(Number(snap.shimmerWidth));
     if (snap.shimmerIntensity != null) setters.setShimmerIntensity?.(Number(snap.shimmerIntensity));
     if (snap.shimmerPosition != null) setters.setShimmerPosition?.(Number(snap.shimmerPosition));
+    if (snap.shimmerPhase != null) setters.setShimmerPhase?.(clamp(Number(snap.shimmerPhase), 0, 1));
     if (snap.shimmerRotation != null) setters.setShimmerRotation?.(clamp(Number(snap.shimmerRotation), 0, 1));
     if (snap.shimmerNoise != null) setters.setShimmerNoise?.(clamp(Number(snap.shimmerNoise), 0, 1));
     if (snap.shimmerNoiseSeed != null) setters.setShimmerNoiseSeed?.(clamp(Number(snap.shimmerNoiseSeed), 0, 1));

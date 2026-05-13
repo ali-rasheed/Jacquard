@@ -788,6 +788,8 @@ export default function App() {
   const [randomizeCornerRadius, setRandomizeCornerRadius] = useState(true);
   const canvasRef = useRef(null);
   const weaveKeyframeStitchOverrideRef = useRef(false);
+  /** True while Weave keyframe A→B transport is playing; pauses clock-driven shimmer phase updates. */
+  const weaveKeyframePlayingRef = useRef(false);
   const weaveStitchPlayRecordTimeoutRef = useRef(null);
   const halftoneContainerRef = useRef(null);
   const halftoneCanvasRef = useRef(null);
@@ -1117,7 +1119,7 @@ export default function App() {
 
   const onShimmerTime = useCallback((time) => {
     shimmerTimeRef.current = time;
-    if (shimmer && shimmerPlaying) setShimmerPhase(computeShimmerPhase(time));
+    if (shimmer && shimmerPlaying && !weaveKeyframePlayingRef.current) setShimmerPhase(computeShimmerPhase(time));
   }, [shimmer, shimmerPlaying, computeShimmerPhase]);
 
   /** Copy canvas at copyScale× resolution. Weaving: re-renders at target res for sharpness. Others: 2D upscale. */
@@ -1320,6 +1322,7 @@ export default function App() {
       shimmerWidth,
       shimmerIntensity,
       shimmerPosition,
+      shimmerPhase,
       shimmerRotation,
       shimmerNoise,
       shimmerNoiseSeed,
@@ -1406,6 +1409,7 @@ export default function App() {
       shimmerWidth,
       shimmerIntensity,
       shimmerPosition,
+      shimmerPhase,
       shimmerRotation,
       shimmerNoise,
       shimmerNoiseSeed,
@@ -1495,6 +1499,7 @@ export default function App() {
     setShimmerWidth,
     setShimmerIntensity,
     setShimmerPosition,
+    setShimmerPhase,
     setShimmerRotation,
     setShimmerNoise,
     setShimmerNoiseSeed,
@@ -1589,6 +1594,7 @@ export default function App() {
     applySnapshot: applyWeaveKeyframeSnapshot,
     defaultDurationSec: KEYFRAME_ANIM_DEFAULT_SEC,
   });
+  weaveKeyframePlayingRef.current = weaveKeyframePlaying;
 
   /** One-shot: apply `kad` / `kfe` / `kfa` / `kfb` after keyframe hook exists. */
   useEffect(() => {
