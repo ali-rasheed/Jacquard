@@ -114,6 +114,7 @@ export function ImageRectsHalftoneStage({
   captureSizeRef.current = { w: captureW, h: captureH };
 
   const capture = useCallback(() => {
+    if (!imageSource || !mediaReadyRef.current) return null;
     const canvas = canvasRef.current;
     const { w, h } = captureSizeRef.current;
     if (!isCaptureReady(canvas, w, h)) return null;
@@ -126,10 +127,10 @@ export function ImageRectsHalftoneStage({
       setCaptureError(err?.message || 'Capture failed');
       return null;
     }
-  }, []);
+  }, [imageSource]);
 
   const scheduleCapture = useCallback(() => {
-    if (imageSource && !mediaReadyRef.current) return undefined;
+    if (!imageSource || !mediaReadyRef.current) return undefined;
     const { w, h } = captureSizeRef.current;
     return scheduleCaptureWhenReady(canvasRef, w, h, capture, CAPTURE_MAX_ATTEMPTS);
   }, [imageSource, capture]);
@@ -160,11 +161,11 @@ export function ImageRectsHalftoneStage({
 
   const handleCanvasRef = useCallback((el) => {
     canvasRef.current = el;
-    if (el && (!imageSource || mediaReadyRef.current)) scheduleCapture();
+    if (el && imageSource && mediaReadyRef.current) scheduleCapture();
   }, [imageSource, scheduleCapture]);
 
   useEffect(() => {
-    mediaReadyRef.current = !imageSource;
+    mediaReadyRef.current = false;
     setCapturedDataUrl('');
     setCaptureError('');
   }, [imageSource]);

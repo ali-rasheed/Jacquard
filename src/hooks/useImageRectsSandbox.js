@@ -355,6 +355,47 @@ export function useImageRectsSandbox(vertexSource, fragmentSource, imageSource, 
       const cache = mediaCacheRef.current;
       const kind = mediaTextureKind === 'video' ? 'video' : mediaTextureKind === 'gif' ? 'gif' : 'staticImage';
 
+      /** True when the active imageSource is decoded and uploaded (not the 1×1 placeholder). */
+      const isSourceReady = () => {
+        if (!imageSource) return false;
+        const c = mediaCacheRef.current;
+        if (c.source !== imageSource && c.pendingUrl !== imageSource) return false;
+        if (c.kind === 'video') {
+          return !!(
+            c.video
+            && c.video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA
+            && c.video.videoWidth > 0
+            && c.video.videoHeight > 0
+          );
+        }
+        return !!(c.img?.complete && c.img.naturalWidth > 0 && c.img.naturalHeight > 0);
+      };
+
+      const notifyMediaReady = () => {
+        if (isSourceReady()) onMediaReadyRef.current?.();
+      };
+
+      const waitForSourceReady = (maxAttempts = 120) =>
+        new Promise((resolve) => {
+          let attempts = 0;
+          const tick = () => {
+            if (!imageSource) {
+              resolve(false);
+              return;
+            }
+            if (isSourceReady()) {
+              resolve(true);
+              return;
+            }
+            if (++attempts >= maxAttempts) {
+              resolve(false);
+              return;
+            }
+            requestAnimationFrame(tick);
+          };
+          requestAnimationFrame(tick);
+        });
+
       const stopVideo = () => {
         if (cache.video) {
           try {
@@ -388,12 +429,13 @@ export function useImageRectsSandbox(vertexSource, fragmentSource, imageSource, 
               }
               setImageSize({ width: w, height: h });
               onImageSizeRef.current?.(w, h);
+              notifyMediaReady();
             }
           } else if (cache.img?.complete) {
             uploadSourceToTexture(gl, imageTexture, cache.img);
             setImageSize({ width: cache.img.naturalWidth, height: cache.img.naturalHeight });
             onImageSizeRef.current?.(cache.img.naturalWidth, cache.img.naturalHeight);
-            onMediaReadyRef.current?.();
+            notifyMediaReady();
           }
         } else {
           cache.source = null;
@@ -432,6 +474,7 @@ export function useImageRectsSandbox(vertexSource, fragmentSource, imageSource, 
               if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
                 uploadSourceToTexture(gl, imageTexture, video);
               }
+              notifyMediaReady();
             };
             video.src = imageSource;
             video.play().catch(() => {
@@ -448,7 +491,7 @@ export function useImageRectsSandbox(vertexSource, fragmentSource, imageSource, 
               const h = img.naturalHeight;
               setImageSize({ width: w, height: h });
               onImageSizeRef.current?.(w, h);
-              onMediaReadyRef.current?.();
+              notifyMediaReady();
             };
             img.onerror = () => {
               setError(kind === 'gif' ? 'Failed to load GIF' : 'Failed to load image');
@@ -471,8 +514,11 @@ export function useImageRectsSandbox(vertexSource, fragmentSource, imageSource, 
       gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
       gl.vertexAttribPointer(posLoc, 2, gl.FLOAT, false, 0, 0);
 
-      /** Renders one frame at (w, h), returns PNG blob. Pauses/resumes animation. Capped to EXPORT_MAX_DIMENSION. */
+      /** Renders one frame at (w, h), returns PNG blob. Waits for decoded media; returns null if none/timeout. */
       const captureAtResolution = async (w, h) => {
+        if (!imageSource) return null;
+        const ready = await waitForSourceReady();
+        if (!ready) return null;
         let tw = Math.max(1, Math.round(w));
         let th = Math.max(1, Math.round(h));
         if (tw > EXPORT_MAX_DIMENSION || th > EXPORT_MAX_DIMENSION) {
@@ -487,6 +533,12 @@ export function useImageRectsSandbox(vertexSource, fragmentSource, imageSource, 
         canvas.width = tw;
         canvas.height = th;
         gl.viewport(0, 0, tw, th);
+        const snap = mediaCacheRef.current;
+        if (snap.kind === 'video' && snap.video?.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+          uploadSourceToTexture(gl, imageTexture, snap.video);
+        } else if (snap.img?.complete) {
+          uploadSourceToTexture(gl, imageTexture, snap.img);
+        }
         render();
         const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
         canvas.width = prevW;
@@ -505,7 +557,7 @@ export function useImageRectsSandbox(vertexSource, fragmentSource, imageSource, 
         resizeObserver.observe(container);
       }
       animate();
-      onCaptureReadyRef.current?.({ captureAtResolution });
+      onCaptureReadyRef.current?.({ captureAtResolution, isMediaReady: isSourceReady });
     } catch (err) {
       setError(err.message);
     }
