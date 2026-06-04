@@ -81,11 +81,11 @@ import { Icon, GroupIcon, AppSelect, SegmentedControl, SegmentedControlButton, I
 import { RecordingDownloadBanner } from './components/RecordingDownloadBanner.jsx';
 import { ThemeToggle } from './components/ThemeToggle.jsx';
 
-/** Rect fill: brand = palette from cell image luma; image = sampled RGB; pattern = warp vs weft shades only; tile art = per-cell weave ramp. */
+/** Rect fill: brand = palette from cell image luma; image = sampled RGB; warp/weft = thread shades from draft; tile art = per-cell weave ramp. */
 const RECT_COLOR_SOURCE_OPTIONS = [
   { value: 0, label: 'Brand' },
   { value: 1, label: 'Image' },
-  { value: 2, label: 'Pattern' },
+  { value: 2, label: 'Warp / weft' },
   { value: 3, label: 'Tile art' },
 ];
 
@@ -544,8 +544,9 @@ export default function AppV2({
     setHalftonePresetIndex(index);
   }, []);
 
+  /** Visible capture target only — no fallback to an unmounted/offscreen canvas when halftone is on. */
   const activeCopyCanvas = useCallback(() => {
-    if (mosaicHalftoneOn && halftoneCanvasRef.current) return halftoneCanvasRef.current;
+    if (mosaicHalftoneOn) return halftoneCanvasRef.current ?? null;
     return canvasRef.current;
   }, [mosaicHalftoneOn]);
 
@@ -557,14 +558,28 @@ export default function AppV2({
 
   /** Copy at copyScale×. Uses captureAtResolution when available so sharpness matches resolution. */
   const handleCopy2xPng = useCallback(async () => {
+    if (!imageSource) {
+      setCopyFeedback('Pick media first');
+      copyFeedbackTimeoutRef.current = setTimeout(() => setCopyFeedback(null), 2500);
+      return;
+    }
     const canvas = activeCopyCanvas();
-    if (!canvas || !canvas.width || !canvas.height) return;
+    if (!canvas || !canvas.width || !canvas.height) {
+      setCopyFeedback(mosaicHalftoneOn ? 'Halftone still preparing…' : 'Image still loading…');
+      copyFeedbackTimeoutRef.current = setTimeout(() => setCopyFeedback(null), 2500);
+      return;
+    }
     if (!mosaicHalftoneOn && imageRectsCaptureRef.current?.captureAtResolution) {
       const displayW = canvas.width / IMAGE_RECTS_DPR;
       const displayH = canvas.height / IMAGE_RECTS_DPR;
       const [w, h] = capToMax(Math.round(displayW * copyScale), Math.round(displayH * copyScale));
       const blob = await imageRectsCaptureRef.current.captureAtResolution(w, h);
-      if (blob) await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+      if (!blob) {
+        setCopyFeedback('Image still loading…');
+        copyFeedbackTimeoutRef.current = setTimeout(() => setCopyFeedback(null), 2500);
+        return;
+      }
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
       return;
     }
     const w = canvas.width * copyScale;
@@ -577,18 +592,31 @@ export default function AppV2({
     ctx.drawImage(canvas, 0, 0, w, h);
     const blob = await new Promise((resolve) => off.toBlob(resolve, 'image/png'));
     if (blob) await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
-  }, [copyScale, capToMax, mosaicHalftoneOn, activeCopyCanvas]);
+  }, [copyScale, capToMax, mosaicHalftoneOn, activeCopyCanvas, imageSource]);
 
   /** Copy at copyScale× as WebP. Uses captureAtResolution when available, then converts to WebP. */
   const handleCopyWebp = useCallback(async () => {
+    if (!imageSource) {
+      setCopyFeedback('Pick media first');
+      copyFeedbackTimeoutRef.current = setTimeout(() => setCopyFeedback(null), 2500);
+      return;
+    }
     const canvas = activeCopyCanvas();
-    if (!canvas || !canvas.width || !canvas.height) return;
+    if (!canvas || !canvas.width || !canvas.height) {
+      setCopyFeedback(mosaicHalftoneOn ? 'Halftone still preparing…' : 'Image still loading…');
+      copyFeedbackTimeoutRef.current = setTimeout(() => setCopyFeedback(null), 2500);
+      return;
+    }
     if (!mosaicHalftoneOn && imageRectsCaptureRef.current?.captureAtResolution) {
       const displayW = canvas.width / IMAGE_RECTS_DPR;
       const displayH = canvas.height / IMAGE_RECTS_DPR;
       const [w, h] = capToMax(Math.round(displayW * copyScale), Math.round(displayH * copyScale));
       const pngBlob = await imageRectsCaptureRef.current.captureAtResolution(w, h);
-      if (!pngBlob) return;
+      if (!pngBlob) {
+        setCopyFeedback('Image still loading…');
+        copyFeedbackTimeoutRef.current = setTimeout(() => setCopyFeedback(null), 2500);
+        return;
+      }
       const pngUrl = URL.createObjectURL(pngBlob);
       const webpBlob = await new Promise((resolve, reject) => {
         const img = new Image();
@@ -618,7 +646,7 @@ export default function AppV2({
     ctx.drawImage(canvas, 0, 0, w, h);
     const blob = await new Promise((resolve) => off.toBlob(resolve, 'image/webp', 0.92));
     if (blob) await navigator.clipboard.write([new ClipboardItem({ 'image/webp': blob })]);
-  }, [copyScale, capToMax, mosaicHalftoneOn, activeCopyCanvas]);
+  }, [copyScale, capToMax, mosaicHalftoneOn, activeCopyCanvas, imageSource]);
 
   const handleCopy = useCallback(async () => {
     if (copyFeedbackTimeoutRef.current) clearTimeout(copyFeedbackTimeoutRef.current);
@@ -653,8 +681,14 @@ export default function AppV2({
   } = useCanvasRecorder('shaderbox-image-rects');
 
   const startRecording = useCallback(() => {
-    recStart(activeCopyCanvas());
-  }, [recStart, activeCopyCanvas]);
+    if (!imageSource) return;
+    const canvas = activeCopyCanvas();
+    if (!canvas?.width || !canvas?.height) return;
+    if (!mosaicHalftoneOn && imageRectsCaptureRef.current?.isMediaReady && !imageRectsCaptureRef.current.isMediaReady()) {
+      return;
+    }
+    recStart(canvas);
+  }, [recStart, activeCopyCanvas, imageSource, mosaicHalftoneOn]);
 
   /** Shared stop helper: clear any stitch replay auto-stop timer before stopping recorder. */
   const stopRecordingWithCleanup = useCallback(async () => {
@@ -926,18 +960,25 @@ export default function AppV2({
     if (mediaTextureKind !== 'video' || !imageSource) return;
     if (prev === 'video') return;
     let cancelled = false;
-    const id = requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        if (cancelled) return;
-        const c = canvasRef.current;
-        if (c?.width && c?.height) recStart(c, { reason: 'auto' });
-      });
-    });
+    let attempts = 0;
+    const tryStart = () => {
+      if (cancelled || attempts++ > 180) return;
+      const c = mosaicHalftoneOn ? halftoneCanvasRef.current : canvasRef.current;
+      if (!c?.width || !c?.height) {
+        requestAnimationFrame(tryStart);
+        return;
+      }
+      if (!mosaicHalftoneOn && imageRectsCaptureRef.current?.isMediaReady && !imageRectsCaptureRef.current.isMediaReady()) {
+        requestAnimationFrame(tryStart);
+        return;
+      }
+      recStart(c, { reason: 'auto' });
+    };
+    requestAnimationFrame(tryStart);
     return () => {
       cancelled = true;
-      cancelAnimationFrame(id);
     };
-  }, [mediaTextureKind, imageSource, recStart]);
+  }, [mediaTextureKind, imageSource, recStart, mosaicHalftoneOn]);
 
   useEffect(() => {
     if (mediaTextureKind === 'video') return;
@@ -1404,24 +1445,49 @@ export default function AppV2({
                 </div>
               </div>
               <div className={sidebarGroup}>
-                <div className={`${sidebarGroupTitle} inline-flex items-center gap-1`}><Icon name="lens_blur" className={iconXs} /> ink colors</div>
+                <div className={`${sidebarGroupTitle} inline-flex w-full items-center gap-1`}>
+                  <Icon name="lens_blur" className={iconXs} />
+                  <span className="flex-1">ink colors</span>
+                  <IconButton
+                    size="resetSm"
+                    onClick={() => {
+                      setHalftoneColorBack(HALFTONE_DEFAULTS.colorBack);
+                      setHalftoneColorC(HALFTONE_DEFAULTS.colorC);
+                      setHalftoneColorM(HALFTONE_DEFAULTS.colorM);
+                      setHalftoneColorY(HALFTONE_DEFAULTS.colorY);
+                      setHalftoneColorK(HALFTONE_DEFAULTS.colorK);
+                    }}
+                    title="Reset all ink colors to default"
+                    aria-label="Reset all ink colors to default"
+                  >
+                    <Icon name="restart_alt" className={iconResetGlyph} />
+                  </IconButton>
+                </div>
                 <div className="grid grid-cols-2 gap-1.5">
                   {[
-                    { label: 'Back', value: halftoneColorBack, set: setHalftoneColorBack },
-                    { label: 'C', value: halftoneColorC, set: setHalftoneColorC },
-                    { label: 'M', value: halftoneColorM, set: setHalftoneColorM },
-                    { label: 'Y', value: halftoneColorY, set: setHalftoneColorY },
-                    { label: 'K', value: halftoneColorK, set: setHalftoneColorK },
-                  ].map(({ label, value, set }) => (
-                    <div key={label} className="flex items-center gap-1.5">
-                      <span className={`${typeLabel} w-6`}>{label}</span>
+                    { label: 'Back', value: halftoneColorBack, set: setHalftoneColorBack, default: HALFTONE_DEFAULTS.colorBack },
+                    { label: 'C', value: halftoneColorC, set: setHalftoneColorC, default: HALFTONE_DEFAULTS.colorC },
+                    { label: 'M', value: halftoneColorM, set: setHalftoneColorM, default: HALFTONE_DEFAULTS.colorM },
+                    { label: 'Y', value: halftoneColorY, set: setHalftoneColorY, default: HALFTONE_DEFAULTS.colorY },
+                    { label: 'K', value: halftoneColorK, set: setHalftoneColorK, default: HALFTONE_DEFAULTS.colorK },
+                  ].map(({ label, value, set, default: inkDefault }) => (
+                    <div key={label} className="flex items-center gap-1">
+                      <span className={`${typeLabel} w-6 shrink-0`}>{label}</span>
                       <input
                         type="color"
                         value={value}
                         onChange={(e) => set(e.target.value)}
-                        className="h-7 w-10 cursor-pointer rounded border border-border-subtle bg-surface-input"
-                        aria-label={`${label} color`}
+                        className="h-7 w-10 shrink-0 cursor-pointer rounded border border-border-subtle bg-surface-input"
+                        aria-label={`${label} ink color`}
                       />
+                      <IconButton
+                        size="resetSm"
+                        onClick={() => set(inkDefault)}
+                        title={`Reset ${label} ink to default`}
+                        aria-label={`Reset ${label} ink color to default`}
+                      >
+                        <Icon name="restart_alt" className={iconResetGlyph} />
+                      </IconButton>
                     </div>
                   ))}
                 </div>
@@ -1434,20 +1500,27 @@ export default function AppV2({
               <GroupIcon name="tune" title="Mode" />
               <AppSelect
                 id="rect-color-source-v2"
-                labelText="Rect color from"
+                labelText="Stitch color from"
                 value={rectColorSource}
                 onValueChange={(v) => setRectColorSource(Number(v))}
                 defaultValue={IMAGE_RECTS_URL_DEFAULTS.rectColorSource}
                 onReset={() => setRectColorSource(IMAGE_RECTS_URL_DEFAULTS.rectColorSource)}
                 options={RECT_COLOR_SOURCE_OPTIONS}
-                title="Image RGB, brand palette, warp/weft pattern colors, or tile art weave ramp"
-                placeholder="Color"
+                title="Brand palette, image RGB, warp/weft thread shades from the draft below, or tile-art weave ramp"
+                placeholder="Color source"
               />
               {rectColorSource !== 3 && (
-                <>
-                  <span className={`${controlLabel} ${typeLabel}`} title="Weave pattern">Weave</span>
-                  <AppSelect id="weave-pattern-v2" labelText="Weave pattern" value={patternIndex} onValueChange={(v) => setPatternIndex(Number(v))} defaultValue={IMAGE_RECTS_URL_DEFAULTS.patternIndex} onReset={() => setPatternIndex(IMAGE_RECTS_URL_DEFAULTS.patternIndex)} options={patternOptions} title="Single weave draft for rounded-rect orientation (not used in Tile art)" placeholder="Weave" />
-                </>
+                <AppSelect
+                  id="weave-pattern-v2"
+                  labelText="Weave draft"
+                  value={patternIndex}
+                  onValueChange={(v) => setPatternIndex(Number(v))}
+                  defaultValue={IMAGE_RECTS_URL_DEFAULTS.patternIndex}
+                  onReset={() => setPatternIndex(IMAGE_RECTS_URL_DEFAULTS.patternIndex)}
+                  options={patternOptions}
+                  title="Weave draft: sets stitch orientation (and warp/weft thread colors when color source is Warp / weft)"
+                  placeholder="Draft"
+                />
               )}
               <div className="flex items-center gap-1" role="group" aria-label="Colorway palette">
                 {PALETTE_SWATCH_COLORS.map((color, i) => (
