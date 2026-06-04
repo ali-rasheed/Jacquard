@@ -4,10 +4,16 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import AppV2 from './AppV2.jsx';
+import { AppTooltipProvider } from './components/ui/AppTooltipProvider.jsx';
+import { ThemeProvider } from './theme/ThemeProvider.jsx';
 import './index.css';
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
-    <AppV2 />
+    <ThemeProvider>
+      <AppTooltipProvider>
+        <AppV2 />
+      </AppTooltipProvider>
+    </ThemeProvider>
   </StrictMode>
 );

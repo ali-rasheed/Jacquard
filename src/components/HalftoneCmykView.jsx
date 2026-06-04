@@ -197,7 +197,7 @@ export default function HalftoneCmykView() {
           </div>
         </div>
       </aside>
-      <div className="relative min-h-0 flex-1 bg-[#1a1a1a]">
+      <div className="relative min-h-0 flex-1 bg-surface-input">
         <HalftoneCmyk
           width={dimensions.width}
           height={dimensions.height}

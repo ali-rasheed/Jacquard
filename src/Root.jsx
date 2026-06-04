@@ -7,6 +7,7 @@ import { Component } from 'react';
 import App from './App.jsx';
 import AccessGate from './components/AccessGate.jsx';
 import { AppTooltipProvider } from './components/ui/AppTooltipProvider.jsx';
+import { ThemeProvider } from './theme/ThemeProvider.jsx';
 
 class RootErrorBoundary extends Component {
   state = { error: null };
@@ -21,8 +22,8 @@ class RootErrorBoundary extends Component {
         <div style={{
           minHeight: '100dvh',
           padding: 24,
-          background: '#0d0d0d',
-          color: '#ff453a',
+          background: 'var(--color-surface, #0d0d0d)',
+          color: 'var(--color-error, #ff453a)',
           fontFamily: 'ui-monospace, monospace',
           fontSize: 13,
           whiteSpace: 'pre-wrap',
@@ -30,7 +31,7 @@ class RootErrorBoundary extends Component {
         }}>
           <strong>Render error</strong>
           <pre style={{ marginTop: 8 }}>{this.state.error?.message}</pre>
-          <pre style={{ marginTop: 8, color: '#a1a1a1' }}>{this.state.error?.stack}</pre>
+          <pre style={{ marginTop: 8, color: 'var(--color-text-secondary, #a1a1a1)' }}>{this.state.error?.stack}</pre>
         </div>
       );
     }
@@ -42,9 +43,11 @@ export default function Root() {
   return (
     <RootErrorBoundary>
       <AccessGate>
-        <AppTooltipProvider>
-          <App />
-        </AppTooltipProvider>
+        <ThemeProvider>
+          <AppTooltipProvider>
+            <App />
+          </AppTooltipProvider>
+        </ThemeProvider>
       </AccessGate>
     </RootErrorBoundary>
   );
