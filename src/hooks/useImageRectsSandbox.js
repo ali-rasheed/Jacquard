@@ -54,6 +54,12 @@ function createPlaceholderTexture(gl) {
 }
 
 /** Upload HTMLImageElement, HTMLVideoElement, or ImageBitmap to the 2D texture (sRGB). */
+/** blob:/data: must not use crossOrigin or decode can fail in WebGL. */
+function applyMediaCors(el, src) {
+  if (typeof src === 'string' && (src.startsWith('blob:') || src.startsWith('data:'))) return;
+  el.crossOrigin = 'anonymous';
+}
+
 function uploadSourceToTexture(gl, texture, source) {
   gl.activeTexture(gl.TEXTURE0);
   gl.bindTexture(gl.TEXTURE_2D, texture);
@@ -87,11 +93,12 @@ function hexToRgb01(hex, fallback = [0.95, 0.95, 0.95]) {
  * mediaTextureKind: staticImage = one upload after load; video = HTMLVideoElement, upload while playing;
  * gif = HTMLImageElement (animated GIF), upload every frame so frames advance.
  */
-export function useImageRectsSandbox(vertexSource, fragmentSource, imageSource, gridSize, palette, bgShade, bgColorMode, bgCustomColor, rectColorSource, quantizeSteps, quantizeMode, quantizeGamma, quantizeDither, rectShade, shadeFrom, patternWarpShade, patternWeftShade, patternIndex, patterns, rectRadius, rectAspect, rectRatio, lumaSizeMix, lumaSizeInvert, lumaSizeFloor, cellGeometryMode, stitchLumaMax, nonStitchShowsBg, stitchRevealMode, stitchRevealProgress, stitchRevealSeed, stitchRevealScale, stitchRevealNoiseScale, stitchRevealSoftness, stitchRevealBleedAnisotropy, stitchRevealBleedRotation, stitchRevealBleedCrossFiber, stitchRevealBleedDraftCoupled, tileArtLevels, tileArtThreshold, tileArtDither, tileArtColorMode, tileArtGeom, tileArtUniformGrid, tileArtRamp, onFpsChange, onImageSize, onCaptureReady, mediaTextureKind = 'staticImage') {
+export function useImageRectsSandbox(vertexSource, fragmentSource, imageSource, gridSize, palette, bgShade, bgColorMode, bgCustomColor, rectColorSource, quantizeSteps, quantizeMode, quantizeGamma, quantizeDither, rectShade, shadeFrom, patternWarpShade, patternWeftShade, patternIndex, patterns, rectRadius, rectAspect, rectRatio, lumaSizeMix, lumaSizeInvert, lumaSizeFloor, cellGeometryMode, stitchLumaMax, nonStitchShowsBg, stitchRevealMode, stitchRevealProgress, stitchRevealSeed, stitchRevealScale, stitchRevealNoiseScale, stitchRevealSoftness, stitchRevealBleedAnisotropy, stitchRevealBleedRotation, stitchRevealBleedCrossFiber, stitchRevealBleedDraftCoupled, tileArtLevels, tileArtThreshold, tileArtDither, tileArtColorMode, tileArtGeom, tileArtUniformGrid, tileArtDensity, tileArtRamp, onFpsChange, onImageSize, onMediaReady, onCaptureReady, mediaTextureKind = 'staticImage') {
   const canvasRef = useRef(null);
   const containerRef = useRef(null);
   const onFpsChangeRef = useRef(onFpsChange);
   const onImageSizeRef = useRef(onImageSize);
+  const onMediaReadyRef = useRef(onMediaReady);
   const onCaptureReadyRef = useRef(onCaptureReady);
   /** Cached decoded media: static img, video element, or gif img — keyed by blob/object URL. */
   const mediaCacheRef = useRef({ source: null, pendingUrl: null, kind: 'staticImage', img: null, video: null });
@@ -101,6 +108,7 @@ export function useImageRectsSandbox(vertexSource, fragmentSource, imageSource, 
 
   onFpsChangeRef.current = onFpsChange;
   onImageSizeRef.current = onImageSize;
+  onMediaReadyRef.current = onMediaReady;
   onCaptureReadyRef.current = onCaptureReady;
 
   useEffect(() => {
@@ -128,6 +136,7 @@ export function useImageRectsSandbox(vertexSource, fragmentSource, imageSource, 
     let patternTexHeight = 0;
     let patternMetaWidth = 0;
     let animationId = null;
+    let resizeObserver = null;
     let lastFrameTime = Date.now();
     let frameCount = 0;
     let uniformLocs = null;
@@ -219,13 +228,14 @@ export function useImageRectsSandbox(vertexSource, fragmentSource, imageSource, 
       gl.uniform1f(uniformLocs.tileW, pat?.tileW ?? 8);
       gl.uniform1f(uniformLocs.tileH, pat?.tileH ?? 8);
       gl.uniform1f(uniformLocs.patternTexHeight, patternTexHeight);
-      const ramp = normalizeTileArtRamp(tileArtRamp, list.length);
+      const ramp = normalizeTileArtRamp(tileArtRamp, list);
       if (uniformLocs.tileArtLevels != null) gl.uniform1f(uniformLocs.tileArtLevels, tileArtLevels ?? 8);
       if (uniformLocs.tileArtThreshold != null) gl.uniform1f(uniformLocs.tileArtThreshold, tileArtThreshold ?? 1);
       if (uniformLocs.tileArtDither != null) gl.uniform1f(uniformLocs.tileArtDither, tileArtDither ?? 0);
       if (uniformLocs.tileArtColorMode != null) gl.uniform1f(uniformLocs.tileArtColorMode, tileArtColorMode ?? 0);
       if (uniformLocs.tileArtGeom != null) gl.uniform1f(uniformLocs.tileArtGeom, tileArtGeom ?? 1);
       if (uniformLocs.tileArtUniformGrid != null) gl.uniform1f(uniformLocs.tileArtUniformGrid, tileArtUniformGrid ?? 1);
+      if (uniformLocs.tileArtDensity != null) gl.uniform1f(uniformLocs.tileArtDensity, tileArtDensity ?? 0);
       const rampLocs = uniformLocs.tileArtRamp;
       if (rampLocs) {
         for (let i = 0; i < 8; i++) {
@@ -303,6 +313,7 @@ export function useImageRectsSandbox(vertexSource, fragmentSource, imageSource, 
         tileArtColorMode: gl.getUniformLocation(program, 'u_tileArtColorMode'),
         tileArtGeom: gl.getUniformLocation(program, 'u_tileArtGeom'),
         tileArtUniformGrid: gl.getUniformLocation(program, 'u_tileArtUniformGrid'),
+        tileArtDensity: gl.getUniformLocation(program, 'u_tileArtDensity'),
         patternMeta: gl.getUniformLocation(program, 'u_patternMeta'),
         patternMetaWidth: gl.getUniformLocation(program, 'u_patternMetaWidth'),
         tileArtRamp: [
@@ -382,6 +393,7 @@ export function useImageRectsSandbox(vertexSource, fragmentSource, imageSource, 
             uploadSourceToTexture(gl, imageTexture, cache.img);
             setImageSize({ width: cache.img.naturalWidth, height: cache.img.naturalHeight });
             onImageSizeRef.current?.(cache.img.naturalWidth, cache.img.naturalHeight);
+            onMediaReadyRef.current?.();
           }
         } else {
           cache.source = null;
@@ -396,7 +408,7 @@ export function useImageRectsSandbox(vertexSource, fragmentSource, imageSource, 
             video.playsInline = true;
             video.setAttribute('playsinline', '');
             video.setAttribute('webkit-playsinline', '');
-            video.crossOrigin = 'anonymous';
+            applyMediaCors(video, imageSource);
             video.preload = 'auto';
             cache.video = video;
             cache.pendingUrl = imageSource;
@@ -427,7 +439,7 @@ export function useImageRectsSandbox(vertexSource, fragmentSource, imageSource, 
             });
           } else {
             const img = new Image();
-            img.crossOrigin = 'anonymous';
+            applyMediaCors(img, imageSource);
             img.onload = () => {
               cache.source = imageSource;
               cache.img = img;
@@ -436,6 +448,7 @@ export function useImageRectsSandbox(vertexSource, fragmentSource, imageSource, 
               const h = img.naturalHeight;
               setImageSize({ width: w, height: h });
               onImageSizeRef.current?.(w, h);
+              onMediaReadyRef.current?.();
             };
             img.onerror = () => {
               setError(kind === 'gif' ? 'Failed to load GIF' : 'Failed to load image');
@@ -487,6 +500,10 @@ export function useImageRectsSandbox(vertexSource, fragmentSource, imageSource, 
 
       resize();
       window.addEventListener('resize', resize);
+      if (typeof ResizeObserver !== 'undefined') {
+        resizeObserver = new ResizeObserver(() => resize());
+        resizeObserver.observe(container);
+      }
       animate();
       onCaptureReadyRef.current?.({ captureAtResolution });
     } catch (err) {
@@ -495,6 +512,7 @@ export function useImageRectsSandbox(vertexSource, fragmentSource, imageSource, 
 
     return () => {
       onCaptureReadyRef.current?.(null);
+      resizeObserver?.disconnect();
       window.removeEventListener('resize', resize);
       if (animationId) cancelAnimationFrame(animationId);
       if (imageTexture) gl.deleteTexture(imageTexture);
@@ -502,7 +520,7 @@ export function useImageRectsSandbox(vertexSource, fragmentSource, imageSource, 
       if (patternMetaTexture) gl.deleteTexture(patternMetaTexture);
       if (program) gl.deleteProgram(program);
     };
-  }, [vertexSource, fragmentSource, imageSource, gridSize, palette, bgShade, bgColorMode, bgCustomColor, rectColorSource, quantizeSteps, quantizeMode, quantizeGamma, quantizeDither, rectShade, shadeFrom, patternWarpShade, patternWeftShade, patternIndex, patterns, rectRadius, rectAspect, rectRatio, lumaSizeMix, lumaSizeInvert, lumaSizeFloor, cellGeometryMode, stitchLumaMax, nonStitchShowsBg, stitchRevealMode, stitchRevealProgress, stitchRevealSeed, stitchRevealScale, stitchRevealNoiseScale, stitchRevealSoftness, stitchRevealBleedAnisotropy, stitchRevealBleedRotation, stitchRevealBleedCrossFiber, stitchRevealBleedDraftCoupled, tileArtLevels, tileArtThreshold, tileArtDither, tileArtColorMode, tileArtGeom, tileArtUniformGrid, tileArtRamp, mediaTextureKind]);
+  }, [vertexSource, fragmentSource, imageSource, gridSize, palette, bgShade, bgColorMode, bgCustomColor, rectColorSource, quantizeSteps, quantizeMode, quantizeGamma, quantizeDither, rectShade, shadeFrom, patternWarpShade, patternWeftShade, patternIndex, patterns, rectRadius, rectAspect, rectRatio, lumaSizeMix, lumaSizeInvert, lumaSizeFloor, cellGeometryMode, stitchLumaMax, nonStitchShowsBg, stitchRevealMode, stitchRevealProgress, stitchRevealSeed, stitchRevealScale, stitchRevealNoiseScale, stitchRevealSoftness, stitchRevealBleedAnisotropy, stitchRevealBleedRotation, stitchRevealBleedCrossFiber, stitchRevealBleedDraftCoupled, tileArtLevels, tileArtThreshold, tileArtDither, tileArtColorMode, tileArtGeom, tileArtUniformGrid, tileArtDensity, tileArtRamp, mediaTextureKind]);
 
   useEffect(() => {
     const cleanup = run();

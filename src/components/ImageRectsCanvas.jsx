@@ -15,7 +15,7 @@ import { PATTERNS } from '../patterns';
  * Canvas aspect matches loaded image (or 1:1 placeholder). Viewport uses ResizeObserver:
  * patternFit 'fit' = contain (full canvas visible); 'fill' = cover (shortest side of stage filled).
  */
-function ImageRectsCanvasInner({ imageSource, mediaTextureKind = 'staticImage', gridSize, palette, bgShade, bgColorMode = 0, bgCustomColor = '#f2f2f2', rectColorSource, quantizeSteps, quantizeMode, quantizeGamma, quantizeDither, rectShade, shadeFrom, patternWarpShade, patternWeftShade, patternIndex, patterns, rectRadius, rectAspect, rectRatio, lumaSizeMix, lumaSizeInvert, lumaSizeFloor, cellGeometryMode, stitchLumaMax, nonStitchShowsBg = false, stitchRevealMode = 0, stitchRevealProgress = 1, stitchRevealSeed = 0, stitchRevealScale = 0.12, stitchRevealNoiseScale = 1, stitchRevealSoftness = 0.06, stitchRevealBleedAnisotropy = 3, stitchRevealBleedRotation = 0, stitchRevealBleedCrossFiber = 0.2, stitchRevealBleedDraftCoupled = 0, tileArtLevels = 8, tileArtThreshold = 1, tileArtDither = 0, tileArtColorMode = 0, tileArtGeom = 1, tileArtUniformGrid = 1, tileArtRamp, patternFit = 'fit', onFpsChange, onCanvasRef, onCaptureReady }) {
+function ImageRectsCanvasInner({ imageSource, mediaTextureKind = 'staticImage', gridSize, palette, bgShade, bgColorMode = 0, bgCustomColor = '#f2f2f2', rectColorSource, quantizeSteps, quantizeMode, quantizeGamma, quantizeDither, rectShade, shadeFrom, patternWarpShade, patternWeftShade, patternIndex, patterns, rectRadius, rectAspect, rectRatio, lumaSizeMix, lumaSizeInvert, lumaSizeFloor, cellGeometryMode, stitchLumaMax, nonStitchShowsBg = false, stitchRevealMode = 0, stitchRevealProgress = 1, stitchRevealSeed = 0, stitchRevealScale = 0.12, stitchRevealNoiseScale = 1, stitchRevealSoftness = 0.06, stitchRevealBleedAnisotropy = 3, stitchRevealBleedRotation = 0, stitchRevealBleedCrossFiber = 0.2, stitchRevealBleedDraftCoupled = 0, tileArtLevels = 8, tileArtThreshold = 1, tileArtDither = 0, tileArtColorMode = 0, tileArtGeom = 1, tileArtUniformGrid = 1, tileArtDensity = 0, tileArtRamp, patternFit = 'fit', onFpsChange, onCanvasRef, onCaptureReady }) {
   const { canvasRef, containerRef, error, imageSize } = useImageRectsSandbox(
     vertexSource,
     fragmentSource,
@@ -61,8 +61,10 @@ function ImageRectsCanvasInner({ imageSource, mediaTextureKind = 'staticImage', 
     tileArtColorMode ?? 0,
     tileArtGeom ?? 1,
     tileArtUniformGrid ?? 1,
+    tileArtDensity ?? 0,
     tileArtRamp,
     onFpsChange,
+    undefined,
     undefined,
     onCaptureReady,
     mediaTextureKind

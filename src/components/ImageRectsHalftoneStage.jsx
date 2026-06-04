@@ -1,14 +1,13 @@
 /**
- * ImageRectsHalftoneStage — Pipeline: Image → Image Rects (weave-oriented) → Halftone CMYK.
- * Renders ImageRectsCapture offscreen at capture resolution (image pixels, capped),
- * captures to a data URL on param change, then passes to HalftoneCmyk at **stage** size
- * (container viewport — same as WeavingHalftoneStage) so dots fill the main area.
+ * ImageRectsHalftoneStage — Mosaic/Image rects → CMYK halftone (Print mode).
+ * Offscreen capture at image resolution; HalftoneCmyk fills the stage viewport.
  */
 import { useRef, useState, useEffect, useCallback } from 'react';
 import { HalftoneCmyk } from '@paper-design/shaders-react';
 import { ImageRectsCapture } from './ImageRectsCapture';
 
-const CAPTURE_DELAY_MS = 350; // re-capture after image load
+const CAPTURE_AFTER_MEDIA_MS = 80;
+const CAPTURE_MAX_ATTEMPTS = 180;
 const WEB_GL_ATTRS = { preserveDrawingBuffer: true };
 const CAPTURE_DPR = 2;
 
@@ -37,11 +36,13 @@ function scheduleCaptureWhenReady(canvasRef, layoutW, layoutH, capture, maxAttem
 }
 
 export function ImageRectsHalftoneStage({
-  // Image Rects
   imageSource,
+  mediaTextureKind = 'staticImage',
   gridSize,
   palette,
   bgShade,
+  bgColorMode = 0,
+  bgCustomColor = '#f2f2f2',
   rectColorSource,
   quantizeSteps,
   quantizeMode,
@@ -61,8 +62,26 @@ export function ImageRectsHalftoneStage({
   lumaSizeFloor,
   cellGeometryMode,
   stitchLumaMax,
+  nonStitchShowsBg = false,
+  stitchRevealMode = 0,
+  stitchRevealProgress = 1,
+  stitchRevealSeed = 0,
+  stitchRevealScale = 0.12,
+  stitchRevealNoiseScale = 1,
+  stitchRevealSoftness = 0.06,
+  stitchRevealBleedAnisotropy = 3,
+  stitchRevealBleedRotation = 0,
+  stitchRevealBleedCrossFiber = 0.2,
+  stitchRevealBleedDraftCoupled = 0,
+  tileArtLevels = 8,
+  tileArtThreshold = 1,
+  tileArtDither = 0,
+  tileArtColorMode = 0,
+  tileArtGeom = 1,
+  tileArtUniformGrid = 1,
+  tileArtDensity = 0,
+  tileArtRamp,
   patternFit = 'fit',
-  // Halftone
   size,
   softness,
   gridNoise,
@@ -81,46 +100,83 @@ export function ImageRectsHalftoneStage({
 }) {
   const containerRef = useRef(null);
   const canvasRef = useRef(null);
-  /** Visible stage (HalftoneCmyk output) — tracks main area, like WeavingHalftoneStage. */
+  const pendingCaptureSizeRef = useRef({ w: 1280, h: 720 });
+  const captureSizeRef = useRef({ w: 1280, h: 720 });
+  const mediaReadyRef = useRef(false);
+  const [captureError, setCaptureError] = useState('');
   const [stageDimensions, setStageDimensions] = useState({ width: 1280, height: 720 });
-  /** Offscreen ImageRects render resolution — image pixels when loaded, else stage size. */
   const [captureDimensions, setCaptureDimensions] = useState({ width: 1280, height: 720 });
   const { width: stageW, height: stageH } = stageDimensions;
   const { width: captureW, height: captureH } = captureDimensions;
   const [capturedDataUrl, setCapturedDataUrl] = useState('');
 
   const MAX_CAPTURE = 2048;
-  const handleImageSize = useCallback((w, h) => {
-    if (!w || !h) return;
-    const scale = Math.min(1, MAX_CAPTURE / Math.max(w, h));
-    setCaptureDimensions({ width: Math.round(w * scale), height: Math.round(h * scale) });
-  }, []);
+  captureSizeRef.current = { w: captureW, h: captureH };
 
   const capture = useCallback(() => {
     const canvas = canvasRef.current;
-    if (!isCaptureReady(canvas, captureW, captureH)) return null;
+    const { w, h } = captureSizeRef.current;
+    if (!isCaptureReady(canvas, w, h)) return null;
     try {
       const dataUrl = canvas.toDataURL('image/png');
       setCapturedDataUrl(dataUrl);
+      setCaptureError('');
       return dataUrl;
-    } catch {
+    } catch (err) {
+      setCaptureError(err?.message || 'Capture failed');
       return null;
     }
-  }, [captureW, captureH]);
+  }, []);
+
+  const scheduleCapture = useCallback(() => {
+    if (imageSource && !mediaReadyRef.current) return undefined;
+    const { w, h } = captureSizeRef.current;
+    return scheduleCaptureWhenReady(canvasRef, w, h, capture, CAPTURE_MAX_ATTEMPTS);
+  }, [imageSource, capture]);
+
+  const handleImageSize = useCallback((w, h) => {
+    if (!w || !h) return;
+    const scale = Math.min(1, MAX_CAPTURE / Math.max(w, h));
+    const cw = Math.round(w * scale);
+    const ch = Math.round(h * scale);
+    pendingCaptureSizeRef.current = { w: cw, h: ch };
+    captureSizeRef.current = { w: cw, h: ch };
+    setCaptureDimensions({ width: cw, height: ch });
+  }, []);
+
+  const handleMediaReady = useCallback(() => {
+    mediaReadyRef.current = true;
+    const { w, h } = pendingCaptureSizeRef.current;
+    captureSizeRef.current = { w, h };
+    setTimeout(() => {
+      scheduleCaptureWhenReady(canvasRef, w, h, capture, CAPTURE_MAX_ATTEMPTS);
+    }, CAPTURE_AFTER_MEDIA_MS);
+  }, [capture]);
+
+  const handleCaptureError = useCallback((msg) => {
+    setCaptureError(msg || '');
+    setCapturedDataUrl('');
+  }, []);
 
   const handleCanvasRef = useCallback((el) => {
     canvasRef.current = el;
-    if (el) scheduleCaptureWhenReady(canvasRef, captureW, captureH, capture);
-  }, [capture, captureW, captureH]);
+    if (el && (!imageSource || mediaReadyRef.current)) scheduleCapture();
+  }, [imageSource, scheduleCapture]);
 
-  // Capture when params or capture resolution change.
   useEffect(() => {
-    return scheduleCaptureWhenReady(canvasRef, captureW, captureH, capture);
-  }, [
+    mediaReadyRef.current = !imageSource;
+    setCapturedDataUrl('');
+    setCaptureError('');
+  }, [imageSource]);
+
+  useEffect(() => scheduleCapture(), [
     imageSource,
+    mediaTextureKind,
     gridSize,
     palette,
     bgShade,
+    bgColorMode,
+    bgCustomColor,
     rectColorSource,
     quantizeSteps,
     quantizeMode,
@@ -138,24 +194,36 @@ export function ImageRectsHalftoneStage({
     lumaSizeFloor,
     cellGeometryMode,
     stitchLumaMax,
+    nonStitchShowsBg,
+    stitchRevealMode,
+    stitchRevealProgress,
+    stitchRevealSeed,
+    stitchRevealScale,
+    stitchRevealNoiseScale,
+    stitchRevealSoftness,
+    stitchRevealBleedAnisotropy,
+    stitchRevealBleedRotation,
+    stitchRevealBleedCrossFiber,
+    stitchRevealBleedDraftCoupled,
+    tileArtLevels,
+    tileArtThreshold,
+    tileArtDither,
+    tileArtColorMode,
+    tileArtGeom,
+    tileArtUniformGrid,
+    tileArtDensity,
+    tileArtRamp,
     capture,
     captureW,
     captureH,
+    scheduleCapture,
   ]);
 
-  // Delayed capture when image URL changes (async load).
-  useEffect(() => {
-    if (!imageSource) return;
-    const t = setTimeout(() => scheduleCaptureWhenReady(canvasRef, captureW, captureH, capture), CAPTURE_DELAY_MS);
-    return () => clearTimeout(t);
-  }, [imageSource, capture, captureW, captureH]);
-
-  // HalftoneCmyk mounts canvas asynchronously; sync it into halftoneCanvasRef for copy in App.
   useEffect(() => {
     if (!capturedDataUrl || !halftoneContainerRef?.current || !halftoneCanvasRef) return;
     let cancelled = false;
     let attempts = 0;
-    const maxAttempts = 120; // ~2s at 60fps
+    const maxAttempts = 120;
     const findCanvas = () => {
       if (cancelled || attempts++ >= maxAttempts) return;
       const el = halftoneContainerRef.current;
@@ -173,7 +241,6 @@ export function ImageRectsHalftoneStage({
     };
   }, [capturedDataUrl, halftoneContainerRef, halftoneCanvasRef]);
 
-  // Stage size from container (Halftone output fills viewport).
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -188,49 +255,77 @@ export function ImageRectsHalftoneStage({
     return () => ro.disconnect();
   }, []);
 
-  // Without an image, render/capture at stage size so placeholder rects match the viewport.
   useEffect(() => {
     if (!imageSource) {
       setCaptureDimensions(stageDimensions);
+      pendingCaptureSizeRef.current = { w: stageDimensions.width, h: stageDimensions.height };
     }
   }, [imageSource, stageDimensions]);
 
+  const captureProps = {
+    imageSource,
+    mediaTextureKind,
+    gridSize,
+    palette,
+    bgShade,
+    bgColorMode,
+    bgCustomColor,
+    rectColorSource,
+    quantizeSteps,
+    quantizeMode,
+    quantizeGamma,
+    quantizeDither,
+    rectShade,
+    shadeFrom,
+    patternWarpShade,
+    patternWeftShade,
+    patternIndex,
+    patterns,
+    rectRadius,
+    rectAspect,
+    rectRatio,
+    lumaSizeMix,
+    lumaSizeInvert,
+    lumaSizeFloor,
+    cellGeometryMode,
+    stitchLumaMax,
+    nonStitchShowsBg,
+    stitchRevealMode,
+    stitchRevealProgress,
+    stitchRevealSeed,
+    stitchRevealScale,
+    stitchRevealNoiseScale,
+    stitchRevealSoftness,
+    stitchRevealBleedAnisotropy,
+    stitchRevealBleedRotation,
+    stitchRevealBleedCrossFiber,
+    stitchRevealBleedDraftCoupled,
+    tileArtLevels,
+    tileArtThreshold,
+    tileArtDither,
+    tileArtColorMode,
+    tileArtGeom,
+    tileArtUniformGrid,
+    tileArtDensity,
+    tileArtRamp,
+  };
+
   return (
     <div ref={containerRef} className="flex h-full min-h-0 flex-1 w-full">
-      {/* Offscreen image rects canvas. */}
       <div
         aria-hidden
         className="absolute overflow-hidden"
         style={{ left: '-9999px', top: 0, width: captureW, height: captureH }}
       >
         <ImageRectsCapture
+          key={imageSource || 'no-image'}
           width={captureW}
           height={captureH}
-          imageSource={imageSource}
-          gridSize={gridSize}
-          palette={palette}
-          bgShade={bgShade}
-          rectColorSource={rectColorSource}
-          quantizeSteps={quantizeSteps}
-          quantizeMode={quantizeMode}
-          quantizeGamma={quantizeGamma}
-          quantizeDither={quantizeDither}
-          rectShade={rectShade}
-          shadeFrom={shadeFrom}
-          patternWarpShade={patternWarpShade}
-          patternWeftShade={patternWeftShade}
-          patternIndex={patternIndex}
-          patterns={patterns ?? []}
-          rectRadius={rectRadius}
-          rectAspect={rectAspect}
-          rectRatio={rectRatio}
-          lumaSizeMix={lumaSizeMix}
-          lumaSizeInvert={lumaSizeInvert}
-          lumaSizeFloor={lumaSizeFloor}
-          cellGeometryMode={cellGeometryMode}
-          stitchLumaMax={stitchLumaMax}
+          {...captureProps}
           onCanvasRef={handleCanvasRef}
           onImageSize={handleImageSize}
+          onMediaReady={handleMediaReady}
+          onCaptureError={handleCaptureError}
         />
       </div>
 
@@ -265,8 +360,12 @@ export function ImageRectsHalftoneStage({
             webGlContextAttributes={WEB_GL_ATTRS}
           />
         ) : (
-          <div className="flex h-full w-full items-center justify-center text-text-muted">
-            {imageSource ? 'Preparing…' : 'Pick an image above'}
+          <div className="flex h-full w-full flex-col items-center justify-center gap-1 px-4 text-center text-text-muted">
+            {captureError ? (
+              <span className="text-error text-sm">{captureError}</span>
+            ) : (
+              <span>{imageSource ? 'Preparing…' : 'Pick media above'}</span>
+            )}
           </div>
         )}
       </div>

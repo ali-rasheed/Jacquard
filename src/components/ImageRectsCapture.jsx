@@ -1,10 +1,8 @@
 /**
  * ImageRectsCapture — Headless image-rects canvas for pipeline capture.
- * Renders the image→rects shader (weave pattern orients rects; optional luma-driven size)
- * at given width×height and forwards the canvas ref for toDataURL(). Used by
- * ImageRectsHalftoneStage to feed HalftoneCmyk.
+ * Same shader uniforms as ImageRectsCanvas; fixed width×height for HalftoneCmyk capture.
  */
-import { useCallback } from 'react';
+import { useCallback, useEffect } from 'react';
 import { useImageRectsSandbox } from '../hooks/useImageRectsSandbox';
 import fragmentSource from '../shaders/fragmentImageRects.glsl?raw';
 import vertexSource from '../shaders/vertex.glsl?raw';
@@ -14,9 +12,12 @@ export function ImageRectsCapture({
   width,
   height,
   imageSource,
+  mediaTextureKind = 'staticImage',
   gridSize,
   palette,
   bgShade,
+  bgColorMode = 0,
+  bgCustomColor = '#f2f2f2',
   rectColorSource,
   quantizeSteps,
   quantizeMode,
@@ -36,16 +37,39 @@ export function ImageRectsCapture({
   lumaSizeFloor,
   cellGeometryMode,
   stitchLumaMax,
+  nonStitchShowsBg = false,
+  stitchRevealMode = 0,
+  stitchRevealProgress = 1,
+  stitchRevealSeed = 0,
+  stitchRevealScale = 0.12,
+  stitchRevealNoiseScale = 1,
+  stitchRevealSoftness = 0.06,
+  stitchRevealBleedAnisotropy = 3,
+  stitchRevealBleedRotation = 0,
+  stitchRevealBleedCrossFiber = 0.2,
+  stitchRevealBleedDraftCoupled = 0,
+  tileArtLevels = 8,
+  tileArtThreshold = 1,
+  tileArtDither = 0,
+  tileArtColorMode = 0,
+  tileArtGeom = 1,
+  tileArtUniformGrid = 1,
+  tileArtDensity = 0,
+  tileArtRamp,
   onCanvasRef,
   onImageSize,
+  onMediaReady,
+  onCaptureError,
 }) {
-  const { canvasRef, containerRef } = useImageRectsSandbox(
+  const { canvasRef, containerRef, error } = useImageRectsSandbox(
     vertexSource,
     fragmentSource,
     imageSource ?? '',
     gridSize ?? 32,
     palette ?? 0,
     bgShade ?? 2,
+    bgColorMode ?? 0,
+    bgCustomColor ?? '#f2f2f2',
     rectColorSource ?? 1,
     quantizeSteps ?? 0,
     quantizeMode ?? 0,
@@ -65,22 +89,35 @@ export function ImageRectsCapture({
     lumaSizeFloor ?? 0.2,
     cellGeometryMode ?? 0,
     stitchLumaMax ?? 0.42,
-    0,
-    0,
-    1,
-    0,
-    0.12,
-    1,
-    0.06,
-    3,
-    0,
-    0.2,
-    0,
+    nonStitchShowsBg ? 1 : 0,
+    stitchRevealMode ?? 0,
+    stitchRevealProgress ?? 1,
+    stitchRevealSeed ?? 0,
+    stitchRevealScale ?? 0.12,
+    stitchRevealNoiseScale ?? 1,
+    stitchRevealSoftness ?? 0.06,
+    stitchRevealBleedAnisotropy ?? 3,
+    stitchRevealBleedRotation ?? 0,
+    stitchRevealBleedCrossFiber ?? 0.2,
+    stitchRevealBleedDraftCoupled ?? 0,
+    tileArtLevels ?? 8,
+    tileArtThreshold ?? 1,
+    tileArtDither ?? 0,
+    tileArtColorMode ?? 0,
+    tileArtGeom ?? 1,
+    tileArtUniformGrid ?? 1,
+    tileArtDensity ?? 0,
+    tileArtRamp,
     undefined,
     onImageSize,
+    onMediaReady,
     undefined,
-    'staticImage'
+    mediaTextureKind
   );
+
+  useEffect(() => {
+    onCaptureError?.(error || '');
+  }, [error, onCaptureError]);
 
   const setRef = useCallback(
     (el) => {

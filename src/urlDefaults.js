@@ -96,6 +96,8 @@ export const IMAGE_RECTS_URL_DEFAULTS = {
   tileArtGeom: 1,
   /** 1 = fixed 8×8 mini-cell grid; 0 = each pattern's native tileW×tileH (URL tug). */
   tileArtUniformGrid: 1,
+  /** 0 = full weave carpet in occupied macros; 1 = per mini-cell luma+hash visibility (URL taf). */
+  tileArtDensity: 0,
   quantizeSteps: 0,
   /** 0 = band RGB channels, 1 = band HSV (posterize hue/sat/value). */
   quantizeMode: 0,

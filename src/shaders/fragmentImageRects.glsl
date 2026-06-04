@@ -9,6 +9,7 @@
  * Rect color: u_rectColorSource 0 = brand palette (shade from luma/warp/weft), 1 = image RGB,
  * 2 = pattern-only (warp vs weft → two palette shades), 3 = tile art (per-cell weave draft from ramp).
  * Tile art: luma band → u_tileArtRamp slot → PATTERNS atlas; sub-cell warp/weft fill (flat or rounded rects).
+ * Optional u_tileArtDensity: per mini-cell luma + hash mask (sparse→dense field) on top of weave + brand/tint colors.
  * Optional uniform 8×8 mini-cell grid (u_tileArtUniformGrid): weave lookup still uses each pattern's tileW/H.
  *
  * Stitch-in (optional): ramp u_stitchRevealProgress from 0→1 so stitches appear from a blank (BG-only) frame.
@@ -67,6 +68,7 @@ uniform float u_tileArtDither;      // 0–1 band jitter
 uniform float u_tileArtColorMode;   // 0 mono, 1 brand, 2 tint
 uniform float u_tileArtGeom;        // 0 flat sub-cell fill, 1 rounded mini stitches
 uniform float u_tileArtUniformGrid; // 0 = pattern tileW/H grid, 1 = fixed 8×8 mini cells
+uniform float u_tileArtDensity;     // 0 = full mini-cell carpet in occupied macros; 1 = per mini-cell luma+hash mask
 uniform float u_tileArtRamp0;
 uniform float u_tileArtRamp1;
 uniform float u_tileArtRamp2;
@@ -376,9 +378,9 @@ void main() {
     float lum = dot(quantized, vec3(0.2126, 0.7152, 0.0722));
     float levels = clamp(u_tileArtLevels, 2.0, 8.0);
     float t = lum * (levels - 1.0);
-    if (u_tileArtDither > 0.001) {
-      float h = fract(sin(dot(cellID, vec2(12.9898, 78.233))) * 43758.5453);
-      t += (h - 0.5) * u_tileArtDither;
+    if (u_tileArtDither > 0.001 && u_tileArtDensity < 0.5) {
+      float hBand = fract(sin(dot(cellID, vec2(12.9898, 78.233))) * 43758.5453);
+      t += (hBand - 0.5) * u_tileArtDither;
     }
     float band = clamp(floor(t + 0.5), 0.0, levels - 1.0);
     float patternIdx = tileArtRampSlot(band);
@@ -390,11 +392,11 @@ void main() {
     float uniformOn = step(0.5, u_tileArtUniformGrid);
     float geomW = mix(tileW, TILE_ART_UNIFORM_W, uniformOn);
     float geomH = mix(tileH, TILE_ART_UNIFORM_H, uniformOn);
+    float gCol = floor(cellUV.x * geomW);
+    float gRow = floor(cellUV.y * geomH);
     float patCol;
     float patRow;
     if (u_tileArtUniformGrid > 0.5) {
-      float gCol = floor(cellUV.x * geomW);
-      float gRow = floor(cellUV.y * geomH);
       patCol = floor(((gCol + 0.5) / geomW) * tileW);
       patRow = floor(((gRow + 0.5) / geomH) * tileH);
     } else {
@@ -440,7 +442,23 @@ void main() {
       tileVec = mix(bgVec, stitchCol, stitchMask);
     }
     if (tileVec.a < 0.001) tileVec = vec4(bgVec.rgb, 1.0);
-    outColor = mix(bgVec, tileVec, occupied);
+    float densityMask = 1.0;
+    if (u_tileArtDensity > 0.5) {
+      float texXSub = (cellID.x + (gCol + 0.5) / geomW) / (gridSize * aspect);
+      float texYSub = 1.0 - (cellID.y + (gRow + 0.5) / geomH) / gridSize;
+      vec3 sampledSub = texture2D(u_imageSampler, vec2(texXSub, texYSub)).rgb;
+      vec2 subCellKey = cellID + vec2(gCol, gRow) * 0.03125;
+      vec3 quantSub = quantizeImage(sampledSub, u_quantizeSteps, u_quantizeMode, u_quantizeGamma, u_quantizeDither, subCellKey);
+      float lumSub = dot(quantSub, vec3(0.2126, 0.7152, 0.0722));
+      float density = clamp(1.0 - lumSub, 0.0, 1.0);
+      float h = fract(sin(dot(subCellKey, vec2(12.9898, 78.233))) * 43758.5453);
+      if (u_tileArtDither > 0.001) {
+        density = clamp(density + (h - 0.5) * u_tileArtDither, 0.0, 1.0);
+      }
+      densityMask = step(h, density);
+    }
+    float stitchVisible = occupied * mix(1.0, densityMask, step(0.5, u_tileArtDensity));
+    outColor = mix(bgVec, tileVec, stitchVisible);
   } else {
     vec4 inRectVec = rectVec.a > 0.001 ? rectVec : vec4(bgVec.rgb, 1.0);
     outColor = mix(bgVec, inRectVec, cell);

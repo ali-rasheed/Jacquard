@@ -16,6 +16,7 @@ export const MOSAIC_KEYFRAME_KEYS = [
   'tileArtColorMode',
   'tileArtGeom',
   'tileArtUniformGrid',
+  'tileArtDensity',
   'tileArtRamp',
   'patternWarpShade',
   'patternWeftShade',
@@ -77,6 +78,7 @@ export function applyMosaicKeyframe(setters, snap) {
   if (snap.tileArtColorMode != null) setters.setTileArtColorMode?.(r(snap.tileArtColorMode, 0, 2));
   if (snap.tileArtGeom != null) setters.setTileArtGeom?.(r(snap.tileArtGeom, 0, 1));
   if (snap.tileArtUniformGrid != null) setters.setTileArtUniformGrid?.(r(snap.tileArtUniformGrid, 0, 1));
+  if (snap.tileArtDensity != null) setters.setTileArtDensity?.(r(snap.tileArtDensity, 0, 1));
   if (Array.isArray(snap.tileArtRamp)) setters.setTileArtRamp?.(snap.tileArtRamp.map((v) => r(v, 0, 999)));
   if (snap.patternWarpShade != null) setters.setPatternWarpShade?.(r(snap.patternWarpShade, 0, 4));
   if (snap.patternWeftShade != null) setters.setPatternWeftShade?.(r(snap.patternWeftShade, 0, 4));
