@@ -17,7 +17,6 @@ export function ShaderEmbedExportModal({
   snapshotB,
   isKeyframePlaying = false,
   shimmerPlaying = true,
-  stageTranslateX = 0,
   colorwayAnimPlaying,
 }) {
   const [source, setSource] = useState('current');
@@ -26,17 +25,15 @@ export function ShaderEmbedExportModal({
   const [hoverReactive, setHoverReactive] = useState(false);
   const [hoverRevealOnly, setHoverRevealOnly] = useState(false);
   const [movementBoost, setMovementBoost] = useState(true);
-  const [localStageX, setLocalStageX] = useState(Math.round(Number(stageTranslateX) || 0));
   const [copyState, setCopyState] = useState('');
 
   useEffect(() => {
     if (!open) return;
-    setLocalStageX(Math.round(Number(stageTranslateX) || 0));
     setHoverReactive(false);
     setHoverRevealOnly(false);
     setMovementBoost(true);
     setCopyState('');
-  }, [open, stageTranslateX]);
+  }, [open]);
 
   const hasA = !!snapshotA;
   const hasB = !!snapshotB;
@@ -50,12 +47,11 @@ export function ShaderEmbedExportModal({
     staticMode,
     isKeyframePlaying,
     shimmerPlaying,
-    stageTranslateX: localStageX,
     colorwayAnimPlaying,
     hoverReactive,
     hoverRevealOnly,
     movementBoost,
-  }), [source, currentState, snapshotA, snapshotB, staticMode, isKeyframePlaying, shimmerPlaying, localStageX, colorwayAnimPlaying, hoverReactive, hoverRevealOnly, movementBoost]);
+  }), [source, currentState, snapshotA, snapshotB, staticMode, isKeyframePlaying, shimmerPlaying, colorwayAnimPlaying, hoverReactive, hoverRevealOnly, movementBoost]);
 
   const reactCode = useMemo(() => generateReactEmbedCode(payload), [payload]);
   const htmlCode = useMemo(() => generateHtmlEmbedCode(payload), [payload]);
@@ -89,19 +85,6 @@ export function ShaderEmbedExportModal({
               <option value="setA" disabled={!hasA}>Set A</option>
               <option value="setB" disabled={!hasB}>Set B</option>
             </select>
-          </label>
-
-          <label className={`inline-flex items-center gap-2 ${typeLabel}`}>
-            <span className="text-text-muted">Stage X</span>
-            <input
-              type="number"
-              min={-400}
-              max={400}
-              step={1}
-              value={localStageX}
-              onChange={(e) => setLocalStageX(Math.max(-400, Math.min(400, Math.round(Number(e.target.value) || 0))))}
-              className="w-20 rounded border border-border-subtle bg-surface-input px-2 py-1 text-text"
-            />
           </label>
 
           <label className={`inline-flex items-center gap-2 ${typeLabel}`}>
