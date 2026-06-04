@@ -7,7 +7,9 @@
     "check": "eslint src --max-warnings 0",
     "test": "vitest run",
     "dev": "npm run check && vite",
+    "dev:ds": "vite --open /design-system.html",
     "devp": "portless shaderbox vite",
+    "devp:ds": "portless shaderbox-design-system vite --open /design-system.html",
     "build": "npm run check && vite build",
     "preview": "vite preview",
     "preset-maker": "node bin/preset-maker.js"
