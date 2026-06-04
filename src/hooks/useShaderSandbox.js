@@ -5,6 +5,7 @@
  * Pattern data is uploaded as a texture; uniforms include u_tileW, u_tileH for the selected pattern.
  * Stitch-in: u_stitchReveal* — optional per-cell reveal order + progress (see fragment.glsl).
  * **stageTranslateX** (pixels): **u_stageTranslateX** — horizontal shift of the weave sample in fragment space (see fragment.glsl).
+ * **ENS mark:** `u_ensMarkSampler` on texture **unit 1** (`ens-mark.png?url`); `u_ensMarkAspect` = texel width÷height; **`u_ensMarkVisible`** toggles compositing (Weave sidebar / URL **`ensm`**).
  *
  * Shader source is read from refs so that code changes (e.g. HMR on .glsl save) only trigger
  * a program recompile, not a full canvas teardown and re-run.
@@ -16,6 +17,8 @@ import { useRef, useEffect, useCallback, useState } from 'react';
 import { EXPORT_MAX_DIMENSION, RECT_ASPECT_DEFAULT } from '../constants';
 import { buildPatternTexture, PATTERNS } from '../patterns';
 import { WEAVING_URL_DEFAULTS } from '../urlDefaults';
+import ensMarkUrl from '../assets/ens-mark.png?url';
+import { ENS_MARK_TEX_ASPECT } from '../assets/ensMarkMeta.js';
 
 const DPR = 2;
 
@@ -24,6 +27,9 @@ function getUniformLocs(gl, program) {
     time: gl.getUniformLocation(program, 'u_time'),
     resolution: gl.getUniformLocation(program, 'u_resolution'),
     patternSampler: gl.getUniformLocation(program, 'u_patternSampler'),
+    ensMarkSampler: gl.getUniformLocation(program, 'u_ensMarkSampler'),
+    ensMarkAspect: gl.getUniformLocation(program, 'u_ensMarkAspect'),
+    ensMarkVisible: gl.getUniformLocation(program, 'u_ensMarkVisible'),
     patternIndex: gl.getUniformLocation(program, 'u_patternIndex'),
     tileW: gl.getUniformLocation(program, 'u_tileW'),
     tileH: gl.getUniformLocation(program, 'u_tileH'),
@@ -142,7 +148,7 @@ function getPaletteColor(paletteIndex, shadeIndex) {
   return PALETTE_RGBA[p][s];
 }
 
-export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, palette, bgShade, warpShade, weftShade, gridSize, warpGradient, weftGradient, warpGradientEnabled, weftGradientEnabled, gradSteps, rectAspect, cornerRadius, shimmer, shimmerSpeed, shimmerWidth, shimmerIntensity, shimmerPosition, shimmerRotation, shimmerNoise, shimmerNoiseSeed, shimmerNoiseMin, shimmerNoiseMax, shimmerBlendMode, useAllColorways, colorwaySeed, colorwayNoiseScale, colorwayNoiseMode, colorwayNoiseOctaves, colorwayNoisePersistence, colorwayNoiseLacunarity, colorwayNoiseBias, colorwayNoiseX, colorwayBleedAnisotropy, colorwayBleedRotation, colorwayBleedCrossFiber, colorwayBleedDraftCoupled, colorwayIncludeMask, stitchRevealMode, stitchRevealProgress, stitchRevealSeed, stitchRevealScale, stitchRevealNoiseScale, stitchRevealSoftness, stitchRevealBleedAnisotropy, stitchRevealBleedRotation, stitchRevealBleedCrossFiber, stitchRevealBleedDraftCoupled, stageTranslateX, shimmerPlaying, shimmerPausedAtTime, shimmerPhase, onShimmerTime, patterns, onFpsChange, onCaptureReady) {
+export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, palette, bgShade, warpShade, weftShade, gridSize, warpGradient, weftGradient, warpGradientEnabled, weftGradientEnabled, gradSteps, rectAspect, cornerRadius, shimmer, shimmerSpeed, shimmerWidth, shimmerIntensity, shimmerPosition, shimmerRotation, shimmerNoise, shimmerNoiseSeed, shimmerNoiseMin, shimmerNoiseMax, shimmerBlendMode, useAllColorways, colorwaySeed, colorwayNoiseScale, colorwayNoiseMode, colorwayNoiseOctaves, colorwayNoisePersistence, colorwayNoiseLacunarity, colorwayNoiseBias, colorwayNoiseX, colorwayBleedAnisotropy, colorwayBleedRotation, colorwayBleedCrossFiber, colorwayBleedDraftCoupled, colorwayIncludeMask, stitchRevealMode, stitchRevealProgress, stitchRevealSeed, stitchRevealScale, stitchRevealNoiseScale, stitchRevealSoftness, stitchRevealBleedAnisotropy, stitchRevealBleedRotation, stitchRevealBleedCrossFiber, stitchRevealBleedDraftCoupled, stageTranslateX, weaveEnsMarkVisible, shimmerPlaying, shimmerPausedAtTime, shimmerPhase, onShimmerTime, patterns, onFpsChange, onCaptureReady) {
   const canvasRef = useRef(null);
   const containerRef = useRef(null);
   const vertexSourceRef = useRef(vertexSource);
@@ -269,6 +275,8 @@ export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, pal
       : (WEAVING_URL_DEFAULTS.weaveStitchRevealBleedDraftCoupled ? 1 : 0);
   const stageTranslateXRef = useRef(stageTranslateX ?? 0);
   stageTranslateXRef.current = Number(stageTranslateX) || 0;
+  const weaveEnsMarkVisibleRef = useRef(weaveEnsMarkVisible !== false);
+  weaveEnsMarkVisibleRef.current = weaveEnsMarkVisible !== false;
   shimmerPlayingRef.current = shimmerPlaying ?? true;
   shimmerPausedAtTimeRef.current = shimmerPausedAtTime ?? 0;
   shimmerPhaseRef.current = shimmerPhase ?? 0;
@@ -294,6 +302,7 @@ export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, pal
     let program = null;
     let positionBuffer = null;
     let patternTexture = null;
+    let ensMarkTexture = null;
     let animationId = null;
     let resizeObserver = null;
     let startTime = Date.now();
@@ -303,6 +312,7 @@ export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, pal
     let patternTexHeight = 0;
     let revealStartTime = 0;
     let lastPatternIndex = -1;
+    let ensMarkAspect = ENS_MARK_TEX_ASPECT;
     const list = Array.isArray(patterns) ? patterns : PATTERNS;
 
     const resize = () => {
@@ -342,6 +352,17 @@ export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, pal
       gl.activeTexture(gl.TEXTURE0);
       gl.bindTexture(gl.TEXTURE_2D, patternTexture);
       gl.uniform1i(uniformLocs.patternSampler, 0);
+      if (uniformLocs.ensMarkSampler != null && ensMarkTexture) {
+        gl.activeTexture(gl.TEXTURE1);
+        gl.bindTexture(gl.TEXTURE_2D, ensMarkTexture);
+        gl.uniform1i(uniformLocs.ensMarkSampler, 1);
+      }
+      if (uniformLocs.ensMarkAspect != null) {
+        gl.uniform1f(uniformLocs.ensMarkAspect, ensMarkAspect);
+      }
+      if (uniformLocs.ensMarkVisible != null) {
+        gl.uniform1f(uniformLocs.ensMarkVisible, weaveEnsMarkVisibleRef.current ? 1.0 : 0.0);
+      }
       gl.uniform1f(uniformLocs.time, time);
       const effectiveShimmerTime = shimmerPlayingRef.current ? time : shimmerPausedAtTimeRef.current;
       if (uniformLocs.shimmerTime != null) gl.uniform1f(uniformLocs.shimmerTime, effectiveShimmerTime);
@@ -492,6 +513,23 @@ export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, pal
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+      ensMarkTexture = gl.createTexture();
+      gl.activeTexture(gl.TEXTURE1);
+      gl.bindTexture(gl.TEXTURE_2D, ensMarkTexture);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      const ensImg = new Image();
+      ensImg.onload = () => {
+        ensMarkAspect = ensImg.naturalWidth / Math.max(1, ensImg.naturalHeight);
+        gl.activeTexture(gl.TEXTURE1);
+        gl.bindTexture(gl.TEXTURE_2D, ensMarkTexture);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, ensImg);
+      };
+      ensImg.src = ensMarkUrl;
+
       setupGeometry();
 
       const posLoc = gl.getAttribLocation(program, 'a_position');
@@ -547,6 +585,7 @@ export function useShaderSandbox(vertexSource, fragmentSource, patternIndex, pal
       window.removeEventListener('resize', resize);
       if (animationId) cancelAnimationFrame(animationId);
       if (patternTexture) gl.deleteTexture(patternTexture);
+      if (ensMarkTexture) gl.deleteTexture(ensMarkTexture);
       if (program) gl.deleteProgram(program);
     };
   }, [palette, patterns]);

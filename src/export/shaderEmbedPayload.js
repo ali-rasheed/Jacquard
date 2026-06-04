@@ -6,6 +6,8 @@ import { PATTERNS, buildPatternTexture } from '../patterns';
 import { WEAVING_URL_DEFAULTS } from '../urlDefaults';
 import { encodeColorwayAnimPlaying } from '../colorwayAnimUrl';
 import { inferShaderEmbedDrivers, getShaderEmbedDriverAuto, getShaderEmbedDriverAutoBits } from './shaderEmbedInferAnimation';
+import { ENS_MARK_PNG_BASE64 } from '../assets/ensMarkEmbedBase64.js';
+import { ENS_MARK_TEX_ASPECT } from '../assets/ensMarkMeta.js';
 import vertexSource from '../shaders/vertex.glsl?raw';
 import fragmentSource from '../shaders/fragment.glsl?raw';
 
@@ -171,6 +173,8 @@ export function buildShaderEmbedPayload(options) {
     u_hoverVelocity: 0,
     u_ripplePhase: 0,
     u_rippleWidth: 0.22,
+    u_ensMarkAspect: ENS_MARK_TEX_ASPECT,
+    u_ensMarkVisible: state.weaveEnsMarkVisible !== false ? 1 : 0,
   };
 
   const inferOpts = {
@@ -224,6 +228,9 @@ export function buildShaderEmbedPayload(options) {
         base64: patternTextureB64,
         width: patternTexture.width,
         height: patternTexture.height,
+      },
+      u_ensMarkSampler: {
+        base64: ENS_MARK_PNG_BASE64,
       },
     },
     canvas: {

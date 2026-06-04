@@ -9,6 +9,10 @@ uniform vec2 u_resolution;         // Canvas size in pixels (for aspect and AA)
 
 // Pattern texture: one strip per pattern, R channel = 0 warp / 1 weft per cell
 uniform sampler2D u_patternSampler;
+// ENS mark (PNG, white on black): `u_ensMarkAspect` = texture width/height so the on-screen rect matches pixels.
+uniform sampler2D u_ensMarkSampler;
+uniform float u_ensMarkAspect;    // texture width / height (>0)
+uniform float u_ensMarkVisible;   // 1 = composite ENS mark; 0 = skip (sidebar / URL)
 uniform float u_patternIndex;     // Which strip (pattern) to use
 uniform float u_tileW;
 uniform float u_tileH;            // Repeat size of this pattern (e.g. 8×8)
@@ -556,5 +560,26 @@ void main() {
       // In reveal-only mode keep background transparent so tiles appear only on interaction.
       outColor.a = cell;
     }
+
+    // ENS mark: top-left; max(drawW,drawH) = 1.8% canvas diagonal (12% of former 15%×diag reference); aspect = u_ensMarkAspect (w/h) matches PNG.
+    if (u_ensMarkVisible > 0.5) {
+      vec2 px = vec2(gl_FragCoord.x, u_resolution.y - gl_FragCoord.y);
+      float diag = length(u_resolution);
+      float S = 0.09 * diag;
+      float a = max(0.001, u_ensMarkAspect);
+      float drawW = a >= 1.0 ? S : S * a;
+      float drawH = a >= 1.0 ? S / a : S;
+      float inset = max(1.0, min(S * 0.12, diag * 0.01));
+      vec2 origin = vec2(inset, inset);
+      vec2 q = (px - origin) / vec2(drawW, drawH);
+      if (q.x >= 0.0 && q.x <= 1.0 && q.y >= 0.0 && q.y <= 1.0) {
+        vec4 sm = texture2D(u_ensMarkSampler, vec2(1.0 - q.x, 1.0 - q.y));
+        float lum = dot(sm.rgb, vec3(0.299, 0.587, 0.114));
+        float cover = smoothstep(0.2, 0.92, lum) * sm.a;
+        vec3 logoRgb = vec3(1.0);
+        outColor.rgb = mix(outColor.rgb, logoRgb, cover);
+      }
+    }
+
     gl_FragColor = outColor;
 }

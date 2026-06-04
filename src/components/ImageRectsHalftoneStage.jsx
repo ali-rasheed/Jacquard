@@ -1,7 +1,8 @@
 /**
  * ImageRectsHalftoneStage — Pipeline: Image → Image Rects (weave-oriented) → Halftone CMYK.
- * Renders ImageRectsCapture offscreen at main-area size, captures to data URL on param change
- * (and after a short delay when image URL changes for async load), then passes to HalftoneCmyk.
+ * Renders ImageRectsCapture offscreen at capture resolution (image pixels, capped),
+ * captures to a data URL on param change, then passes to HalftoneCmyk at **stage** size
+ * (container viewport — same as WeavingHalftoneStage) so dots fill the main area.
  */
 import { useRef, useState, useEffect, useCallback } from 'react';
 import { HalftoneCmyk } from '@paper-design/shaders-react';
@@ -9,6 +10,31 @@ import { ImageRectsCapture } from './ImageRectsCapture';
 
 const CAPTURE_DELAY_MS = 350; // re-capture after image load
 const WEB_GL_ATTRS = { preserveDrawingBuffer: true };
+const CAPTURE_DPR = 2;
+
+function isCaptureReady(canvas, layoutW, layoutH) {
+  if (!canvas || layoutW < 1 || layoutH < 1) return false;
+  const minW = Math.round(layoutW * CAPTURE_DPR * 0.5);
+  const minH = Math.round(layoutH * CAPTURE_DPR * 0.5);
+  return canvas.width >= minW && canvas.height >= minH;
+}
+
+function scheduleCaptureWhenReady(canvasRef, layoutW, layoutH, capture, maxAttempts = 90) {
+  let attempts = 0;
+  let cancelled = false;
+  const tick = () => {
+    if (cancelled || attempts++ >= maxAttempts) return;
+    if (isCaptureReady(canvasRef.current, layoutW, layoutH)) {
+      capture();
+      return;
+    }
+    requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+  return () => {
+    cancelled = true;
+  };
+}
 
 export function ImageRectsHalftoneStage({
   // Image Rects
@@ -55,20 +81,24 @@ export function ImageRectsHalftoneStage({
 }) {
   const containerRef = useRef(null);
   const canvasRef = useRef(null);
-  const [dimensions, setDimensions] = useState({ width: 1280, height: 720 });
+  /** Visible stage (HalftoneCmyk output) — tracks main area, like WeavingHalftoneStage. */
+  const [stageDimensions, setStageDimensions] = useState({ width: 1280, height: 720 });
+  /** Offscreen ImageRects render resolution — image pixels when loaded, else stage size. */
+  const [captureDimensions, setCaptureDimensions] = useState({ width: 1280, height: 720 });
+  const { width: stageW, height: stageH } = stageDimensions;
+  const { width: captureW, height: captureH } = captureDimensions;
   const [capturedDataUrl, setCapturedDataUrl] = useState('');
 
-  /** Use image resolution and aspect for capture; cap longest side to avoid huge canvases. */
   const MAX_CAPTURE = 2048;
   const handleImageSize = useCallback((w, h) => {
     if (!w || !h) return;
     const scale = Math.min(1, MAX_CAPTURE / Math.max(w, h));
-    setDimensions({ width: Math.round(w * scale), height: Math.round(h * scale) });
+    setCaptureDimensions({ width: Math.round(w * scale), height: Math.round(h * scale) });
   }, []);
 
   const capture = useCallback(() => {
     const canvas = canvasRef.current;
-    if (!canvas || !canvas.width || !canvas.height) return null;
+    if (!isCaptureReady(canvas, captureW, captureH)) return null;
     try {
       const dataUrl = canvas.toDataURL('image/png');
       setCapturedDataUrl(dataUrl);
@@ -76,28 +106,16 @@ export function ImageRectsHalftoneStage({
     } catch {
       return null;
     }
-  }, []);
+  }, [captureW, captureH]);
 
   const handleCanvasRef = useCallback((el) => {
     canvasRef.current = el;
-    if (el) {
-      requestAnimationFrame(() => {
-        if (el.width && el.height) {
-          try {
-            setCapturedDataUrl(el.toDataURL('image/png'));
-          } catch {
-            // ignore
-          }
-        }
-      });
-    }
-  }, []);
+    if (el) scheduleCaptureWhenReady(canvasRef, captureW, captureH, capture);
+  }, [capture, captureW, captureH]);
 
-  // Capture when params change.
+  // Capture when params or capture resolution change.
   useEffect(() => {
-    if (!canvasRef.current) return;
-    const id = requestAnimationFrame(() => capture());
-    return () => cancelAnimationFrame(id);
+    return scheduleCaptureWhenReady(canvasRef, captureW, captureH, capture);
   }, [
     imageSource,
     gridSize,
@@ -121,14 +139,16 @@ export function ImageRectsHalftoneStage({
     cellGeometryMode,
     stitchLumaMax,
     capture,
+    captureW,
+    captureH,
   ]);
 
   // Delayed capture when image URL changes (async load).
   useEffect(() => {
     if (!imageSource) return;
-    const t = setTimeout(() => capture(), CAPTURE_DELAY_MS);
+    const t = setTimeout(() => scheduleCaptureWhenReady(canvasRef, captureW, captureH, capture), CAPTURE_DELAY_MS);
     return () => clearTimeout(t);
-  }, [imageSource, capture]);
+  }, [imageSource, capture, captureW, captureH]);
 
   // HalftoneCmyk mounts canvas asynchronously; sync it into halftoneCanvasRef for copy in App.
   useEffect(() => {
@@ -153,27 +173,27 @@ export function ImageRectsHalftoneStage({
     };
   }, [capturedDataUrl, halftoneContainerRef, halftoneCanvasRef]);
 
-  // Fallback: size from container when no image has reported dimensions yet.
+  // Stage size from container (Halftone output fills viewport).
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
-    const ro = new ResizeObserver(() => {
-      const w = el.clientWidth || 1280;
-      const h = el.clientHeight || 720;
-      setDimensions((prev) => {
-        // Only use container size if we never got image dimensions (e.g. no image loaded).
-        if (prev.width === 1280 && prev.height === 720 && w && h) return { width: w, height: h };
-        return prev;
-      });
-    });
+    const syncStage = () => {
+      const w = el.clientWidth;
+      const h = el.clientHeight;
+      if (w && h) setStageDimensions({ width: w, height: h });
+    };
+    const ro = new ResizeObserver(syncStage);
     ro.observe(el);
-    const w = el.clientWidth || 1280;
-    const h = el.clientHeight || 720;
-    if (w && h) setDimensions((prev) => (prev.width === 1280 && prev.height === 720 ? { width: w, height: h } : prev));
+    syncStage();
     return () => ro.disconnect();
   }, []);
 
-  const { width, height } = dimensions;
+  // Without an image, render/capture at stage size so placeholder rects match the viewport.
+  useEffect(() => {
+    if (!imageSource) {
+      setCaptureDimensions(stageDimensions);
+    }
+  }, [imageSource, stageDimensions]);
 
   return (
     <div ref={containerRef} className="flex h-full min-h-0 flex-1 w-full">
@@ -181,11 +201,11 @@ export function ImageRectsHalftoneStage({
       <div
         aria-hidden
         className="absolute overflow-hidden"
-        style={{ left: '-9999px', top: 0, width, height }}
+        style={{ left: '-9999px', top: 0, width: captureW, height: captureH }}
       >
         <ImageRectsCapture
-          width={width}
-          height={height}
+          width={captureW}
+          height={captureH}
           imageSource={imageSource}
           gridSize={gridSize}
           palette={palette}
@@ -217,8 +237,8 @@ export function ImageRectsHalftoneStage({
       <div ref={halftoneContainerRef} className="relative min-h-0 flex-1 bg-surface-secondary size-full">
         {capturedDataUrl ? (
           <HalftoneCmyk
-            width={width}
-            height={height}
+            width={stageW}
+            height={stageH}
             image={capturedDataUrl}
             colorBack={colorBack}
             colorC={colorC}

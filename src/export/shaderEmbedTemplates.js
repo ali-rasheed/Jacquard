@@ -14,9 +14,10 @@ function makeRuntimeCore(payload) {
   const fixedUniforms = json(payload.fixedUniforms);
   const handoffDefaults = json(payload.handoffDefaults);
   const patternTextureDataUrl = `data:image/png;base64,${payload.textures.u_patternSampler.base64}`;
+  const ensMarkTextureDataUrl = `data:image/png;base64,${payload.textures.u_ensMarkSampler.base64}`;
   const vertex = payload.vertexSource.replace(/`/g, '\\`');
   const fragment = payload.fragmentSource.replace(/`/g, '\\`');
-  return { fixedUniforms, handoffDefaults, patternTextureDataUrl, vertex, fragment };
+  return { fixedUniforms, handoffDefaults, patternTextureDataUrl, ensMarkTextureDataUrl, vertex, fragment };
 }
 
 export function generateReactEmbedCode(payload) {
@@ -28,6 +29,7 @@ const fragmentSource = \`${core.fragment}\`;
 const fixedUniforms = ${core.fixedUniforms};
 const defaults = ${core.handoffDefaults};
 const patternTextureSrc = ${toJsLiteral(core.patternTextureDataUrl)};
+const ensMarkTextureSrc = ${toJsLiteral(core.ensMarkTextureDataUrl)};
 
 function compileShader(gl, source, type) {
   const shader = gl.createShader(type);
@@ -282,6 +284,7 @@ export function WeavingShaderEmbed({
     uniformLocs.u_hoverVelocity = gl.getUniformLocation(program, 'u_hoverVelocity');
     uniformLocs.u_ripplePhase = gl.getUniformLocation(program, 'u_ripplePhase');
     const patternSamplerLoc = gl.getUniformLocation(program, 'u_patternSampler');
+    const ensMarkSamplerLoc = gl.getUniformLocation(program, 'u_ensMarkSampler');
 
     const texture = gl.createTexture();
     gl.activeTexture(gl.TEXTURE0);
@@ -291,12 +294,25 @@ export function WeavingShaderEmbed({
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
 
-    loadImage(patternTextureSrc).then((img) => {
+    const ensMarkTexture = gl.createTexture();
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, ensMarkTexture);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+    Promise.all([loadImage(patternTextureSrc), loadImage(ensMarkTextureSrc)]).then(([patternImg, ensImg]) => {
       if (!mounted) return;
+      gl.useProgram(program);
       gl.activeTexture(gl.TEXTURE0);
       gl.bindTexture(gl.TEXTURE_2D, texture);
-      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, patternImg);
       gl.uniform1i(patternSamplerLoc, 0);
+      gl.activeTexture(gl.TEXTURE1);
+      gl.bindTexture(gl.TEXTURE_2D, ensMarkTexture);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, ensImg);
+      gl.uniform1i(ensMarkSamplerLoc, 1);
 
       Object.entries(fixedUniforms).forEach(([name, value]) => {
         if (
@@ -391,6 +407,12 @@ export function WeavingShaderEmbed({
         ripplePhaseValue += 0.04 + hoverVelocityValue * 0.45;
 
         gl.useProgram(program);
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, texture);
+        gl.uniform1i(patternSamplerLoc, 0);
+        gl.activeTexture(gl.TEXTURE1);
+        gl.bindTexture(gl.TEXTURE_2D, ensMarkTexture);
+        gl.uniform1i(ensMarkSamplerLoc, 1);
         gl.uniform2f(uniformLocs.u_resolution, canvas.width, canvas.height);
         gl.uniform1f(uniformLocs.u_time, resolvedTime);
         gl.uniform1f(uniformLocs.u_shimmerTime, resolvedShimmerTime);
@@ -447,6 +469,7 @@ export function generateHtmlEmbedCode(payload) {
   const fixedUniforms = ${core.fixedUniforms};
   const defaults = ${core.handoffDefaults};
   const patternTextureSrc = ${toJsLiteral(core.patternTextureDataUrl)};
+  const ensMarkTextureSrc = ${toJsLiteral(core.ensMarkTextureDataUrl)};
 
   function compileShader(gl, source, type) {
     const shader = gl.createShader(type);
@@ -593,12 +616,21 @@ export function generateHtmlEmbedCode(payload) {
     uniformLocs.u_hoverVelocity = gl.getUniformLocation(program, 'u_hoverVelocity');
     uniformLocs.u_ripplePhase = gl.getUniformLocation(program, 'u_ripplePhase');
     const patternSamplerLoc = gl.getUniformLocation(program, 'u_patternSampler');
+    const ensMarkSamplerLoc = gl.getUniformLocation(program, 'u_ensMarkSampler');
 
     const texture = gl.createTexture();
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, texture);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+    const ensMarkTexture = gl.createTexture();
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, ensMarkTexture);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
 
@@ -663,6 +695,13 @@ export function generateHtmlEmbedCode(payload) {
       hoverStrengthValue += (hoverTarget - hoverStrengthValue) * 0.12;
       hoverVelocityValue *= 0.9;
       ripplePhaseValue += 0.04 + hoverVelocityValue * 0.45;
+      gl.useProgram(program);
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, texture);
+      gl.uniform1i(patternSamplerLoc, 0);
+      gl.activeTexture(gl.TEXTURE1);
+      gl.bindTexture(gl.TEXTURE_2D, ensMarkTexture);
+      gl.uniform1i(ensMarkSamplerLoc, 1);
       gl.uniform2f(uniformLocs.u_resolution, canvas.width, canvas.height);
       gl.uniform1f(uniformLocs.u_time, resolvedTime);
       gl.uniform1f(uniformLocs.u_shimmerTime, resolvedShimmerTime);
@@ -688,12 +727,17 @@ export function generateHtmlEmbedCode(payload) {
       rafId = requestAnimationFrame(render);
     }
 
-    loadImage(patternTextureSrc).then((img) => {
+    Promise.all([loadImage(patternTextureSrc), loadImage(ensMarkTextureSrc)]).then(([patternImg, ensImg]) => {
       if (!mounted) return;
+      gl.useProgram(program);
       gl.activeTexture(gl.TEXTURE0);
       gl.bindTexture(gl.TEXTURE_2D, texture);
-      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, patternImg);
       gl.uniform1i(patternSamplerLoc, 0);
+      gl.activeTexture(gl.TEXTURE1);
+      gl.bindTexture(gl.TEXTURE_2D, ensMarkTexture);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, ensImg);
+      gl.uniform1i(ensMarkSamplerLoc, 1);
       Object.entries(fixedUniforms).forEach(([name, value]) => {
         if (
           name === 'u_time' ||

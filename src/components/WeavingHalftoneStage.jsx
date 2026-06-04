@@ -3,6 +3,7 @@
  * Renders a hidden ShaderCanvas, captures it to a data URL (on param change + throttled when
  * shimmer is on or **weave stitch-in** mode is active), and passes the URL to HalftoneCmyk.
  * **stageTranslateX** is passed through to **ShaderCanvas** so the weave source matches the main Weave tab.
+ * **weaveEnsMarkVisible** matches flat Weave (ENS mark in fragment); halftone capture reflects the same toggle.
  * Main area shows only the halftone result.
  */
 import { useRef, useState, useEffect, useCallback } from 'react';
@@ -13,6 +14,33 @@ import { WEAVING_URL_DEFAULTS } from '../urlDefaults';
 
 const CAPTURE_THROTTLE_MS = 120; // ~8 fps when shimmer is animating
 const WEB_GL_ATTRS = { preserveDrawingBuffer: true };
+/** Must match useShaderSandbox DPR — offscreen weave canvas should be layout×DPR before capture. */
+const CAPTURE_DPR = 2;
+
+function isCaptureReady(canvas, layoutW, layoutH) {
+  if (!canvas || layoutW < 1 || layoutH < 1) return false;
+  const minW = Math.round(layoutW * CAPTURE_DPR * 0.5);
+  const minH = Math.round(layoutH * CAPTURE_DPR * 0.5);
+  return canvas.width >= minW && canvas.height >= minH;
+}
+
+/** Poll until offscreen weave canvas matches layout (WebGL resize is async). */
+function scheduleCaptureWhenReady(canvasRef, layoutW, layoutH, capture, maxAttempts = 90) {
+  let attempts = 0;
+  let cancelled = false;
+  const tick = () => {
+    if (cancelled || attempts++ >= maxAttempts) return;
+    if (isCaptureReady(canvasRef.current, layoutW, layoutH)) {
+      capture();
+      return;
+    }
+    requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+  return () => {
+    cancelled = true;
+  };
+}
 
 export function WeavingHalftoneStage({
   patterns,
@@ -71,6 +99,7 @@ export function WeavingHalftoneStage({
   weaveStitchRevealBleedCrossFiber = WEAVING_URL_DEFAULTS.weaveStitchRevealBleedCrossFiber,
   weaveStitchRevealBleedDraftCoupled = WEAVING_URL_DEFAULTS.weaveStitchRevealBleedDraftCoupled,
   stageTranslateX = 0,
+  weaveEnsMarkVisible = WEAVING_URL_DEFAULTS.weaveEnsMarkVisible,
   // Halftone params
   size,
   softness,
@@ -92,13 +121,14 @@ export function WeavingHalftoneStage({
 }) {
   const containerRef = useRef(null);
   const [dimensions, setDimensions] = useState({ width: 1280, height: 720 });
+  const { width, height } = dimensions;
   const weavingCanvasRef = useRef(null);
   const [capturedDataUrl, setCapturedDataUrl] = useState('');
   const rafRef = useRef(null);
 
   const capture = useCallback(() => {
     const canvas = weavingCanvasRef.current;
-    if (!canvas || !canvas.width || !canvas.height) return null;
+    if (!isCaptureReady(canvas, width, height)) return null;
     try {
       const dataUrl = canvas.toDataURL('image/png');
       setCapturedDataUrl(dataUrl);
@@ -106,15 +136,11 @@ export function WeavingHalftoneStage({
     } catch {
       return null;
     }
-  }, []);
+  }, [width, height]);
 
   // Capture once when canvas is ready or weaving params change (non-shimmer).
   useEffect(() => {
-    if (!weavingCanvasRef.current) return;
-    const id = requestAnimationFrame(() => {
-      capture();
-    });
-    return () => cancelAnimationFrame(id);
+    return scheduleCaptureWhenReady(weavingCanvasRef, width, height, capture);
   }, [
     patternIndex,
     palette,
@@ -156,6 +182,7 @@ export function WeavingHalftoneStage({
     shimmerNoiseMax,
     shimmerBlendMode,
     weaveStitchRevealMode,
+    weaveStitchRevealProgress,
     weaveStitchRevealSeed,
     weaveStitchRevealScale,
     weaveStitchRevealNoiseScale,
@@ -165,6 +192,9 @@ export function WeavingHalftoneStage({
     weaveStitchRevealBleedCrossFiber,
     weaveStitchRevealBleedDraftCoupled,
     capture,
+    weaveEnsMarkVisible,
+    width,
+    height,
   ]);
 
   // Throttled capture loop when shimmer is on or stitch-in mode is on (progress animates every frame).
@@ -175,28 +205,18 @@ export function WeavingHalftoneStage({
       rafRef.current = requestAnimationFrame(tick);
       if (now - last < CAPTURE_THROTTLE_MS) return;
       last = now;
-      if (weavingCanvasRef.current?.width) capture();
+      if (isCaptureReady(weavingCanvasRef.current, width, height)) capture();
     };
     rafRef.current = requestAnimationFrame(tick);
     return () => {
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
     };
-  }, [shimmer, weaveStitchRevealMode, capture]);
+  }, [shimmer, weaveStitchRevealMode, capture, width, height]);
 
   const handleCanvasRef = useCallback((el) => {
     weavingCanvasRef.current = el;
-    if (el) {
-      requestAnimationFrame(() => {
-        if (el.width && el.height) {
-          try {
-            setCapturedDataUrl(el.toDataURL('image/png'));
-          } catch {
-            // ignore canvas tainted or other capture errors
-          }
-        }
-      });
-    }
-  }, []);
+    if (el) scheduleCaptureWhenReady(weavingCanvasRef, width, height, capture);
+  }, [capture, width, height]);
 
   // Paper mounts the halftone canvas asynchronously; keep halftoneCanvasRef in sync for copy.
   useEffect(() => {
@@ -235,8 +255,6 @@ export function WeavingHalftoneStage({
     if (w && h) setDimensions({ width: w, height: h });
     return () => ro.disconnect();
   }, []);
-
-  const { width, height } = dimensions;
 
   return (
     <div ref={containerRef} className="flex h-full min-h-0 flex-1 w-full">
@@ -307,6 +325,7 @@ export function WeavingHalftoneStage({
           weaveStitchRevealBleedCrossFiber={weaveStitchRevealBleedCrossFiber}
           weaveStitchRevealBleedDraftCoupled={!!weaveStitchRevealBleedDraftCoupled}
           stageTranslateX={stageTranslateX}
+          weaveEnsMarkVisible={weaveEnsMarkVisible}
           patterns={patterns ?? []}
           onCanvasRef={handleCanvasRef}
         />

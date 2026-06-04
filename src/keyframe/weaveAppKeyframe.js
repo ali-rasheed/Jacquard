@@ -2,6 +2,7 @@
  * App.jsx keyframe snapshots per canvas mode: flat weave, weave+halftone, or print mosaic (combo+halftone).
  * Omits view, menu, copy/export/record, preset index, shadesLocked, shimmer play state, colorway anim toggles, image blobs.
  * Includes **shimmerPhase** (shimmer band position 0–1) so Set A/B matches the sidebar Position slider and A→B can lerp it.
+ * Includes **weaveEnsMarkVisible** so keyframed A/B can turn the in-shader ENS mark on or off.
  */
 
 import { PATTERNS } from '../patterns';
@@ -19,6 +20,7 @@ const WEAVE_CORE_KEYS = [
   'weaveStitchRevealMode', 'weaveStitchRevealDurationSec', 'weaveStitchRevealProgress', 'weaveStitchRevealSeed',
   'weaveStitchRevealScale', 'weaveStitchRevealNoiseScale', 'weaveStitchRevealSoftness', 'weaveStitchRevealBleedAnisotropy', 'weaveStitchRevealBleedRotation',
   'weaveStitchRevealBleedCrossFiber', 'weaveStitchRevealBleedDraftCoupled',
+  'weaveEnsMarkVisible',
 ];
 
 const HALFTONE_KEYS = [
@@ -80,6 +82,7 @@ export function applyWeaveAppKeyframe(view, weaveHalftoneOn, setters, snap) {
     if (snap.cornerRadius != null) setters.setCornerRadius?.(clamp(Number(snap.cornerRadius), 0, 0.5));
     if (snap.canvasAspect != null) setters.setCanvasAspect?.(clamp(Number(snap.canvasAspect), 0.5, 2));
     if (snap.patternFit === 'fit' || snap.patternFit === 'fill') setters.setPatternFit?.(snap.patternFit);
+    if (snap.weaveEnsMarkVisible != null) setters.setWeaveEnsMarkVisible?.(!!snap.weaveEnsMarkVisible);
     if (snap.shimmer != null) setters.setShimmer?.(!!snap.shimmer);
     if (snap.shimmerSpeed != null) setters.setShimmerSpeed?.(clamp(Number(snap.shimmerSpeed), 1, 16));
     if (snap.shimmerWidth != null) setters.setShimmerWidth?.(Number(snap.shimmerWidth));
