@@ -3371,24 +3371,49 @@ export default function App() {
                   </div>
                 </div>
                 <div className={sidebarGroup}>
-                  <div className={`${sidebarGroupTitle} inline-flex items-center gap-1`}><Icon name="lens_blur" className={iconXs} /> ink colors</div>
+                  <div className={`${sidebarGroupTitle} inline-flex w-full items-center gap-1`}>
+                    <Icon name="lens_blur" className={iconXs} />
+                    <span className="flex-1">ink colors</span>
+                    <IconButton
+                      size="resetSm"
+                      onClick={() => {
+                        setHalftoneColorBack(HALFTONE_DEFAULTS.colorBack);
+                        setHalftoneColorC(HALFTONE_DEFAULTS.colorC);
+                        setHalftoneColorM(HALFTONE_DEFAULTS.colorM);
+                        setHalftoneColorY(HALFTONE_DEFAULTS.colorY);
+                        setHalftoneColorK(HALFTONE_DEFAULTS.colorK);
+                      }}
+                      title="Reset all ink colors to default"
+                      aria-label="Reset all ink colors to default"
+                    >
+                      <Icon name="restart_alt" className={iconResetGlyph} />
+                    </IconButton>
+                  </div>
                   <div className="grid grid-cols-2 gap-1.5">
                     {[
-                      { label: 'Back', value: halftoneColorBack, set: setHalftoneColorBack },
-                      { label: 'C', value: halftoneColorC, set: setHalftoneColorC },
-                      { label: 'M', value: halftoneColorM, set: setHalftoneColorM },
-                      { label: 'Y', value: halftoneColorY, set: setHalftoneColorY },
-                      { label: 'K', value: halftoneColorK, set: setHalftoneColorK },
-                    ].map(({ label, value, set }) => (
-                      <div key={label} className="flex items-center gap-1.5">
-                        <span className={`${typeLabel} w-6`}>{label}</span>
+                      { label: 'Back', value: halftoneColorBack, set: setHalftoneColorBack, default: HALFTONE_DEFAULTS.colorBack },
+                      { label: 'C', value: halftoneColorC, set: setHalftoneColorC, default: HALFTONE_DEFAULTS.colorC },
+                      { label: 'M', value: halftoneColorM, set: setHalftoneColorM, default: HALFTONE_DEFAULTS.colorM },
+                      { label: 'Y', value: halftoneColorY, set: setHalftoneColorY, default: HALFTONE_DEFAULTS.colorY },
+                      { label: 'K', value: halftoneColorK, set: setHalftoneColorK, default: HALFTONE_DEFAULTS.colorK },
+                    ].map(({ label, value, set, default: inkDefault }) => (
+                      <div key={label} className="flex items-center gap-1">
+                        <span className={`${typeLabel} w-6 shrink-0`}>{label}</span>
                         <input
                           type="color"
                           value={value}
                           onChange={(e) => set(e.target.value)}
-                          className="h-7 w-10 cursor-pointer rounded border border-border-subtle bg-surface-input"
-                          aria-label={`${label} color`}
+                          className="h-7 w-10 shrink-0 cursor-pointer rounded border border-border-subtle bg-surface-input"
+                          aria-label={`${label} ink color`}
                         />
+                        <IconButton
+                          size="resetSm"
+                          onClick={() => set(inkDefault)}
+                          title={`Reset ${label} ink to default`}
+                          aria-label={`Reset ${label} ink color to default`}
+                        >
+                          <Icon name="restart_alt" className={iconResetGlyph} />
+                        </IconButton>
                       </div>
                     ))}
                   </div>
