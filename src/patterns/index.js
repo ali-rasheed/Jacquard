@@ -9,6 +9,50 @@
 
 const TILE_MAX = 10;
 
+/** Hidden from pickers / randomize / tile-art defaults; kept in atlas for stable indices and legacy URLs. */
+export const DISABLED_PATTERN_IDS = new Set(['weft-rib-irregular']);
+
+export function isPatternEnabled(pat) {
+  if (!pat) return false;
+  return !DISABLED_PATTERN_IDS.has(pat.id);
+}
+
+export function getEnabledPatternIndices(patterns = PATTERNS) {
+  return patterns.map((_, i) => i).filter((i) => isPatternEnabled(patterns[i]));
+}
+
+export function getFirstEnabledPatternIndex(patterns = PATTERNS) {
+  const enabled = getEnabledPatternIndices(patterns);
+  return enabled.length ? enabled[0] : 0;
+}
+
+/** Map disabled atlas index to first enabled (plain) for ramp slots and randomize. */
+export function resolvePatternIndex(idx, patterns = PATTERNS) {
+  const i = Math.max(0, Math.min(patterns.length - 1, Math.round(Number(idx) || 0)));
+  return isPatternEnabled(patterns[i]) ? i : getFirstEnabledPatternIndex(patterns);
+}
+
+/** Select options: enabled patterns only; include `selectedIndex` when disabled so Radix still has a value. */
+export function buildPatternSelectOptions(patterns = PATTERNS, selectedIndex) {
+  const indices = getEnabledPatternIndices(patterns);
+  if (
+    selectedIndex != null &&
+    selectedIndex >= 0 &&
+    selectedIndex < patterns.length &&
+    !indices.includes(selectedIndex)
+  ) {
+    indices.push(selectedIndex);
+    indices.sort((a, b) => a - b);
+  }
+  return indices.map((i) => ({ value: i, label: patterns[i].name }));
+}
+
+export function randomEnabledPatternIndex(patterns = PATTERNS) {
+  const indices = getEnabledPatternIndices(patterns);
+  if (!indices.length) return 0;
+  return indices[Math.floor(Math.random() * indices.length)];
+}
+
 /** Row as 8-bit number (bit 0 = col 0) → array of 0|1 for cols 0..7 */
 function row8(v) {
   const a = [];

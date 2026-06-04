@@ -2,7 +2,7 @@
  * Tile art (Mosaic rectColorSource=3): eight-slot luma ramp into PATTERNS indices.
  * Default order sorts weaves by tile area (simple → busy). Slots 0–7 map dark → light bands.
  */
-import { PATTERNS } from './index.js';
+import { PATTERNS, isPatternEnabled, resolvePatternIndex } from './index.js';
 
 export const TILE_ART_SLOT_COUNT = 8;
 
@@ -19,7 +19,7 @@ export function patternComplexityScore(pat) {
 
 /** PATTERNS indices, simplest weave first; first TILE_ART_SLOT_COUNT used as default ramp. */
 export function buildComplexityOrderedPatternIndices(patterns = PATTERNS) {
-  const indices = patterns.map((_, i) => i);
+  const indices = patterns.map((_, i) => i).filter((i) => isPatternEnabled(patterns[i]));
   indices.sort((a, b) => patternComplexityScore(patterns[a]) - patternComplexityScore(patterns[b]));
   return indices;
 }
@@ -50,21 +50,20 @@ export function buildPatternMetaTexture(patterns = PATTERNS) {
   return { data, width: w, height: 1 };
 }
 
-export function normalizeTileArtRamp(ramp, patternCount = PATTERNS.length) {
+export function normalizeTileArtRamp(ramp, patterns = PATTERNS) {
   const out = [...DEFAULT_TILE_ART_RAMP];
-  const maxIdx = Math.max(0, patternCount - 1);
   if (!Array.isArray(ramp)) return out;
   for (let i = 0; i < TILE_ART_SLOT_COUNT; i++) {
     const v = ramp[i];
     if (typeof v === 'number' && Number.isFinite(v)) {
-      out[i] = Math.max(0, Math.min(maxIdx, Math.round(v)));
+      out[i] = resolvePatternIndex(v, patterns);
     }
   }
   return out;
 }
 
 /** Parse URL `tar=0,3,5,...` (eight ints). */
-export function parseTileArtRampParam(raw, patternCount = PATTERNS.length) {
+export function parseTileArtRampParam(raw, patterns = PATTERNS) {
   if (raw == null || raw === '') return null;
   const parts = String(raw).split(',').map((s) => Number(s.trim()));
   if (parts.length < 1 || parts.some((n) => !Number.isFinite(n))) return null;
@@ -72,7 +71,7 @@ export function parseTileArtRampParam(raw, patternCount = PATTERNS.length) {
   for (let i = 0; i < TILE_ART_SLOT_COUNT; i++) {
     ramp.push(parts[Math.min(i, parts.length - 1)]);
   }
-  return normalizeTileArtRamp(ramp, patternCount);
+  return normalizeTileArtRamp(ramp, patterns);
 }
 
 export function serializeTileArtRamp(ramp, defaults = DEFAULT_TILE_ART_RAMP) {
