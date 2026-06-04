@@ -7,7 +7,9 @@
  * and mode — RGB (per-channel levels) vs HSV (posterized hue/sat/value).
  *
  * Rect color: u_rectColorSource 0 = brand palette (shade from luma/warp/weft), 1 = image RGB,
- * 2 = pattern-only (warp vs weft → two palette shades). Rect size can scale by image luminance.
+ * 2 = pattern-only (warp vs weft → two palette shades), 3 = tile art (per-cell weave draft from ramp).
+ * Tile art: luma band → u_tileArtRamp slot → PATTERNS atlas; sub-cell warp/weft fill (flat or rounded rects).
+ * Optional uniform 8×8 mini-cell grid (u_tileArtUniformGrid): weave lookup still uses each pattern's tileW/H.
  *
  * Stitch-in (optional): ramp u_stitchRevealProgress from 0→1 so stitches appear from a blank (BG-only) frame.
  * Mode 1 = isotropic FBM cell order; mode 2 = dye-bleed streaks (optional draft coupling to warp/weft).
@@ -21,7 +23,7 @@ uniform float u_palette;
 uniform float u_bgShade;
 uniform float u_bgUseCustom; // 0 = palette shade; 1 = u_bgCustomColor
 uniform vec3 u_bgCustomColor;
-uniform float u_rectColorSource; // 0 brand, 1 image, 2 warp/weft pattern colors
+uniform float u_rectColorSource; // 0 brand, 1 image, 2 warp/weft pattern colors, 3 tile art
 uniform float u_quantizeSteps; // 0–1 = off, 2+ = levels per band
 uniform float u_quantizeMode;  // 0 = RGB, 1 = HSV
 uniform float u_quantizeGamma; // >= ~0.05; 1 = linear; applied before/after banding
@@ -58,15 +60,54 @@ uniform float u_stitchRevealBleedRotation;
 uniform float u_stitchRevealBleedCrossFiber;
 uniform float u_stitchRevealBleedDraftCoupled;
 
+// Tile art (rectColorSource == 3): eight-slot luma ramp, optional empty field threshold.
+uniform float u_tileArtLevels;      // 2–8 bands
+uniform float u_tileArtThreshold;   // bright cells → background only when lum > threshold
+uniform float u_tileArtDither;      // 0–1 band jitter
+uniform float u_tileArtColorMode;   // 0 mono, 1 brand, 2 tint
+uniform float u_tileArtGeom;        // 0 flat sub-cell fill, 1 rounded mini stitches
+uniform float u_tileArtUniformGrid; // 0 = pattern tileW/H grid, 1 = fixed 8×8 mini cells
+uniform float u_tileArtRamp0;
+uniform float u_tileArtRamp1;
+uniform float u_tileArtRamp2;
+uniform float u_tileArtRamp3;
+uniform float u_tileArtRamp4;
+uniform float u_tileArtRamp5;
+uniform float u_tileArtRamp6;
+uniform float u_tileArtRamp7;
+uniform sampler2D u_patternMeta;    // 1×N: R=tileW, G=tileH per pattern index
+uniform float u_patternMetaWidth;
+
 // --- WEAVE PATTERN LOOKUP (from v1 fragment.glsl) ---
 // row, col = cell position; returns 0 = warp, 1 = weft for rect orientation.
-float getPatternFromTexture(float row, float col) {
-  float r = mod(row, u_tileH);
-  float c = mod(col, u_tileW);
-  float stripY = u_patternIndex * 10.0;
+float getPatternFromTextureIdx(float row, float col, float patternIdx, float tileW, float tileH) {
+  float r = mod(row, tileH);
+  float c = mod(col, tileW);
+  float stripY = patternIdx * 10.0;
   float texX = (c + 0.5) / 10.0;
   float texY = (stripY + r + 0.5) / u_patternTexHeight;
   return texture2D(u_patternSampler, vec2(texX, texY)).r;
+}
+
+float getPatternFromTexture(float row, float col) {
+  return getPatternFromTextureIdx(row, col, u_patternIndex, u_tileW, u_tileH);
+}
+
+vec2 getPatternTileSize(float patternIdx) {
+  float u = (floor(patternIdx) + 0.5) / max(u_patternMetaWidth, 1.0);
+  vec4 m = texture2D(u_patternMeta, vec2(u, 0.5));
+  return vec2(m.r * 8.0, m.g * 10.0);
+}
+
+float tileArtRampSlot(float band) {
+  if (band < 0.5) return u_tileArtRamp0;
+  if (band < 1.5) return u_tileArtRamp1;
+  if (band < 2.5) return u_tileArtRamp2;
+  if (band < 3.5) return u_tileArtRamp3;
+  if (band < 4.5) return u_tileArtRamp4;
+  if (band < 5.5) return u_tileArtRamp5;
+  if (band < 6.5) return u_tileArtRamp6;
+  return u_tileArtRamp7;
 }
 
 // --- ENS COLOR PICK (from original fragment.glsl) ---
@@ -328,6 +369,81 @@ void main() {
   vec4 bgVec = u_bgUseCustom > 0.5
     ? vec4(clamp(u_bgCustomColor, 0.0, 1.0), 1.0)
     : getPaletteColor(u_palette, u_bgShade);
-  vec4 inRectVec = rectVec.a > 0.001 ? rectVec : vec4(bgVec.rgb, 1.0);
-  gl_FragColor = mix(bgVec, inRectVec, cell);
+
+  vec4 outColor;
+  if (u_rectColorSource > 2.5) {
+    // --- TILE ART: per-cell weave draft from luma ramp; full-cell two-tone interlacement ---
+    float lum = dot(quantized, vec3(0.2126, 0.7152, 0.0722));
+    float levels = clamp(u_tileArtLevels, 2.0, 8.0);
+    float t = lum * (levels - 1.0);
+    if (u_tileArtDither > 0.001) {
+      float h = fract(sin(dot(cellID, vec2(12.9898, 78.233))) * 43758.5453);
+      t += (h - 0.5) * u_tileArtDither;
+    }
+    float band = clamp(floor(t + 0.5), 0.0, levels - 1.0);
+    float patternIdx = tileArtRampSlot(band);
+    vec2 patSize = getPatternTileSize(patternIdx);
+    float tileW = max(patSize.x, 1.0);
+    float tileH = max(patSize.y, 1.0);
+    const float TILE_ART_UNIFORM_W = 8.0;
+    const float TILE_ART_UNIFORM_H = 8.0;
+    float uniformOn = step(0.5, u_tileArtUniformGrid);
+    float geomW = mix(tileW, TILE_ART_UNIFORM_W, uniformOn);
+    float geomH = mix(tileH, TILE_ART_UNIFORM_H, uniformOn);
+    float patCol;
+    float patRow;
+    if (u_tileArtUniformGrid > 0.5) {
+      float gCol = floor(cellUV.x * geomW);
+      float gRow = floor(cellUV.y * geomH);
+      patCol = floor(((gCol + 0.5) / geomW) * tileW);
+      patRow = floor(((gRow + 0.5) / geomH) * tileH);
+    } else {
+      patCol = floor(cellUV.x * tileW);
+      patRow = floor(cellUV.y * tileH);
+    }
+    float isWeftTile = getPatternFromTextureIdx(patRow, patCol, patternIdx, tileW, tileH);
+    float occupied = 1.0 - step(u_tileArtThreshold + 0.0001, lumRaw);
+    float revealMulTile = 1.0;
+    if (u_stitchRevealMode > 0.5) {
+      float orderT = u_stitchRevealMode < 1.5
+        ? stitchRevealOrderNoise(cellID)
+        : stitchRevealOrderBleed(cellID, isWeftTile);
+      float soft = max(0.001, u_stitchRevealSoftness);
+      revealMulTile = smoothstep(orderT - soft, orderT + soft, u_stitchRevealProgress);
+    }
+    occupied *= revealMulTile;
+    vec4 warpCol = getPaletteColor(u_palette, u_patternWarpShade);
+    vec4 weftCol = getPaletteColor(u_palette, u_patternWeftShade);
+    vec4 stitchCol;
+    if (u_tileArtColorMode < 1.5) {
+      stitchCol = isWeftTile > 0.5 ? weftCol : warpCol;
+    } else {
+      vec4 imgCol = vec4(quantized, 1.0);
+      stitchCol = isWeftTile > 0.5 ? imgCol : mix(bgVec, imgCol, 0.35);
+    }
+    vec4 tileVec;
+    if (u_tileArtGeom < 0.5) {
+      tileVec = stitchCol;
+    } else {
+      vec2 subUV = fract(vec2(cellUV.x * geomW, cellUV.y * geomH));
+      vec2 pSub = subUV - 0.5;
+      float ratioTile = clamp(u_rectRatio, 0.02, 1.0);
+      float aspectTile = clamp(u_rectAspect, 0.2, 2.0);
+      // Half extents in sub-cell space (must stay <= ~0.5 or SDF fills the whole sub-cell and looks flat).
+      float halfYTile = 0.5 * ratioTile;
+      float halfXTile = halfYTile * aspectTile;
+      vec2 halfSizeTile = isWeftTile > 0.5 ? vec2(halfYTile, halfXTile) : vec2(halfXTile, halfYTile);
+      float cornerTile = clamp(u_rectRadius, 0.0, 0.5);
+      float dSub = roundedRect(pSub, halfSizeTile, cornerTile);
+      float subEdge = (gridSize * max(geomW, geomH)) / min(u_resolution.x, u_resolution.y);
+      float stitchMask = 1.0 - smoothstep(-subEdge, subEdge, dSub);
+      tileVec = mix(bgVec, stitchCol, stitchMask);
+    }
+    if (tileVec.a < 0.001) tileVec = vec4(bgVec.rgb, 1.0);
+    outColor = mix(bgVec, tileVec, occupied);
+  } else {
+    vec4 inRectVec = rectVec.a > 0.001 ? rectVec : vec4(bgVec.rgb, 1.0);
+    outColor = mix(bgVec, inRectVec, cell);
+  }
+  gl_FragColor = outColor;
 }

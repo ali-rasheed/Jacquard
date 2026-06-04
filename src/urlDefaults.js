@@ -20,6 +20,8 @@ export const WEAVING_URL_DEFAULTS = {
   canvasAspect: 1,
   patternFit: 'fit',
   stageTranslateX: 0,
+  /** In-shader ENS corner mark; URL `ensm` 0|1 (omitted when matches default). */
+  weaveEnsMarkVisible: true,
   copyFormat: 'png',
   copyScale: 2,
   exportScale: 6,
@@ -81,8 +83,19 @@ export const IMAGE_RECTS_URL_DEFAULTS = {
   bgColorMode: 0,
   /** Custom background color when bgColorMode = 1. */
   bgCustomColor: '#f2f2f2',
-  /** 0 = brand palette, 1 = image RGB, 2 = warp/weft pattern colors (URL cm). */
+  /** 0 = brand palette, 1 = image RGB, 2 = warp/weft pattern colors, 3 = tile art (URL cm). */
   rectColorSource: 1,
+  /** Tile art: luma bands (2–8). */
+  tileArtLevels: 8,
+  /** Tile art: cells with lum above this show background only (1 = all weave). */
+  tileArtThreshold: 1,
+  tileArtDither: 0.12,
+  /** 0 mono, 1 brand, 2 tint. */
+  tileArtColorMode: 0,
+  /** 0 flat sub-cells, 1 rounded mini stitches (URL tag). */
+  tileArtGeom: 1,
+  /** 1 = fixed 8×8 mini-cell grid; 0 = each pattern's native tileW×tileH (URL tug). */
+  tileArtUniformGrid: 1,
   quantizeSteps: 0,
   /** 0 = band RGB channels, 1 = band HSV (posterize hue/sat/value). */
   quantizeMode: 0,

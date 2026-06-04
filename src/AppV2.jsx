@@ -13,6 +13,17 @@ import { useKeyframePlayback } from './hooks/useKeyframePlayback';
 import { getMosaicKeyframeSnapshot, applyMosaicKeyframe } from './keyframe/mosaicKeyframe';
 import { CaptureToolbar } from './components/CaptureToolbar';
 import { PATTERNS } from './patterns';
+import {
+  DEFAULT_TILE_ART_RAMP,
+  TILE_ART_SLOT_COUNT,
+  TILE_ART_UNIFORM_TILE_H,
+  TILE_ART_UNIFORM_TILE_W,
+  buildDefaultTileArtRamp,
+  moveRampSlot,
+  parseTileArtRampParam,
+  serializeTileArtRamp,
+} from './patterns/tileArtRamp';
+import { AppTooltip } from './components/ui/AppTooltip';
 import { EXPORT_MAX_DIMENSION, GRID_SNAPS, getGridSizeIndex, URL_STATE_MAX_LEN, WEAVE_ICONS } from './constants';
 import { IMAGE_RECTS_URL_DEFAULTS, KEYFRAME_ANIM_DEFAULT_SEC } from './urlDefaults';
 import { decodeKeyframeSnapshot, encodeKeyframeSnapshot } from './keyframe/keyframeUrlCodec';
@@ -43,11 +54,18 @@ import {
 import { Icon, GroupIcon, AppSelect, SegmentedControl, SegmentedControlButton, IconButton } from './components/ui';
 import { RecordingDownloadBanner } from './components/RecordingDownloadBanner.jsx';
 
-/** Rect fill: brand = palette from cell image luma; image = sampled RGB; pattern = warp vs weft shades only. */
+/** Rect fill: brand = palette from cell image luma; image = sampled RGB; pattern = warp vs weft shades only; tile art = per-cell weave ramp. */
 const RECT_COLOR_SOURCE_OPTIONS = [
   { value: 0, label: 'Brand' },
   { value: 1, label: 'Image' },
   { value: 2, label: 'Pattern' },
+  { value: 3, label: 'Tile art' },
+];
+
+const TILE_ART_COLOR_MODE_OPTIONS = [
+  { value: 0, label: 'Mono' },
+  { value: 1, label: 'Brand' },
+  { value: 2, label: 'Tint' },
 ];
 
 /** How cell color is banded when quantize steps ≥ 2 (see fragmentImageRects.glsl). */
@@ -110,13 +128,29 @@ function parseUrlStateV2(search) {
   const display = params.get('display');
   if (display === 'fill' || display === 'fit') out.patternFit = display;
   num('grid', 'gridSize', 8, 256);
-  num('stx', 'stageTranslateX', -400, 400);
   num('pal', 'palette', 0, 4);
   num('bg', 'bgShade', 0, 5);
   num('bgm', 'bgColorMode', 0, 1);
   const bgc = params.get('bgc');
   if (bgc != null) out.bgCustomColor = normalizeHexColor(`#${bgc}`, IMAGE_RECTS_URL_DEFAULTS.bgCustomColor);
-  num('cm', 'rectColorSource', 0, 2);
+  num('cm', 'rectColorSource', 0, 3);
+  num('tal', 'tileArtLevels', 2, 8);
+  const tat = params.get('tat');
+  if (tat != null) {
+    const n = Number(tat);
+    if (Number.isFinite(n)) out.tileArtThreshold = Math.max(0, Math.min(1, n / 100));
+  }
+  const tad = params.get('tad');
+  if (tad != null) {
+    const n = Number(tad);
+    if (Number.isFinite(n)) out.tileArtDither = Math.max(0, Math.min(1, n / 100));
+  }
+  num('tacm', 'tileArtColorMode', 0, 2);
+  num('tag', 'tileArtGeom', 0, 1);
+  num('tug', 'tileArtUniformGrid', 0, 1);
+  const tar = params.get('tar');
+  const parsedRamp = parseTileArtRampParam(tar);
+  if (parsedRamp) out.tileArtRamp = parsedRamp;
   num('pws', 'patternWarpShade', 0, 4);
   num('pwf', 'patternWeftShade', 0, 4);
   num('q', 'quantizeSteps', 0, 32);
@@ -227,13 +261,20 @@ function buildUrlStateV2(state) {
   const p = new URLSearchParams();
   p.set('v', '2');
   if (state.gridSize !== def.gridSize) p.set('grid', String(state.gridSize));
-  if ((state.stageTranslateX ?? 0) !== def.stageTranslateX) p.set('stx', String(Math.round(state.stageTranslateX || 0)));
   if (state.palette !== def.palette) p.set('pal', String(state.palette));
   if (state.bgShade !== def.bgShade) p.set('bg', String(state.bgShade));
   if (state.bgColorMode !== def.bgColorMode) p.set('bgm', String(state.bgColorMode));
   const bgCustomColor = normalizeHexColor(state.bgCustomColor, def.bgCustomColor);
   if (bgCustomColor !== def.bgCustomColor) p.set('bgc', bgCustomColor.slice(1));
   if (state.rectColorSource !== def.rectColorSource) p.set('cm', String(state.rectColorSource));
+  if (state.tileArtLevels !== def.tileArtLevels) p.set('tal', String(state.tileArtLevels));
+  if (state.tileArtThreshold !== def.tileArtThreshold) p.set('tat', String(Math.round(state.tileArtThreshold * 100)));
+  if (state.tileArtDither !== def.tileArtDither) p.set('tad', String(Math.round(state.tileArtDither * 100)));
+  if (state.tileArtColorMode !== def.tileArtColorMode) p.set('tacm', String(state.tileArtColorMode));
+  if (state.tileArtGeom !== def.tileArtGeom) p.set('tag', String(state.tileArtGeom));
+  if (state.tileArtUniformGrid !== def.tileArtUniformGrid) p.set('tug', String(state.tileArtUniformGrid));
+  const tar = serializeTileArtRamp(state.tileArtRamp);
+  if (tar) p.set('tar', tar);
   if (state.patternWarpShade !== def.patternWarpShade) p.set('pws', String(state.patternWarpShade));
   if (state.patternWeftShade !== def.patternWeftShade) p.set('pwf', String(state.patternWeftShade));
   if (state.lumaSizeMix !== def.lumaSizeMix) p.set('ls', String(Math.round(state.lumaSizeMix * 100)));
@@ -298,11 +339,8 @@ export default function AppV2({
   viewTitle = 'Mosaic',
   patternFit: patternFitProp = IMAGE_RECTS_URL_DEFAULTS.patternFit,
   onPatternFitChange,
-  stageTranslateX: stageTranslateXProp = IMAGE_RECTS_URL_DEFAULTS.stageTranslateX,
-  onStageTranslateXChange,
 }) {
   const patternFitExternal = typeof onPatternFitChange === 'function';
-  const stageTranslateExternal = typeof onStageTranslateXChange === 'function';
   const [imageSource, setImageSource] = useState('');
   const [mediaTextureKind, setMediaTextureKind] = useState('staticImage');
   const [gridSize, setGridSize] = useState(IMAGE_RECTS_URL_DEFAULTS.gridSize);
@@ -311,6 +349,13 @@ export default function AppV2({
   const [bgColorMode, setBgColorMode] = useState(IMAGE_RECTS_URL_DEFAULTS.bgColorMode);
   const [bgCustomColor, setBgCustomColor] = useState(IMAGE_RECTS_URL_DEFAULTS.bgCustomColor);
   const [rectColorSource, setRectColorSource] = useState(IMAGE_RECTS_URL_DEFAULTS.rectColorSource);
+  const [tileArtLevels, setTileArtLevels] = useState(IMAGE_RECTS_URL_DEFAULTS.tileArtLevels);
+  const [tileArtThreshold, setTileArtThreshold] = useState(IMAGE_RECTS_URL_DEFAULTS.tileArtThreshold);
+  const [tileArtDither, setTileArtDither] = useState(IMAGE_RECTS_URL_DEFAULTS.tileArtDither);
+  const [tileArtColorMode, setTileArtColorMode] = useState(IMAGE_RECTS_URL_DEFAULTS.tileArtColorMode);
+  const [tileArtGeom, setTileArtGeom] = useState(IMAGE_RECTS_URL_DEFAULTS.tileArtGeom);
+  const [tileArtUniformGrid, setTileArtUniformGrid] = useState(IMAGE_RECTS_URL_DEFAULTS.tileArtUniformGrid);
+  const [tileArtRamp, setTileArtRamp] = useState(() => [...DEFAULT_TILE_ART_RAMP]);
   const [patternWarpShade, setPatternWarpShade] = useState(IMAGE_RECTS_URL_DEFAULTS.patternWarpShade);
   const [patternWeftShade, setPatternWeftShade] = useState(IMAGE_RECTS_URL_DEFAULTS.patternWeftShade);
   const [lumaSizeMix, setLumaSizeMix] = useState(IMAGE_RECTS_URL_DEFAULTS.lumaSizeMix);
@@ -321,9 +366,6 @@ export default function AppV2({
   const [patternFitInternal, setPatternFitInternal] = useState(IMAGE_RECTS_URL_DEFAULTS.patternFit);
   const patternFit = patternFitExternal ? patternFitProp : patternFitInternal;
   const setPatternFit = patternFitExternal ? onPatternFitChange : setPatternFitInternal;
-  const [stageTranslateXInternal, setStageTranslateXInternal] = useState(IMAGE_RECTS_URL_DEFAULTS.stageTranslateX);
-  const stageTranslateX = stageTranslateExternal ? stageTranslateXProp : stageTranslateXInternal;
-  const setStageTranslateX = stageTranslateExternal ? onStageTranslateXChange : setStageTranslateXInternal;
   const [stitchLumaMax, setStitchLumaMax] = useState(IMAGE_RECTS_URL_DEFAULTS.stitchLumaMax);
   const [stitchRevealMode, setStitchRevealMode] = useState(IMAGE_RECTS_URL_DEFAULTS.stitchRevealMode);
   const [stitchRevealDurationSec, setStitchRevealDurationSec] = useState(IMAGE_RECTS_URL_DEFAULTS.stitchRevealDurationSec);
@@ -486,6 +528,13 @@ export default function AppV2({
     bgColorMode,
     bgCustomColor,
     rectColorSource,
+    tileArtLevels,
+    tileArtThreshold,
+    tileArtDither,
+    tileArtColorMode,
+    tileArtGeom,
+    tileArtUniformGrid,
+    tileArtRamp,
     patternWarpShade,
     patternWeftShade,
     lumaSizeMix,
@@ -523,6 +572,13 @@ export default function AppV2({
     setBgColorMode,
     setBgCustomColor,
     setRectColorSource,
+    setTileArtLevels,
+    setTileArtThreshold,
+    setTileArtDither,
+    setTileArtColorMode,
+    setTileArtGeom,
+    setTileArtUniformGrid,
+    setTileArtRamp,
     setPatternWarpShade,
     setPatternWeftShade,
     setLumaSizeMix,
@@ -607,6 +663,13 @@ export default function AppV2({
     bgColorMode,
     bgCustomColor,
     rectColorSource,
+    tileArtLevels,
+    tileArtThreshold,
+    tileArtDither,
+    tileArtColorMode,
+    tileArtGeom,
+    tileArtUniformGrid,
+    tileArtRamp,
     patternWarpShade,
     patternWeftShade,
     lumaSizeMix,
@@ -756,7 +819,14 @@ export default function AppV2({
     setBgShade(randInt(0, 4));
     setBgColorMode(0);
     setBgCustomColor(IMAGE_RECTS_URL_DEFAULTS.bgCustomColor);
-    setRectColorSource(randInt(0, 2));
+    setRectColorSource(randInt(0, 3));
+    setTileArtLevels(randInt(2, 8));
+    setTileArtThreshold(Number(rand(0.35, 1).toFixed(2)));
+    setTileArtDither(Number(rand(0, 0.4).toFixed(2)));
+    setTileArtColorMode(randInt(0, 2));
+    setTileArtGeom(randInt(0, 1));
+    setTileArtUniformGrid(randInt(0, 1));
+    setTileArtRamp(buildDefaultTileArtRamp());
     setPatternWarpShade(randInt(0, 4));
     setPatternWeftShade(randInt(0, 4));
     setLumaSizeMix(Number(rand(0, 1).toFixed(2)));
@@ -792,6 +862,13 @@ export default function AppV2({
     setBgColorMode(IMAGE_RECTS_URL_DEFAULTS.bgColorMode);
     setBgCustomColor(IMAGE_RECTS_URL_DEFAULTS.bgCustomColor);
     setRectColorSource(IMAGE_RECTS_URL_DEFAULTS.rectColorSource);
+    setTileArtLevels(IMAGE_RECTS_URL_DEFAULTS.tileArtLevels);
+    setTileArtThreshold(IMAGE_RECTS_URL_DEFAULTS.tileArtThreshold);
+    setTileArtDither(IMAGE_RECTS_URL_DEFAULTS.tileArtDither);
+    setTileArtColorMode(IMAGE_RECTS_URL_DEFAULTS.tileArtColorMode);
+    setTileArtGeom(IMAGE_RECTS_URL_DEFAULTS.tileArtGeom);
+    setTileArtUniformGrid(IMAGE_RECTS_URL_DEFAULTS.tileArtUniformGrid);
+    setTileArtRamp([...DEFAULT_TILE_ART_RAMP]);
     setPatternWarpShade(IMAGE_RECTS_URL_DEFAULTS.patternWarpShade);
     setPatternWeftShade(IMAGE_RECTS_URL_DEFAULTS.patternWeftShade);
     setLumaSizeMix(IMAGE_RECTS_URL_DEFAULTS.lumaSizeMix);
@@ -821,13 +898,12 @@ export default function AppV2({
     setStitchRevealBleedRotation(IMAGE_RECTS_URL_DEFAULTS.stitchRevealBleedRotation);
     setStitchRevealBleedCrossFiber(IMAGE_RECTS_URL_DEFAULTS.stitchRevealBleedCrossFiber);
     setStitchRevealBleedDraftCoupled(IMAGE_RECTS_URL_DEFAULTS.stitchRevealBleedDraftCoupled);
-    setStageTranslateX(IMAGE_RECTS_URL_DEFAULTS.stageTranslateX);
     setMediaTextureKind('staticImage');
     setImageSource((prev) => {
       if (prev) URL.revokeObjectURL(prev);
       return '';
     });
-  }, [setPatternFit, setStageTranslateX]);
+  }, [setPatternFit]);
 
   /** On mount: parse URL and apply to state (once). */
   useEffect(() => {
@@ -853,6 +929,13 @@ export default function AppV2({
     if (q.bgColorMode != null) setBgColorMode(q.bgColorMode);
     if (q.bgCustomColor != null) setBgCustomColor(normalizeHexColor(q.bgCustomColor, IMAGE_RECTS_URL_DEFAULTS.bgCustomColor));
     if (q.rectColorSource != null) setRectColorSource(q.rectColorSource);
+    if (q.tileArtLevels != null) setTileArtLevels(q.tileArtLevels);
+    if (q.tileArtThreshold != null) setTileArtThreshold(q.tileArtThreshold);
+    if (q.tileArtDither != null) setTileArtDither(q.tileArtDither);
+    if (q.tileArtColorMode != null) setTileArtColorMode(q.tileArtColorMode);
+    if (q.tileArtGeom != null) setTileArtGeom(q.tileArtGeom);
+    if (q.tileArtUniformGrid != null) setTileArtUniformGrid(q.tileArtUniformGrid);
+    if (q.tileArtRamp != null) setTileArtRamp([...q.tileArtRamp]);
     if (q.patternWarpShade != null) setPatternWarpShade(q.patternWarpShade);
     if (q.patternWeftShade != null) setPatternWeftShade(q.patternWeftShade);
     if (q.lumaSizeMix != null) setLumaSizeMix(q.lumaSizeMix);
@@ -885,7 +968,6 @@ export default function AppV2({
       if (typeof onPatternFitChange === 'function') onPatternFitChange(q.patternFit);
       else setPatternFitInternal(q.patternFit);
     }
-    if (q.stageTranslateX != null) setStageTranslateX(Math.round(q.stageTranslateX));
     // eslint-disable-next-line react-hooks/exhaustive-deps -- once on mount; onPatternFitChange is stable (setState)
   }, []);
 
@@ -894,9 +976,10 @@ export default function AppV2({
   useEffect(() => {
     urlSyncTimeoutRef.current = setTimeout(() => {
       const search = buildUrlStateV2({
-        gridSize, palette, bgShade, bgColorMode, bgCustomColor, rectColorSource, quantizeSteps, quantizeMode, quantizeGamma, quantizeDither, patternIndex,
+        gridSize, palette, bgShade, bgColorMode, bgCustomColor, rectColorSource, tileArtLevels, tileArtThreshold, tileArtDither, tileArtColorMode, tileArtGeom, tileArtUniformGrid, tileArtRamp,
+        quantizeSteps, quantizeMode, quantizeGamma, quantizeDither, patternIndex,
         patternWarpShade, patternWeftShade, lumaSizeMix, lumaSizeInvert, lumaSizeFloor, cellGeometryMode, stitchLumaMax,
-        rectRadius, rectAspect, rectRatio, copyFormat, copyScale, menuHidden, mosaicBgGaps, patternFit, stageTranslateX,
+        rectRadius, rectAspect, rectRatio, copyFormat, copyScale, menuHidden, mosaicBgGaps, patternFit,
         stitchRevealMode, stitchRevealDurationSec, stitchRevealSeed, stitchRevealScale, stitchRevealNoiseScale, stitchRevealSoftness,
         stitchRevealBleedAnisotropy, stitchRevealBleedRotation, stitchRevealBleedCrossFiber, stitchRevealBleedDraftCoupled,
         keyframeAnimDurationSec: keyframeDurationSec,
@@ -910,7 +993,7 @@ export default function AppV2({
       }
     }, 400);
     return () => { clearTimeout(urlSyncTimeoutRef.current); };
-  }, [gridSize, palette, bgShade, bgColorMode, bgCustomColor, rectColorSource, quantizeSteps, quantizeMode, quantizeGamma, quantizeDither, patternIndex, patternWarpShade, patternWeftShade, lumaSizeMix, lumaSizeInvert, lumaSizeFloor, cellGeometryMode, stitchLumaMax, rectRadius, rectAspect, rectRatio, copyFormat, copyScale, menuHidden, mosaicBgGaps, patternFit, stageTranslateX, stitchRevealMode, stitchRevealDurationSec, stitchRevealSeed, stitchRevealScale, stitchRevealNoiseScale, stitchRevealSoftness, stitchRevealBleedAnisotropy, stitchRevealBleedRotation, stitchRevealBleedCrossFiber, stitchRevealBleedDraftCoupled, keyframeDurationSec, editingAfter, mosaicBefore, mosaicAfter]);
+  }, [gridSize, palette, bgShade, bgColorMode, bgCustomColor, rectColorSource, tileArtLevels, tileArtThreshold, tileArtDither, tileArtColorMode, tileArtGeom, tileArtUniformGrid, tileArtRamp, quantizeSteps, quantizeMode, quantizeGamma, quantizeDither, patternIndex, patternWarpShade, patternWeftShade, lumaSizeMix, lumaSizeInvert, lumaSizeFloor, cellGeometryMode, stitchLumaMax, rectRadius, rectAspect, rectRatio, copyFormat, copyScale, menuHidden, mosaicBgGaps, patternFit, stitchRevealMode, stitchRevealDurationSec, stitchRevealSeed, stitchRevealScale, stitchRevealNoiseScale, stitchRevealSoftness, stitchRevealBleedAnisotropy, stitchRevealBleedRotation, stitchRevealBleedCrossFiber, stitchRevealBleedDraftCoupled, keyframeDurationSec, editingAfter, mosaicBefore, mosaicAfter]);
 
   /** Keyboard shortcuts: Mod+C copy, Mod+Shift+R / F5 reload (no presets in v2). */
   useEffect(() => {
@@ -1042,11 +1125,15 @@ export default function AppV2({
                 defaultValue={IMAGE_RECTS_URL_DEFAULTS.rectColorSource}
                 onReset={() => setRectColorSource(IMAGE_RECTS_URL_DEFAULTS.rectColorSource)}
                 options={RECT_COLOR_SOURCE_OPTIONS}
-                title="Image RGB, brand palette, or warp/weft pattern colors"
+                title="Image RGB, brand palette, warp/weft pattern colors, or tile art weave ramp"
                 placeholder="Color"
               />
-              <span className={`${controlLabel} ${typeLabel}`} title="Weave pattern">Weave</span>
-              <AppSelect id="weave-pattern-v2" labelText="Weave pattern" value={patternIndex} onValueChange={(v) => setPatternIndex(Number(v))} defaultValue={IMAGE_RECTS_URL_DEFAULTS.patternIndex} onReset={() => setPatternIndex(IMAGE_RECTS_URL_DEFAULTS.patternIndex)} options={patternOptions} title="Weave pattern" placeholder="Weave" />
+              {rectColorSource !== 3 && (
+                <>
+                  <span className={`${controlLabel} ${typeLabel}`} title="Weave pattern">Weave</span>
+                  <AppSelect id="weave-pattern-v2" labelText="Weave pattern" value={patternIndex} onValueChange={(v) => setPatternIndex(Number(v))} defaultValue={IMAGE_RECTS_URL_DEFAULTS.patternIndex} onReset={() => setPatternIndex(IMAGE_RECTS_URL_DEFAULTS.patternIndex)} options={patternOptions} title="Single weave draft for rounded-rect orientation (not used in Tile art)" placeholder="Weave" />
+                </>
+              )}
               <div className="flex items-center gap-1" role="group" aria-label="Colorway palette">
                 {PALETTE_SWATCH_COLORS.map((color, i) => (
                   <button
@@ -1106,7 +1193,7 @@ export default function AppV2({
                   </label>
                 )}
               </div>
-              {rectColorSource === 2 && (
+              {(rectColorSource === 2 || rectColorSource === 3) && (
                 <>
                   <AppSelect
                     id="pattern-warp-shade-v2"
@@ -1134,6 +1221,251 @@ export default function AppV2({
               )}
             </div>
           </div>
+          {rectColorSource === 3 && (
+            <div className={sidebarGroup}>
+              <div className={sidebarGroupTitle}>Pattern ramp</div>
+              <div className="flex flex-col gap-2">
+                <AppTooltip content="Map each cell to a weave draft from your ramp — like tiled ASCII using warp/weft patterns.">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <GroupIcon name="stairs" title="Tile art" />
+                    <AppSelect
+                      id="tile-art-color-mode-v2"
+                      labelText="Tile color"
+                      value={tileArtColorMode}
+                      onValueChange={(v) => setTileArtColorMode(Number(v))}
+                      defaultValue={IMAGE_RECTS_URL_DEFAULTS.tileArtColorMode}
+                      onReset={() => setTileArtColorMode(IMAGE_RECTS_URL_DEFAULTS.tileArtColorMode)}
+                      options={TILE_ART_COLOR_MODE_OPTIONS}
+                      title="Mono/brand: warp vs weft shades; Tint: image color through weave"
+                      placeholder="Color"
+                    />
+                  </div>
+                </AppTooltip>
+                <AppTooltip content="Flat fills each mini cell; Rounded draws warp/weft stitches like Weave.">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className={`${controlLabel} ${typeLabel}`} title="Tile geometry">Geometry</span>
+                    <SegmentedControl>
+                      <div className="flex h-full">
+                        <SegmentedControlButton
+                          active={tileArtGeom === 0}
+                          aria-pressed={tileArtGeom === 0}
+                          aria-label="Flat mini cells"
+                          onClick={() => setTileArtGeom(0)}
+                        >
+                          Flat
+                        </SegmentedControlButton>
+                        <SegmentedControlButton
+                          active={tileArtGeom === 1}
+                          aria-pressed={tileArtGeom === 1}
+                          aria-label="Rounded mini stitches"
+                          onClick={() => setTileArtGeom(1)}
+                        >
+                          Rounded
+                        </SegmentedControlButton>
+                      </div>
+                    </SegmentedControl>
+                    {tileArtGeom !== IMAGE_RECTS_URL_DEFAULTS.tileArtGeom && (
+                      <IconButton size="resetSm" onClick={() => setTileArtGeom(IMAGE_RECTS_URL_DEFAULTS.tileArtGeom)} title="Reset geometry to Rounded" aria-label="Reset tile geometry">
+                        <Icon name="restart_alt" className={iconResetGlyph} />
+                      </IconButton>
+                    )}
+                  </div>
+                </AppTooltip>
+                <AppTooltip content={`Uniform keeps every ramp band on a ${TILE_ART_UNIFORM_TILE_W}×${TILE_ART_UNIFORM_TILE_H} mini-cell grid; Pattern uses each weave's native repeat size (stitches shrink on busier drafts).`}>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className={`${controlLabel} ${typeLabel}`} title="Mini-cell grid">Mini cells</span>
+                    <SegmentedControl>
+                      <div className="flex h-full">
+                        <SegmentedControlButton
+                          active={tileArtUniformGrid === 1}
+                          aria-pressed={tileArtUniformGrid === 1}
+                          aria-label={`Uniform ${TILE_ART_UNIFORM_TILE_W} by ${TILE_ART_UNIFORM_TILE_H} mini cells`}
+                          onClick={() => setTileArtUniformGrid(1)}
+                        >
+                          Uniform
+                        </SegmentedControlButton>
+                        <SegmentedControlButton
+                          active={tileArtUniformGrid === 0}
+                          aria-pressed={tileArtUniformGrid === 0}
+                          aria-label="Pattern native repeat size"
+                          onClick={() => setTileArtUniformGrid(0)}
+                        >
+                          Pattern
+                        </SegmentedControlButton>
+                      </div>
+                    </SegmentedControl>
+                    {tileArtUniformGrid !== IMAGE_RECTS_URL_DEFAULTS.tileArtUniformGrid && (
+                      <IconButton size="resetSm" onClick={() => setTileArtUniformGrid(IMAGE_RECTS_URL_DEFAULTS.tileArtUniformGrid)} title="Reset mini cells to Uniform" aria-label="Reset tile uniform grid">
+                        <Icon name="restart_alt" className={iconResetGlyph} />
+                      </IconButton>
+                    )}
+                  </div>
+                </AppTooltip>
+                <div className="flex flex-col gap-1.5">
+                  <span className={`${typeLabel} text-text-muted`}>Mini stitch shape</span>
+                  <AppTooltip content="Corner radius of each mini stitch in sub-cell space (0 = sharp).">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <GroupIcon name="rounded_corner" title="Corner radius" />
+                      <Label.Root className="sr-only" htmlFor="tile-art-rect-radius-v2">Corner radius</Label.Root>
+                      <SliderWithInput
+                        id="tile-art-rect-radius-v2"
+                        value={rectRadius}
+                        onValueChange={setRectRadius}
+                        defaultValue={IMAGE_RECTS_URL_DEFAULTS.rectRadius}
+                        onReset={() => setRectRadius(IMAGE_RECTS_URL_DEFAULTS.rectRadius)}
+                        min={0}
+                        max={0.5}
+                        step={0.01}
+                        format={(n) => n.toFixed(2)}
+                        aria-label="Tile art corner radius"
+                      />
+                    </div>
+                  </AppTooltip>
+                  <AppTooltip content="Width/height of mini stitches; warp = portrait, weft = landscape orientation.">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <GroupIcon name="aspect_ratio" title="Stitch aspect" />
+                      <Label.Root className="sr-only" htmlFor="tile-art-rect-aspect-v2">Stitch aspect</Label.Root>
+                      <SliderWithInput
+                        id="tile-art-rect-aspect-v2"
+                        value={rectAspect}
+                        onValueChange={setRectAspect}
+                        defaultValue={IMAGE_RECTS_URL_DEFAULTS.rectAspect}
+                        onReset={() => setRectAspect(IMAGE_RECTS_URL_DEFAULTS.rectAspect)}
+                        min={0.2}
+                        max={2}
+                        step={0.05}
+                        format={(n) => n.toFixed(2)}
+                        aria-label="Tile art stitch aspect"
+                      />
+                    </div>
+                  </AppTooltip>
+                  <AppTooltip content="Scale of each mini stitch inside its sub-cell (1 = full cell).">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <GroupIcon name="unfold_more" title="Stitch scale" />
+                      <Label.Root className="sr-only" htmlFor="tile-art-rect-ratio-v2">Stitch scale</Label.Root>
+                      <SliderWithInput
+                        id="tile-art-rect-ratio-v2"
+                        value={rectRatio}
+                        onValueChange={setRectRatio}
+                        defaultValue={IMAGE_RECTS_URL_DEFAULTS.rectRatio}
+                        onReset={() => setRectRatio(IMAGE_RECTS_URL_DEFAULTS.rectRatio)}
+                        min={0.2}
+                        max={1}
+                        step={0.05}
+                        format={(n) => n.toFixed(2)}
+                        aria-label="Tile art stitch scale"
+                      />
+                    </div>
+                  </AppTooltip>
+                </div>
+                <AppTooltip content="How many luma bands (max 8). More bands = finer steps between ramp patterns.">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Label.Root className="sr-only" htmlFor="tile-art-levels-v2">Levels</Label.Root>
+                    <SliderWithInput
+                      id="tile-art-levels-v2"
+                      value={tileArtLevels}
+                      onValueChange={setTileArtLevels}
+                      defaultValue={IMAGE_RECTS_URL_DEFAULTS.tileArtLevels}
+                      onReset={() => setTileArtLevels(IMAGE_RECTS_URL_DEFAULTS.tileArtLevels)}
+                      min={2}
+                      max={8}
+                      step={1}
+                      aria-label="Tile art luma bands"
+                    />
+                  </div>
+                </AppTooltip>
+                <AppTooltip content="Bright cells stay empty background. Lower = more weave cells (full carpet at 100%).">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Label.Root className="sr-only" htmlFor="tile-art-threshold-v2">Threshold</Label.Root>
+                    <SliderWithInput
+                      id="tile-art-threshold-v2"
+                      value={tileArtThreshold}
+                      onValueChange={setTileArtThreshold}
+                      defaultValue={IMAGE_RECTS_URL_DEFAULTS.tileArtThreshold}
+                      onReset={() => setTileArtThreshold(IMAGE_RECTS_URL_DEFAULTS.tileArtThreshold)}
+                      min={0}
+                      max={1}
+                      step={0.01}
+                      format={(n) => n.toFixed(2)}
+                      aria-label="Tile art brightness threshold"
+                    />
+                  </div>
+                </AppTooltip>
+                <AppTooltip content="Jitter band edges for scattered single tiles at boundaries.">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Label.Root className="sr-only" htmlFor="tile-art-dither-v2">Dither</Label.Root>
+                    <SliderWithInput
+                      id="tile-art-dither-v2"
+                      value={tileArtDither}
+                      onValueChange={setTileArtDither}
+                      defaultValue={IMAGE_RECTS_URL_DEFAULTS.tileArtDither}
+                      onReset={() => setTileArtDither(IMAGE_RECTS_URL_DEFAULTS.tileArtDither)}
+                      min={0}
+                      max={1}
+                      step={0.01}
+                      format={(n) => n.toFixed(2)}
+                      aria-label="Tile art band dither"
+                    />
+                  </div>
+                </AppTooltip>
+                <AppTooltip content="Restore complexity-based pattern order (simple → busy) and default weave picks.">
+                  <button
+                    type="button"
+                    className={btnGhost}
+                    onClick={() => setTileArtRamp([...buildDefaultTileArtRamp()])}
+                  >
+                    <Icon name="restart_alt" className={iconSm} />
+                    <span className={typeLabel}>Reset ramp</span>
+                  </button>
+                </AppTooltip>
+                <div className="flex flex-col gap-1.5">
+                  {Array.from({ length: TILE_ART_SLOT_COUNT }, (_, slot) => (
+                    <AppTooltip
+                      key={slot}
+                      content={`Weave for luma band ${slot + 1} (${slot === 0 ? 'darkest' : slot === TILE_ART_SLOT_COUNT - 1 ? 'lightest' : 'mid'}). Reorder to change shadow vs highlight patterns.`}
+                    >
+                      <div className="flex flex-nowrap items-center gap-1">
+                        <span className={`${controlLabel} ${typeLabel} w-6 shrink-0 tabular-nums`}>{slot + 1}</span>
+                        <IconButton
+                          size="resetSm"
+                          onClick={() => setTileArtRamp(moveRampSlot(tileArtRamp, slot, -1))}
+                          disabled={slot === 0}
+                          title="Move band earlier (darker)"
+                          aria-label={`Move band ${slot + 1} toward darker`}
+                        >
+                          <Icon name="arrow_upward" className={iconXs} />
+                        </IconButton>
+                        <IconButton
+                          size="resetSm"
+                          onClick={() => setTileArtRamp(moveRampSlot(tileArtRamp, slot, 1))}
+                          disabled={slot === TILE_ART_SLOT_COUNT - 1}
+                          title="Move band later (lighter)"
+                          aria-label={`Move band ${slot + 1} toward lighter`}
+                        >
+                          <Icon name="arrow_downward" className={iconXs} />
+                        </IconButton>
+                        <div className="min-w-0 flex-1">
+                          <AppSelect
+                            id={`tile-art-ramp-slot-${slot}`}
+                            labelText={`Band ${slot + 1}`}
+                            value={tileArtRamp[slot] ?? 0}
+                            onValueChange={(v) => {
+                              const next = [...tileArtRamp];
+                              next[slot] = Number(v);
+                              setTileArtRamp(next);
+                            }}
+                            options={patternOptions}
+                            title={`Pattern for band ${slot + 1}`}
+                            placeholder="Weave"
+                          />
+                        </div>
+                      </div>
+                    </AppTooltip>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
           <div className={sidebarGroup}>
             <div className={sidebarGroupTitle}>Quantize</div>
             <div className="flex flex-col gap-2">
@@ -1484,7 +1816,7 @@ export default function AppV2({
       </motion.aside>
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-        <main className="flex min-h-0 flex-1 flex-col overflow-hidden p-4" style={{ transform: `translateX(${stageTranslateX}px)` }}>
+        <main className="flex min-h-0 flex-1 flex-col overflow-hidden p-4">
           <ImageRectsCanvas
             imageSource={imageSource}
             mediaTextureKind={mediaTextureKind}
@@ -1523,6 +1855,13 @@ export default function AppV2({
             stitchRevealBleedRotation={stitchRevealBleedRotation}
             stitchRevealBleedCrossFiber={stitchRevealBleedCrossFiber}
             stitchRevealBleedDraftCoupled={stitchRevealBleedDraftCoupled}
+            tileArtLevels={tileArtLevels}
+            tileArtThreshold={tileArtThreshold}
+            tileArtDither={tileArtDither}
+            tileArtColorMode={tileArtColorMode}
+            tileArtGeom={tileArtGeom}
+            tileArtUniformGrid={tileArtUniformGrid}
+            tileArtRamp={tileArtRamp}
             patternFit={patternFit}
             onCanvasRef={(el) => { canvasRef.current = el; }}
             onCaptureReady={(api) => { imageRectsCaptureRef.current = api; }}
@@ -1534,8 +1873,6 @@ export default function AppV2({
           setCopyFormat={setCopyFormat}
           copyScale={copyScale}
           setCopyScale={setCopyScale}
-          stageTranslateX={stageTranslateX}
-          setStageTranslateX={setStageTranslateX}
           copyDefaults={{ copyScale: IMAGE_RECTS_URL_DEFAULTS.copyScale, copyFormat: IMAGE_RECTS_URL_DEFAULTS.copyFormat }}
           onCopy={handleCopy}
           copyFeedback={copyFeedback}
@@ -1567,9 +1904,17 @@ export default function AppV2({
                 ? (mediaTextureKind === 'video' ? 'Video playing' : mediaTextureKind === 'gif' ? 'GIF playing' : 'Image loaded')
                 : 'Pick image, video, or GIF'}
             </span>
-            <span className={pill}>Weave: {PATTERNS[patternIndex]?.name ?? '—'}</span>
+            {rectColorSource !== 3 ? (
+              <span className={pill}>Weave: {PATTERNS[patternIndex]?.name ?? '—'}</span>
+            ) : (
+              <>
+                <span className={pill}>Ramp: {tileArtLevels} bands</span>
+                <span className={pill}>{tileArtGeom === 1 ? 'Rounded' : 'Flat'} stitches</span>
+                <span className={pill}>{tileArtUniformGrid === 1 ? `Uniform ${TILE_ART_UNIFORM_TILE_W}×${TILE_ART_UNIFORM_TILE_H}` : 'Pattern cells'}</span>
+              </>
+            )}
             <span className={pill}>Color: {RECT_COLOR_SOURCE_OPTIONS.find((o) => o.value === rectColorSource)?.label ?? '—'}</span>
-            {rectColorSource === 2 && (
+            {(rectColorSource === 2 || rectColorSource === 3) && (
               <span className={pill}>W/W: {SHADE_NAMES[patternWarpShade]} / {SHADE_NAMES[patternWeftShade]}</span>
             )}
             {lumaSizeMix > 0.01 ? (

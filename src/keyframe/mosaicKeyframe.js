@@ -10,6 +10,13 @@ export const MOSAIC_KEYFRAME_KEYS = [
   'bgColorMode',
   'bgCustomColor',
   'rectColorSource',
+  'tileArtLevels',
+  'tileArtThreshold',
+  'tileArtDither',
+  'tileArtColorMode',
+  'tileArtGeom',
+  'tileArtUniformGrid',
+  'tileArtRamp',
   'patternWarpShade',
   'patternWeftShade',
   'lumaSizeMix',
@@ -63,7 +70,14 @@ export function applyMosaicKeyframe(setters, snap) {
   if (snap.bgShade != null) setters.setBgShade?.(r(snap.bgShade, 0, 5));
   if (snap.bgColorMode != null) setters.setBgColorMode?.(r(snap.bgColorMode, 0, 1));
   if (typeof snap.bgCustomColor === 'string') setters.setBgCustomColor?.(snap.bgCustomColor);
-  if (snap.rectColorSource != null) setters.setRectColorSource?.(r(snap.rectColorSource, 0, 2));
+  if (snap.rectColorSource != null) setters.setRectColorSource?.(r(snap.rectColorSource, 0, 3));
+  if (snap.tileArtLevels != null) setters.setTileArtLevels?.(r(snap.tileArtLevels, 2, 8));
+  if (snap.tileArtThreshold != null) setters.setTileArtThreshold?.(f(snap.tileArtThreshold, 0, 1));
+  if (snap.tileArtDither != null) setters.setTileArtDither?.(f(snap.tileArtDither, 0, 1));
+  if (snap.tileArtColorMode != null) setters.setTileArtColorMode?.(r(snap.tileArtColorMode, 0, 2));
+  if (snap.tileArtGeom != null) setters.setTileArtGeom?.(r(snap.tileArtGeom, 0, 1));
+  if (snap.tileArtUniformGrid != null) setters.setTileArtUniformGrid?.(r(snap.tileArtUniformGrid, 0, 1));
+  if (Array.isArray(snap.tileArtRamp)) setters.setTileArtRamp?.(snap.tileArtRamp.map((v) => r(v, 0, 999)));
   if (snap.patternWarpShade != null) setters.setPatternWarpShade?.(r(snap.patternWarpShade, 0, 4));
   if (snap.patternWeftShade != null) setters.setPatternWeftShade?.(r(snap.patternWeftShade, 0, 4));
   if (snap.lumaSizeMix != null) setters.setLumaSizeMix?.(f(snap.lumaSizeMix, 0, 1));

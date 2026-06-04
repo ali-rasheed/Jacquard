@@ -7,6 +7,7 @@
 const DPR = 2;
 import { useRef, useEffect, useCallback, useState } from 'react';
 import { buildPatternTexture, PATTERNS } from '../patterns';
+import { buildPatternMetaTexture, normalizeTileArtRamp } from '../patterns/tileArtRamp';
 import { EXPORT_MAX_DIMENSION } from '../constants';
 import { IMAGE_RECTS_URL_DEFAULTS } from '../urlDefaults';
 
@@ -86,7 +87,7 @@ function hexToRgb01(hex, fallback = [0.95, 0.95, 0.95]) {
  * mediaTextureKind: staticImage = one upload after load; video = HTMLVideoElement, upload while playing;
  * gif = HTMLImageElement (animated GIF), upload every frame so frames advance.
  */
-export function useImageRectsSandbox(vertexSource, fragmentSource, imageSource, gridSize, palette, bgShade, bgColorMode, bgCustomColor, rectColorSource, quantizeSteps, quantizeMode, quantizeGamma, quantizeDither, rectShade, shadeFrom, patternWarpShade, patternWeftShade, patternIndex, patterns, rectRadius, rectAspect, rectRatio, lumaSizeMix, lumaSizeInvert, lumaSizeFloor, cellGeometryMode, stitchLumaMax, nonStitchShowsBg, stitchRevealMode, stitchRevealProgress, stitchRevealSeed, stitchRevealScale, stitchRevealNoiseScale, stitchRevealSoftness, stitchRevealBleedAnisotropy, stitchRevealBleedRotation, stitchRevealBleedCrossFiber, stitchRevealBleedDraftCoupled, onFpsChange, onImageSize, onCaptureReady, mediaTextureKind = 'staticImage') {
+export function useImageRectsSandbox(vertexSource, fragmentSource, imageSource, gridSize, palette, bgShade, bgColorMode, bgCustomColor, rectColorSource, quantizeSteps, quantizeMode, quantizeGamma, quantizeDither, rectShade, shadeFrom, patternWarpShade, patternWeftShade, patternIndex, patterns, rectRadius, rectAspect, rectRatio, lumaSizeMix, lumaSizeInvert, lumaSizeFloor, cellGeometryMode, stitchLumaMax, nonStitchShowsBg, stitchRevealMode, stitchRevealProgress, stitchRevealSeed, stitchRevealScale, stitchRevealNoiseScale, stitchRevealSoftness, stitchRevealBleedAnisotropy, stitchRevealBleedRotation, stitchRevealBleedCrossFiber, stitchRevealBleedDraftCoupled, tileArtLevels, tileArtThreshold, tileArtDither, tileArtColorMode, tileArtGeom, tileArtUniformGrid, tileArtRamp, onFpsChange, onImageSize, onCaptureReady, mediaTextureKind = 'staticImage') {
   const canvasRef = useRef(null);
   const containerRef = useRef(null);
   const onFpsChangeRef = useRef(onFpsChange);
@@ -123,7 +124,9 @@ export function useImageRectsSandbox(vertexSource, fragmentSource, imageSource, 
     let positionBuffer = null;
     let imageTexture = null;
     let patternTexture = null;
+    let patternMetaTexture = null;
     let patternTexHeight = 0;
+    let patternMetaWidth = 0;
     let animationId = null;
     let lastFrameTime = Date.now();
     let frameCount = 0;
@@ -149,7 +152,7 @@ export function useImageRectsSandbox(vertexSource, fragmentSource, imageSource, 
     const list = Array.isArray(patterns) ? patterns : PATTERNS;
 
     const render = () => {
-      if (!program || !uniformLocs || !imageTexture || !patternTexture) return;
+      if (!program || !uniformLocs || !imageTexture || !patternTexture || !patternMetaTexture) return;
       const cache = mediaCacheRef.current;
       if (imageSource && cache.kind === 'video' && cache.video && (cache.source === imageSource || cache.pendingUrl === imageSource)) {
         if (cache.video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
@@ -171,8 +174,11 @@ export function useImageRectsSandbox(vertexSource, fragmentSource, imageSource, 
       gl.bindTexture(gl.TEXTURE_2D, imageTexture);
       gl.activeTexture(gl.TEXTURE1);
       gl.bindTexture(gl.TEXTURE_2D, patternTexture);
+      gl.activeTexture(gl.TEXTURE2);
+      gl.bindTexture(gl.TEXTURE_2D, patternMetaTexture);
       gl.uniform1i(uniformLocs.imageSampler, 0);
       gl.uniform1i(uniformLocs.patternSampler, 1);
+      if (uniformLocs.patternMeta != null) gl.uniform1i(uniformLocs.patternMeta, 2);
       gl.uniform2f(uniformLocs.resolution, canvas.width, canvas.height);
       gl.uniform1f(uniformLocs.gridSize, gridSize);
       gl.uniform1f(uniformLocs.palette, palette);
@@ -213,6 +219,20 @@ export function useImageRectsSandbox(vertexSource, fragmentSource, imageSource, 
       gl.uniform1f(uniformLocs.tileW, pat?.tileW ?? 8);
       gl.uniform1f(uniformLocs.tileH, pat?.tileH ?? 8);
       gl.uniform1f(uniformLocs.patternTexHeight, patternTexHeight);
+      const ramp = normalizeTileArtRamp(tileArtRamp, list.length);
+      if (uniformLocs.tileArtLevels != null) gl.uniform1f(uniformLocs.tileArtLevels, tileArtLevels ?? 8);
+      if (uniformLocs.tileArtThreshold != null) gl.uniform1f(uniformLocs.tileArtThreshold, tileArtThreshold ?? 1);
+      if (uniformLocs.tileArtDither != null) gl.uniform1f(uniformLocs.tileArtDither, tileArtDither ?? 0);
+      if (uniformLocs.tileArtColorMode != null) gl.uniform1f(uniformLocs.tileArtColorMode, tileArtColorMode ?? 0);
+      if (uniformLocs.tileArtGeom != null) gl.uniform1f(uniformLocs.tileArtGeom, tileArtGeom ?? 1);
+      if (uniformLocs.tileArtUniformGrid != null) gl.uniform1f(uniformLocs.tileArtUniformGrid, tileArtUniformGrid ?? 1);
+      const rampLocs = uniformLocs.tileArtRamp;
+      if (rampLocs) {
+        for (let i = 0; i < 8; i++) {
+          if (rampLocs[i] != null) gl.uniform1f(rampLocs[i], ramp[i]);
+        }
+      }
+      if (uniformLocs.patternMetaWidth != null) gl.uniform1f(uniformLocs.patternMetaWidth, patternMetaWidth);
       gl.clearColor(0, 0, 0, 0);
       gl.clear(gl.COLOR_BUFFER_BIT);
       gl.drawArrays(gl.TRIANGLES, 0, 6);
@@ -277,6 +297,24 @@ export function useImageRectsSandbox(vertexSource, fragmentSource, imageSource, 
         stitchRevealBleedRotation: gl.getUniformLocation(program, 'u_stitchRevealBleedRotation'),
         stitchRevealBleedCrossFiber: gl.getUniformLocation(program, 'u_stitchRevealBleedCrossFiber'),
         stitchRevealBleedDraftCoupled: gl.getUniformLocation(program, 'u_stitchRevealBleedDraftCoupled'),
+        tileArtLevels: gl.getUniformLocation(program, 'u_tileArtLevels'),
+        tileArtThreshold: gl.getUniformLocation(program, 'u_tileArtThreshold'),
+        tileArtDither: gl.getUniformLocation(program, 'u_tileArtDither'),
+        tileArtColorMode: gl.getUniformLocation(program, 'u_tileArtColorMode'),
+        tileArtGeom: gl.getUniformLocation(program, 'u_tileArtGeom'),
+        tileArtUniformGrid: gl.getUniformLocation(program, 'u_tileArtUniformGrid'),
+        patternMeta: gl.getUniformLocation(program, 'u_patternMeta'),
+        patternMetaWidth: gl.getUniformLocation(program, 'u_patternMetaWidth'),
+        tileArtRamp: [
+          gl.getUniformLocation(program, 'u_tileArtRamp0'),
+          gl.getUniformLocation(program, 'u_tileArtRamp1'),
+          gl.getUniformLocation(program, 'u_tileArtRamp2'),
+          gl.getUniformLocation(program, 'u_tileArtRamp3'),
+          gl.getUniformLocation(program, 'u_tileArtRamp4'),
+          gl.getUniformLocation(program, 'u_tileArtRamp5'),
+          gl.getUniformLocation(program, 'u_tileArtRamp6'),
+          gl.getUniformLocation(program, 'u_tileArtRamp7'),
+        ],
       };
 
       imageTexture = createPlaceholderTexture(gl);
@@ -287,6 +325,17 @@ export function useImageRectsSandbox(vertexSource, fragmentSource, imageSource, 
       gl.activeTexture(gl.TEXTURE1);
       gl.bindTexture(gl.TEXTURE_2D, patternTexture);
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, texW, texH, 0, gl.RGBA, gl.UNSIGNED_BYTE, texData);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+      const { data: metaData, width: metaW } = buildPatternMetaTexture(list);
+      patternMetaWidth = metaW;
+      patternMetaTexture = gl.createTexture();
+      gl.activeTexture(gl.TEXTURE2);
+      gl.bindTexture(gl.TEXTURE_2D, patternMetaTexture);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, metaW, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, metaData);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
@@ -450,9 +499,10 @@ export function useImageRectsSandbox(vertexSource, fragmentSource, imageSource, 
       if (animationId) cancelAnimationFrame(animationId);
       if (imageTexture) gl.deleteTexture(imageTexture);
       if (patternTexture) gl.deleteTexture(patternTexture);
+      if (patternMetaTexture) gl.deleteTexture(patternMetaTexture);
       if (program) gl.deleteProgram(program);
     };
-  }, [vertexSource, fragmentSource, imageSource, gridSize, palette, bgShade, bgColorMode, bgCustomColor, rectColorSource, quantizeSteps, quantizeMode, quantizeGamma, quantizeDither, rectShade, shadeFrom, patternWarpShade, patternWeftShade, patternIndex, patterns, rectRadius, rectAspect, rectRatio, lumaSizeMix, lumaSizeInvert, lumaSizeFloor, cellGeometryMode, stitchLumaMax, nonStitchShowsBg, stitchRevealMode, stitchRevealProgress, stitchRevealSeed, stitchRevealScale, stitchRevealNoiseScale, stitchRevealSoftness, stitchRevealBleedAnisotropy, stitchRevealBleedRotation, stitchRevealBleedCrossFiber, stitchRevealBleedDraftCoupled, mediaTextureKind]);
+  }, [vertexSource, fragmentSource, imageSource, gridSize, palette, bgShade, bgColorMode, bgCustomColor, rectColorSource, quantizeSteps, quantizeMode, quantizeGamma, quantizeDither, rectShade, shadeFrom, patternWarpShade, patternWeftShade, patternIndex, patterns, rectRadius, rectAspect, rectRatio, lumaSizeMix, lumaSizeInvert, lumaSizeFloor, cellGeometryMode, stitchLumaMax, nonStitchShowsBg, stitchRevealMode, stitchRevealProgress, stitchRevealSeed, stitchRevealScale, stitchRevealNoiseScale, stitchRevealSoftness, stitchRevealBleedAnisotropy, stitchRevealBleedRotation, stitchRevealBleedCrossFiber, stitchRevealBleedDraftCoupled, tileArtLevels, tileArtThreshold, tileArtDither, tileArtColorMode, tileArtGeom, tileArtUniformGrid, tileArtRamp, mediaTextureKind]);
 
   useEffect(() => {
     const cleanup = run();
