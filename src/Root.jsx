@@ -5,6 +5,7 @@
  */
 import { Component } from 'react';
 import App from './App.jsx';
+import AccessGate from './components/AccessGate.jsx';
 import { AppTooltipProvider } from './components/ui/AppTooltipProvider.jsx';
 
 class RootErrorBoundary extends Component {
@@ -40,9 +41,11 @@ class RootErrorBoundary extends Component {
 export default function Root() {
   return (
     <RootErrorBoundary>
-      <AppTooltipProvider>
-        <App />
-      </AppTooltipProvider>
+      <AccessGate>
+        <AppTooltipProvider>
+          <App />
+        </AppTooltipProvider>
+      </AccessGate>
     </RootErrorBoundary>
   );
 }
