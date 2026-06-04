@@ -1,5 +1,5 @@
 /**
- * ENS Warp&Weft — root shell: Weave, Mosaic, Print mosaic; URL sync; shared sidebars / lazy stages.
+ * ENS Warp&Weft — root shell: Weave, Mosaic; URL sync; shared sidebars / lazy stages.
  */
 import { useState, useCallback, useRef, useEffect, useLayoutEffect, useMemo, useId, lazy, Suspense } from 'react';
 import { motion } from 'motion/react';
@@ -13,7 +13,7 @@ import { getWeaveAppKeyframeSnapshot, applyWeaveAppKeyframe } from './keyframe/w
 import { CaptureToolbar } from './components/CaptureToolbar';
 import { ShaderEmbedExportModal } from './components/ShaderEmbedExportModal.jsx';
 import { halftoneCmykPresets } from '@paper-design/shaders-react';
-import { PATTERNS } from './patterns';
+import { PATTERNS, buildPatternSelectOptions, randomEnabledPatternIndex } from './patterns';
 import { getCopyCanvas } from './copyHelpers';
 
 /** Copy/export/record: weaving + halftone uses halftone canvas (legacy view name `weavingHalftone`). */
@@ -86,24 +86,12 @@ import {
 } from './uiConstants';
 import { Icon, GroupIcon, AppSelect, DirectionSwitch, SegmentedControl, SegmentedControlButton, IconButton } from './components/ui';
 import { RecordingDownloadBanner } from './components/RecordingDownloadBanner.jsx';
+import { ThemeToggle } from './components/ThemeToggle.jsx';
 
 /** Lazy load to avoid circular/order-dependent init in production bundle (TDZ). */
 const AppV2 = lazy(() => import('./AppV2.jsx'));
 const WeavingHalftoneStage = lazy(() => import('./components/WeavingHalftoneStage.jsx').then((m) => ({ default: m.WeavingHalftoneStage })));
-const ImageRectsHalftoneStage = lazy(() => import('./components/ImageRectsHalftoneStage.jsx').then((m) => ({ default: m.ImageRectsHalftoneStage })));
 const HALFTONE_TYPE_MAP = ['dots', 'ink', 'sharp'];
-
-/** Image rects + halftone: quantize color space (see fragmentImageRects.glsl). */
-const COMBO_QUANTIZE_MODE_OPTIONS = [
-  { value: 0, label: 'RGB' },
-  { value: 1, label: 'HSV' },
-];
-
-const COMBO_RECT_COLOR_OPTIONS = [
-  { value: 0, label: 'Brand' },
-  { value: 1, label: 'Image' },
-  { value: 2, label: 'Pattern' },
-];
 
 /** Weave stitch-in: same modes as Mosaic (fragmentImageRects). */
 const STITCH_REVEAL_MODE_OPTIONS = [
@@ -111,13 +99,6 @@ const STITCH_REVEAL_MODE_OPTIONS = [
   { value: 1, label: 'Noise' },
   { value: 2, label: 'Bleed' },
 ];
-
-const COMBO_CELL_GEOMETRY_OPTIONS = [
-  { value: 0, label: 'Weave' },
-  { value: 1, label: 'Dark stitches' },
-];
-
-const comboShadePickOptions = (prefix) => SHADE_NAMES.map((name, i) => ({ value: i, label: `${prefix}: ${name}` }));
 
 function packHexColors(values) {
   return values.map((v) => String(v).replace('#', '')).join(',');
@@ -404,7 +385,7 @@ function parseUrlState(search) {
   if (v === '1') out.view = 'weaving';
   else if (v === '2' || v === '5' || v === '6') out.view = 'imageRects';
   else if (v === '3') out.view = 'weaving';
-  else if (v === '4') out.view = 'imageRectsHalftone';
+  else if (v === '4') out.view = 'imageRects';
   const wht = params.get('wht');
   if (wht === '1') out.weaveHalftoneOn = true;
   if (wht === '0') out.weaveHalftoneOn = false;
@@ -436,7 +417,7 @@ function parseUrlState(search) {
 function getInitialView() {
   const v = new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '').get('v');
   if (v === '2' || v === '5' || v === '6') return 'imageRects';
-  if (v === '4') return 'imageRectsHalftone';
+  if (v === '4') return 'imageRects';
   return 'weaving';
 }
 
@@ -452,7 +433,6 @@ function buildUrlState(state) {
   const p = new URLSearchParams();
   let urlV = 1;
   if (state.view === 'imageRects') urlV = 2;
-  else if (state.view === 'imageRectsHalftone') urlV = 4;
   else if (state.view === 'weaving' && state.weaveHalftoneOn) urlV = 3;
   if (urlV !== 1) p.set('v', String(urlV));
   if (state.presetIndex != null && state.presetIndex >= 0 && state.presetIndex < PRESETS.length) p.set('preset', String(state.presetIndex));
@@ -876,16 +856,6 @@ export default function App() {
       if (halftoneCustomImageUrl) URL.revokeObjectURL(halftoneCustomImageUrl);
     };
   }, [halftoneCustomImageUrl]);
-
-  const handleComboImageFile = useCallback((e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setComboImageSource((prev) => {
-      if (prev && prev.startsWith('blob:')) URL.revokeObjectURL(prev);
-      return URL.createObjectURL(file);
-    });
-    e.target.value = '';
-  }, []);
 
   const comboImageSourceRef = useRef(comboImageSource);
   comboImageSourceRef.current = comboImageSource;
@@ -1882,11 +1852,13 @@ export default function App() {
     const randInt = (lo, hi) => lo + Math.floor(Math.random() * (hi - lo + 1));
     const rand = (lo, hi) => lo + Math.random() * (hi - lo);
     setPresetIndex(null);
-    setPattern(randInt(0, PATTERNS.length - 1));
+    setPattern(randomEnabledPatternIndex());
     setPalette(randInt(0, 4));
-    setBgShade(randInt(0, 4));
-    setWarpShade(randInt(0, 4));
-    setWeftShade(randInt(0, 4));
+    if (!shadesLocked) {
+      setBgShade(randInt(0, 4));
+      setWarpShade(randInt(0, 4));
+      setWeftShade(randInt(0, 4));
+    }
     setGridSize(pick(GRID_SNAPS));
     setWarpGradient({
       startShade: randInt(0, 3),
@@ -1920,7 +1892,7 @@ export default function App() {
     setColorwaySeed(randInt(0, 100));
     setColorwayNoiseScale(Number((0.025 + Math.random() * 0.225).toFixed(3)));
     setColorwayAnimPlaying({ ...COLORWAY_ANIM_INITIAL });
-  }, [randomizeRectAspect, randomizeCornerRadius]);
+  }, [randomizeRectAspect, randomizeCornerRadius, shadesLocked]);
 
   /** Keyboard shortcuts when focus is not in input/select/textarea. Mod+C = copy; Mod+1..9 = preset 0–(n−1); Mod+Shift+R or F5 = reload. */
   useEffect(() => {
@@ -1947,10 +1919,9 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [handleCopy, applyPreset, handleReload]);
 
-  const patternOptions = PATTERNS.map((p, i) => ({
-    value: i,
-    label: p.name,
-    icon: WEAVE_ICONS[p.id] ?? 'texture',
+  const patternOptions = buildPatternSelectOptions(PATTERNS, pattern).map((o) => ({
+    ...o,
+    icon: WEAVE_ICONS[PATTERNS[o.value]?.id] ?? 'texture',
   }));
   const shadeOptions = (prefix) => SHADE_NAMES.map((name, i) => ({ value: i, label: prefix ? `${prefix}: ${name}` : name }));
   const presetOptions = [
@@ -1994,6 +1965,7 @@ export default function App() {
   const navViewportFitFill = (
     <>
       <div className="min-w-0 flex-1 basis-0" aria-hidden />
+      <ThemeToggle />
       <div className="flex shrink-0 items-center" title="Canvas in stage">
         <SegmentedControl>
           <div className="flex h-full">
@@ -2036,10 +2008,7 @@ export default function App() {
               <Icon name={menuHidden ? 'dock_to_right' : 'close'} className={iconMd} />
             </button>
             <button type="button" className={navBtnInactive} onClick={() => setView('weaving')} aria-pressed={false} aria-label="Weave draft — pattern and colors">Weave</button>
-            <div className="flex shrink-0 flex-wrap items-center gap-1">
-              <button type="button" className={navBtnInactive} onClick={() => setView('imageRectsHalftone')} aria-pressed={false} aria-label="Print mosaic — image grid with CMYK halftone"><span className="inline-flex items-center gap-1">Print mosaic <Icon name="lens_blur" className={iconSm} /></span></button>
-              <button type="button" className={navBtnActive} onClick={() => setView('imageRects')} aria-pressed aria-label="Mosaic — image or video to colored rects">Mosaic</button>
-            </div>
+            <button type="button" className={navBtnActive} onClick={() => setView('imageRects')} aria-pressed aria-label="Mosaic — image or video to colored rects">Mosaic</button>
           </div>
           {navViewportFitFill}
         </nav>
@@ -2073,7 +2042,6 @@ export default function App() {
           </button>
           <div className="flex flex-wrap items-center gap-1">
             <button type="button" className={view === 'weaving' ? navBtnActive : navBtnInactive} onClick={() => setView('weaving')} aria-pressed={view === 'weaving'} aria-label="Weave draft — pattern and colors">Weave</button>
-            <button type="button" className={view === 'imageRectsHalftone' ? navBtnActive : navBtnInactive} onClick={() => setView('imageRectsHalftone')} aria-pressed={view === 'imageRectsHalftone'} aria-label="Print mosaic — image grid with CMYK halftone"><span className="inline-flex items-center gap-1">Print mosaic <Icon name="lens_blur" className={iconSm} /></span></button>
             <button type="button" className={navBtnInactive} onClick={() => setView('imageRects')} aria-pressed={false} aria-label="Mosaic — image or video to colored rects">Mosaic</button>
           </div>
         </div>
@@ -2105,7 +2073,7 @@ export default function App() {
                   <span>Randomize</span>
                 </button>
               </div>
-              {(view === 'weaving' && weaveHalftoneOn) || view === 'imageRectsHalftone' ? (
+              {view === 'weaving' && weaveHalftoneOn ? (
                 <div className="flex flex-col gap-1 border-t border-border-subtle pt-2">
                   <div className="flex flex-wrap items-center gap-1.5">
                     {view === 'weaving' && weaveHalftoneOn && (
@@ -2137,130 +2105,11 @@ export default function App() {
                         )}
                       </>
                     )}
-                    {view === 'imageRectsHalftone' && (
-                      <label className={`${btnGhost} cursor-pointer`}>
-                        <Icon name="upload_file" className={iconMd} />
-                        <span>Image from desktop</span>
-                        <input
-                          type="file"
-                          accept="image/*"
-                          className="sr-only"
-                          onChange={handleComboImageFile}
-                          aria-label="Pick an image from your computer for Print mosaic"
-                        />
-                      </label>
-                    )}
                   </div>
                 </div>
               ) : null}
             </div>
-            {view === 'imageRectsHalftone' && (
-              <>
-                <div className={sidebarGroup}>
-                  <div className={sidebarGroupTitle}>Mosaic source</div>
-                  {(!comboImageSource || comboImageSource.startsWith('blob:')) && (
-                    <span className={typeCaption}>{comboImageSource ? 'Using your image' : 'Pick “Image from desktop” in Actions'}</span>
-                  )}
-                  <div className="flex flex-col gap-1.5">
-                    <Label.Root className={typeLabel} htmlFor="combo-grid">Grid</Label.Root>
-                    <SliderWithInput id="combo-grid" value={comboGridSize} onValueChange={setComboGridSize} defaultValue={COMBO_DEFAULTS.gridSize} onReset={() => setComboGridSize(COMBO_DEFAULTS.gridSize)} min={8} max={256} step={1} snapValues={GRID_SNAPS} snapPointCount={GRID_SNAPS.length} aria-label="Grid size" />
-                    <div className="flex items-center gap-2">
-                      <span className={typeLabel}>Palette</span>
-                      {PALETTE_SWATCH_COLORS.map((c, i) => (
-                        <button key={i} type="button" className={`${paletteSwatchSm} ${comboPalette === i ? 'border-accent' : 'border-border-subtle'}`} style={{ backgroundColor: c }} onClick={() => setComboPalette(i)} aria-label={PALETTE_NAMES[i]} />
-                      ))}
-                      {comboPalette !== COMBO_DEFAULTS.palette && (
-                        <IconButton size="resetSm" onClick={() => setComboPalette(COMBO_DEFAULTS.palette)} title="Reset palette" aria-label="Reset combo palette to default">
-                          <Icon name="restart_alt" className={iconResetGlyph} />
-                        </IconButton>
-                      )}
-                    </div>
-                    <Label.Root className={typeLabel} htmlFor="combo-pattern">Weave</Label.Root>
-                    <AppSelect
-                      id="combo-pattern"
-                      labelText="Weave pattern"
-                      value={comboPatternIndex}
-                      onValueChange={(v) => setComboPatternIndex(Number(v))}
-                      defaultValue={COMBO_DEFAULTS.patternIndex}
-                      onReset={() => setComboPatternIndex(COMBO_DEFAULTS.patternIndex)}
-                      options={PATTERNS.map((p, i) => ({ value: i, label: p?.name ?? `Pattern ${i}` }))}
-                      title="Weave pattern"
-                      placeholder="Pattern"
-                    />
-                    <Label.Root className={typeLabel} htmlFor="combo-rect-color">Rect color</Label.Root>
-                    <AppSelect
-                      id="combo-rect-color"
-                      labelText="Rect color source"
-                      value={comboRectColorSource}
-                      onValueChange={(v) => setComboRectColorSource(Number(v))}
-                      defaultValue={COMBO_DEFAULTS.rectColorSource}
-                      onReset={() => setComboRectColorSource(COMBO_DEFAULTS.rectColorSource)}
-                      options={COMBO_RECT_COLOR_OPTIONS}
-                      title="Image, brand palette, or weave warp/weft"
-                      placeholder="Color"
-                    />
-                    {comboRectColorSource === 2 && (
-                      <>
-                        <Label.Root className={typeLabel} htmlFor="combo-pws">Warp shade</Label.Root>
-                        <AppSelect id="combo-pws" labelText="Warp shade" value={comboPatternWarpShade} onValueChange={(v) => setComboPatternWarpShade(Number(v))} defaultValue={COMBO_DEFAULTS.patternWarpShade} onReset={() => setComboPatternWarpShade(COMBO_DEFAULTS.patternWarpShade)} options={comboShadePickOptions('W')} title="Warp thread shade" placeholder="Warp" />
-                        <Label.Root className={typeLabel} htmlFor="combo-pwf">Weft shade</Label.Root>
-                        <AppSelect id="combo-pwf" labelText="Weft shade" value={comboPatternWeftShade} onValueChange={(v) => setComboPatternWeftShade(Number(v))} defaultValue={COMBO_DEFAULTS.patternWeftShade} onReset={() => setComboPatternWeftShade(COMBO_DEFAULTS.patternWeftShade)} options={comboShadePickOptions('F')} title="Weft thread shade" placeholder="Weft" />
-                      </>
-                    )}
-                    <Label.Root className={typeLabel} htmlFor="combo-quantize">Quantize</Label.Root>
-                    <SliderWithInput id="combo-quantize" value={comboQuantizeSteps} onValueChange={setComboQuantizeSteps} defaultValue={COMBO_DEFAULTS.quantizeSteps} onReset={() => setComboQuantizeSteps(COMBO_DEFAULTS.quantizeSteps)} min={0} max={32} step={1} aria-label="Quantize steps" />
-                    <Label.Root className={typeLabel} htmlFor="combo-qspace">Quantize space</Label.Root>
-                    <AppSelect
-                      id="combo-qspace"
-                      labelText="Quantize color space"
-                      value={comboQuantizeMode}
-                      onValueChange={(v) => setComboQuantizeMode(Number(v))}
-                      defaultValue={COMBO_DEFAULTS.quantizeMode}
-                      onReset={() => setComboQuantizeMode(COMBO_DEFAULTS.quantizeMode)}
-                      options={COMBO_QUANTIZE_MODE_OPTIONS}
-                      title="RGB vs HSV banding"
-                      placeholder="Space"
-                    />
-                    <div className="flex items-center gap-1">
-                      <GroupIcon name="contrast" title="Gamma" />
-                      <Label.Root className={`${typeLabel} sr-only`} htmlFor="combo-qgamma">Gamma</Label.Root>
-                      <SliderWithInput id="combo-qgamma" value={comboQuantizeGamma} onValueChange={setComboQuantizeGamma} defaultValue={COMBO_DEFAULTS.quantizeGamma} onReset={() => setComboQuantizeGamma(COMBO_DEFAULTS.quantizeGamma)} min={0.25} max={4} step={0.05} format={(n) => n.toFixed(2)} aria-label="Quantize gamma" />
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <GroupIcon name="blur_linear" title="Dither" />
-                      <Label.Root className={`${typeLabel} sr-only`} htmlFor="combo-qdither">Dither</Label.Root>
-                      <SliderWithInput id="combo-qdither" value={comboQuantizeDither} onValueChange={setComboQuantizeDither} defaultValue={COMBO_DEFAULTS.quantizeDither} onReset={() => setComboQuantizeDither(COMBO_DEFAULTS.quantizeDither)} min={0} max={1} step={0.05} format={(n) => n.toFixed(2)} aria-label="Quantize dither" />
-                    </div>
-                    <Label.Root className={typeLabel} htmlFor="combo-luma-mix">Brightness → size</Label.Root>
-                    <SliderWithInput id="combo-luma-mix" value={comboLumaSizeMix} onValueChange={setComboLumaSizeMix} defaultValue={COMBO_DEFAULTS.lumaSizeMix} onReset={() => setComboLumaSizeMix(COMBO_DEFAULTS.lumaSizeMix)} min={0} max={1} step={0.05} format={(n) => n.toFixed(2)} aria-label="Scale rects by image brightness" />
-                    <AppSelect id="combo-luma-inv" labelText="Bright vs dark smaller" value={comboLumaSizeInvert} onValueChange={(v) => setComboLumaSizeInvert(Number(v))} defaultValue={COMBO_DEFAULTS.lumaSizeInvert} onReset={() => setComboLumaSizeInvert(COMBO_DEFAULTS.lumaSizeInvert)} options={[{ value: 0, label: 'Dark smaller' }, { value: 1, label: 'Bright smaller' }]} title="Luma size polarity" placeholder="Polarity" />
-                    <Label.Root className={typeLabel} htmlFor="combo-luma-floor">Min scale</Label.Root>
-                    <SliderWithInput id="combo-luma-floor" value={comboLumaSizeFloor} onValueChange={setComboLumaSizeFloor} defaultValue={COMBO_DEFAULTS.lumaSizeFloor} onReset={() => setComboLumaSizeFloor(COMBO_DEFAULTS.lumaSizeFloor)} min={0.05} max={1} step={0.05} format={(n) => n.toFixed(2)} aria-label="Smallest rect vs base ratio" />
-                    <Label.Root className={typeLabel} htmlFor="combo-cgeom">Cell geometry</Label.Root>
-                    <AppSelect id="combo-cgeom" labelText="Cell geometry" value={comboCellGeometryMode} onValueChange={(v) => setComboCellGeometryMode(Number(v))} defaultValue={COMBO_DEFAULTS.cellGeometryMode} onReset={() => setComboCellGeometryMode(COMBO_DEFAULTS.cellGeometryMode)} options={COMBO_CELL_GEOMETRY_OPTIONS} title="Weave vs darkness-gated stitches" placeholder="Geometry" />
-                    {comboCellGeometryMode === 1 && (
-                      <>
-                        <Label.Root className={typeLabel} htmlFor="combo-stitch-luma">Stitch max luma</Label.Root>
-                        <SliderWithInput id="combo-stitch-luma" value={comboStitchLumaMax} onValueChange={setComboStitchLumaMax} defaultValue={COMBO_DEFAULTS.stitchLumaMax} onReset={() => setComboStitchLumaMax(COMBO_DEFAULTS.stitchLumaMax)} min={0} max={1} step={0.02} format={(n) => n.toFixed(2)} aria-label="Stitch if cell luma at or below this" />
-                      </>
-                    )}
-                    <Label.Root className={typeLabel} htmlFor="combo-bg">BG shade</Label.Root>
-                    <AppSelect
-                      id="combo-bg"
-                      labelText="Background shade"
-                      value={comboBgShade}
-                      onValueChange={(v) => setComboBgShade(Number(v))}
-                      defaultValue={COMBO_DEFAULTS.bgShade}
-                      onReset={() => setComboBgShade(COMBO_DEFAULTS.bgShade)}
-                      options={SHADE_NAMES.map((name, i) => ({ value: i, label: name }))}
-                      title="Background shade"
-                    />
-                  </div>
-                </div>
-              </>
-            )}
-            {view !== 'imageRectsHalftone' && (
-              <>
+            <>
                 <div className={sidebarGroup}>
                   <div className={sidebarGroupTitle}>Preset & colorway</div>
                   <div className="flex flex-wrap items-center gap-1.5">
@@ -3066,6 +2915,72 @@ export default function App() {
                     {useAllColorways && (
                       <>
                         <div className="flex w-full flex-col gap-1.5">
+                          <span className={typeLabel}>Thread shades</span>
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <GroupIcon
+                              name="palette"
+                              title="Warp/weft shades apply to each cell’s picked palette; background uses the colorway swatch above"
+                              locked={shadesLocked}
+                              onLockChange={setShadesLocked}
+                            />
+                            <AppSelect
+                              id="allcw-bg-shade"
+                              labelText="Background shade"
+                              value={bgShade}
+                              onValueChange={(v) => {
+                                setBgShade(Number(v));
+                                setPresetIndex(null);
+                              }}
+                              defaultValue={WEAVING_URL_DEFAULTS.bgShade}
+                              onReset={() => {
+                                setBgShade(WEAVING_URL_DEFAULTS.bgShade);
+                                setPresetIndex(null);
+                              }}
+                              options={shadeOptions('BG')}
+                              title="Background shade (single colorway swatch when not using per-cell palettes for BG)"
+                              placeholder="BG"
+                            />
+                            <AppSelect
+                              id="allcw-warp-shade"
+                              labelText="Warp shade"
+                              value={warpShade}
+                              onValueChange={(v) => {
+                                const shade = Number(v);
+                                setWarpShade(shade);
+                                setPresetIndex(null);
+                                setWarpGradient((g) => ({ ...g, startShade: shade, endShade: shade }));
+                              }}
+                              options={shadeOptions('Warp')}
+                              title="Warp thread shade within each cell’s palette"
+                              placeholder="Warp"
+                              defaultValue={WEAVING_URL_DEFAULTS.warpShade}
+                              onReset={() => {
+                                setWarpShade(WEAVING_URL_DEFAULTS.warpShade);
+                                setPresetIndex(null);
+                              }}
+                            />
+                            <AppSelect
+                              id="allcw-weft-shade"
+                              labelText="Weft shade"
+                              value={weftShade}
+                              onValueChange={(v) => {
+                                const shade = Number(v);
+                                setWeftShade(shade);
+                                setPresetIndex(null);
+                                setWeftGradient((g) => ({ ...g, startShade: shade, endShade: shade }));
+                              }}
+                              options={shadeOptions('Weft')}
+                              title="Weft thread shade within each cell’s palette"
+                              placeholder="Weft"
+                              defaultValue={WEAVING_URL_DEFAULTS.weftShade}
+                              onReset={() => {
+                                setWeftShade(WEAVING_URL_DEFAULTS.weftShade);
+                                setPresetIndex(null);
+                              }}
+                            />
+                          </div>
+                        </div>
+                        <div className="flex w-full flex-col gap-1.5">
                           <div className="flex items-center justify-between gap-2">
                             <span className={typeLabel}>Include palettes</span>
                             <ColorwayAnimPlayBtn
@@ -3395,8 +3310,7 @@ export default function App() {
                   </div>
                 </div>
               </>
-            )}
-            {((view === 'weaving' && weaveHalftoneOn) || view === 'imageRectsHalftone') && (
+            {view === 'weaving' && weaveHalftoneOn && (
               <>
                 <div className={sidebarGroup}>
                   <div className={`${sidebarGroupTitle} inline-flex items-center gap-1`}><Icon name="lens_blur" className={iconXs} /> preset</div>
@@ -3486,7 +3400,7 @@ export default function App() {
         <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
           <main
             className={
-              (view === 'weaving' && weaveHalftoneOn) || view === 'imageRectsHalftone'
+              view === 'weaving' && weaveHalftoneOn
                 ? 'flex min-h-0 flex-1 flex-col items-stretch overflow-hidden p-4'
                 : 'flex min-h-0 flex-1 flex-col overflow-hidden p-4'
             }
@@ -3553,53 +3467,6 @@ export default function App() {
                 onCanvasRef={(el) => { canvasRef.current = el; }}
                 onCaptureReady={(api) => { weavingCaptureRef.current = api; }}
               />
-            )}
-            {view === 'imageRectsHalftone' && (
-              <Suspense fallback={<div className="flex flex-1 items-center justify-center text-text-secondary">Loading…</div>}>
-                <div className="flex min-h-0 flex-1 w-full flex-col">
-                  <ImageRectsHalftoneStage
-                    imageSource={comboImageSource}
-                    gridSize={comboGridSize}
-                    palette={comboPalette}
-                    bgShade={comboBgShade}
-                    rectColorSource={comboRectColorSource}
-                    quantizeSteps={comboQuantizeSteps}
-                    quantizeMode={comboQuantizeMode}
-                    quantizeGamma={comboQuantizeGamma}
-                    quantizeDither={comboQuantizeDither}
-                    rectShade={1}
-                    shadeFrom={0}
-                    patternWarpShade={comboPatternWarpShade}
-                    patternWeftShade={comboPatternWeftShade}
-                    patternIndex={comboPatternIndex}
-                    patterns={PATTERNS}
-                    rectRadius={comboRectRadius}
-                    rectAspect={comboRectAspect}
-                    rectRatio={comboRectRatio}
-                    lumaSizeMix={comboLumaSizeMix}
-                    lumaSizeInvert={comboLumaSizeInvert}
-                    lumaSizeFloor={comboLumaSizeFloor}
-                    cellGeometryMode={comboCellGeometryMode}
-                    stitchLumaMax={comboStitchLumaMax}
-                    patternFit={patternFit}
-                    size={halftoneSize}
-                    softness={halftoneSoftness}
-                    gridNoise={halftoneGridNoise}
-                    contrast={halftoneContrast}
-                    type={halftoneType}
-                    colorBack={halftoneColorBack}
-                    colorC={halftoneColorC}
-                    colorM={halftoneColorM}
-                    colorY={halftoneColorY}
-                    colorK={halftoneColorK}
-                    floodC={halftoneFloodC}
-                    gainC={halftoneGainC}
-                    gainY={halftoneGainY}
-                    halftoneContainerRef={halftoneContainerRef}
-                    halftoneCanvasRef={halftoneCanvasRef}
-                  />
-                </div>
-              </Suspense>
             )}
             {view === 'weaving' && weaveHalftoneOn && (
               <Suspense fallback={<div className="flex flex-1 items-center justify-center text-text-secondary">Loading…</div>}>

@@ -3,7 +3,8 @@
  * brand / image / pattern color; quantize, stitches, optional background gaps (legacy v5), Fit/Fill canvas.
  * Copy, WebM/MP4 record, URL state (?v=2, gap=, display=), shortcuts.
  */
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef, lazy, Suspense } from 'react';
+import { halftoneCmykPresets } from '@paper-design/shaders-react';
 import { motion } from 'motion/react';
 import * as Label from '@radix-ui/react-label';
 import { ImageRectsCanvas } from './components/ImageRectsCanvas';
@@ -12,7 +13,7 @@ import { useCanvasRecorder } from './hooks/useCanvasRecorder';
 import { useKeyframePlayback } from './hooks/useKeyframePlayback';
 import { getMosaicKeyframeSnapshot, applyMosaicKeyframe } from './keyframe/mosaicKeyframe';
 import { CaptureToolbar } from './components/CaptureToolbar';
-import { PATTERNS } from './patterns';
+import { PATTERNS, buildPatternSelectOptions, randomEnabledPatternIndex } from './patterns';
 import {
   DEFAULT_TILE_ART_RAMP,
   TILE_ART_SLOT_COUNT,
@@ -25,7 +26,32 @@ import {
 } from './patterns/tileArtRamp';
 import { AppTooltip } from './components/ui/AppTooltip';
 import { EXPORT_MAX_DIMENSION, GRID_SNAPS, getGridSizeIndex, URL_STATE_MAX_LEN, WEAVE_ICONS } from './constants';
-import { IMAGE_RECTS_URL_DEFAULTS, KEYFRAME_ANIM_DEFAULT_SEC } from './urlDefaults';
+import { IMAGE_RECTS_URL_DEFAULTS, HALFTONE_DEFAULTS, KEYFRAME_ANIM_DEFAULT_SEC } from './urlDefaults';
+
+const ImageRectsHalftoneStage = lazy(() =>
+  import('./components/ImageRectsHalftoneStage.jsx').then((m) => ({ default: m.ImageRectsHalftoneStage }))
+);
+
+const HALFTONE_TYPE_MAP = ['dots', 'ink', 'sharp'];
+
+function packHexColors(values) {
+  return values.map((v) => String(v).replace('#', '')).join(',');
+}
+
+function unpackHexColors(raw) {
+  const parts = String(raw).split(',');
+  if (parts.length !== 5) return null;
+  const valid = parts.every((p) => /^[0-9a-fA-F]{6}$/.test(p));
+  if (!valid) return null;
+  return parts.map((p) => `#${p.toLowerCase()}`);
+}
+
+function getInitialMosaicHalftoneOn() {
+  const p = new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '');
+  const v = p.get('v');
+  const mht = p.get('mht');
+  return v === '4' || mht === '1';
+}
 import { decodeKeyframeSnapshot, encodeKeyframeSnapshot } from './keyframe/keyframeUrlCodec';
 import {
   PALETTE_NAMES,
@@ -53,6 +79,7 @@ import {
 } from './uiConstants';
 import { Icon, GroupIcon, AppSelect, SegmentedControl, SegmentedControlButton, IconButton } from './components/ui';
 import { RecordingDownloadBanner } from './components/RecordingDownloadBanner.jsx';
+import { ThemeToggle } from './components/ThemeToggle.jsx';
 
 /** Rect fill: brand = palette from cell image luma; image = sampled RGB; pattern = warp vs weft shades only; tile art = per-cell weave ramp. */
 const RECT_COLOR_SOURCE_OPTIONS = [
@@ -104,7 +131,7 @@ function inferMediaTextureKindFromFile(file) {
   return 'staticImage';
 }
 
-/** Parse URL search params into Mosaic state. imageSource is not in URL (blob). v=2|5|6 supported; v=5 enables bg gaps. */
+/** Parse URL search params into Mosaic state. imageSource is not in URL (blob). v=2|4|5|6; v=4 = halftone on (legacy Print mosaic). */
 function parseUrlStateV2(search) {
   const params = new URLSearchParams(search);
   const out = {};
@@ -115,9 +142,21 @@ function parseUrlStateV2(search) {
     if (!Number.isFinite(n)) return;
     out[stateKey] = min != null && max != null ? Math.max(min, Math.min(max, n)) : n;
   };
+  const numLegacy = (primary, legacy, stateKey, min, max) => {
+    const val = params.get(primary) ?? params.get(legacy);
+    if (val == null) return;
+    const n = Number(val);
+    if (!Number.isFinite(n)) return;
+    out[stateKey] = min != null && max != null ? Math.max(min, Math.min(max, n)) : n;
+  };
   const vParam = params.get('v');
-  const mosaicV = vParam == null || vParam === '2' || vParam === '5' || vParam === '6';
+  const mosaicV = vParam == null || vParam === '2' || vParam === '4' || vParam === '5' || vParam === '6';
   if (!mosaicV) return out;
+  if (vParam === '4') out.mosaicHalftoneOn = true;
+  const mht = params.get('mht');
+  if (mht === '1') out.mosaicHalftoneOn = true;
+  if (mht === '0') out.mosaicHalftoneOn = false;
+  const legacyCombo = vParam === '4';
   if (vParam === '5') {
     out.mosaicBgGaps = true;
     if (params.get('gm') == null && params.get('gap') == null) out.cellGeometryMode = 1;
@@ -127,6 +166,21 @@ function parseUrlStateV2(search) {
   if (gap === '0') out.mosaicBgGaps = false;
   const display = params.get('display');
   if (display === 'fill' || display === 'fit') out.patternFit = display;
+  if (legacyCombo) {
+    numLegacy('grid', 'cg', 'gridSize', 8, 256);
+    numLegacy('pal', 'cpal', 'palette', 0, 4);
+    numLegacy('bg', 'cbg', 'bgShade', 0, 5);
+    numLegacy('cm', 'ccm', 'rectColorSource', 0, 3);
+    numLegacy('pws', 'cpws', 'patternWarpShade', 0, 4);
+    numLegacy('pwf', 'cpwf', 'patternWeftShade', 0, 4);
+    numLegacy('q', 'cq', 'quantizeSteps', 0, 32);
+    numLegacy('qm', 'cqm', 'quantizeMode', 0, 1);
+    numLegacy('p', 'cp', 'patternIndex', 0, PATTERNS.length - 1);
+    numLegacy('rr', 'crr', 'rectRadius', 0, 0.5);
+    numLegacy('ra', 'cra', 'rectAspect', 0.3, 1.5);
+    numLegacy('rratio', 'cratio', 'rectRatio', 0.2, 1);
+    numLegacy('gm', 'cgm', 'cellGeometryMode', 0, 1);
+  }
   num('grid', 'gridSize', 8, 256);
   num('pal', 'palette', 0, 4);
   num('bg', 'bgShade', 0, 5);
@@ -148,6 +202,7 @@ function parseUrlStateV2(search) {
   num('tacm', 'tileArtColorMode', 0, 2);
   num('tag', 'tileArtGeom', 0, 1);
   num('tug', 'tileArtUniformGrid', 0, 1);
+  num('taf', 'tileArtDensity', 0, 1);
   const tar = params.get('tar');
   const parsedRamp = parseTileArtRampParam(tar);
   if (parsedRamp) out.tileArtRamp = parsedRamp;
@@ -252,6 +307,23 @@ function parseUrlStateV2(search) {
     const o = decodeKeyframeSnapshot(kfb);
     if (o) out.keyframeSnapshotB = o;
   }
+  num('hp', 'halftonePresetIndex', 0, halftoneCmykPresets.length - 1);
+  num('hs', 'halftoneSize', 0.01, 1);
+  num('hsoft', 'halftoneSoftness', 0, 1);
+  num('hgn', 'halftoneGridNoise', 0, 1);
+  num('hc', 'halftoneContrast', 0, 2);
+  num('hfc', 'halftoneFloodC', 0, 1);
+  num('hgc', 'halftoneGainC', -1, 1);
+  num('hgy', 'halftoneGainY', -1, 1);
+  const ht = params.get('ht');
+  if (ht != null && HALFTONE_TYPE_MAP[Number(ht)]) out.halftoneType = HALFTONE_TYPE_MAP[Number(ht)];
+  const hcols = params.get('hcols');
+  if (hcols) {
+    const colors = unpackHexColors(hcols);
+    if (colors) {
+      [out.halftoneColorBack, out.halftoneColorC, out.halftoneColorM, out.halftoneColorY, out.halftoneColorK] = colors;
+    }
+  }
   return out;
 }
 
@@ -259,7 +331,7 @@ function parseUrlStateV2(search) {
 function buildUrlStateV2(state) {
   const def = IMAGE_RECTS_URL_DEFAULTS;
   const p = new URLSearchParams();
-  p.set('v', '2');
+  p.set('v', state.mosaicHalftoneOn ? '4' : '2');
   if (state.gridSize !== def.gridSize) p.set('grid', String(state.gridSize));
   if (state.palette !== def.palette) p.set('pal', String(state.palette));
   if (state.bgShade !== def.bgShade) p.set('bg', String(state.bgShade));
@@ -273,6 +345,7 @@ function buildUrlStateV2(state) {
   if (state.tileArtColorMode !== def.tileArtColorMode) p.set('tacm', String(state.tileArtColorMode));
   if (state.tileArtGeom !== def.tileArtGeom) p.set('tag', String(state.tileArtGeom));
   if (state.tileArtUniformGrid !== def.tileArtUniformGrid) p.set('tug', String(state.tileArtUniformGrid));
+  if (state.tileArtDensity !== def.tileArtDensity) p.set('taf', String(state.tileArtDensity));
   const tar = serializeTileArtRamp(state.tileArtRamp);
   if (tar) p.set('tar', tar);
   if (state.patternWarpShade !== def.patternWarpShade) p.set('pws', String(state.patternWarpShade));
@@ -317,6 +390,31 @@ function buildUrlStateV2(state) {
   const encMB = encodeKeyframeSnapshot(state.keyframeSnapshotB);
   if (encMA) p.set('kfa', encMA);
   if (encMB) p.set('kfb', encMB);
+  const hdef = HALFTONE_DEFAULTS;
+  if (state.halftonePresetIndex !== hdef.presetIndex) p.set('hp', String(state.halftonePresetIndex));
+  if (state.halftoneSize !== hdef.size) p.set('hs', String(Number(state.halftoneSize.toFixed(2))));
+  if (state.halftoneSoftness !== hdef.softness) p.set('hsoft', String(Number(state.halftoneSoftness.toFixed(2))));
+  if (state.halftoneGridNoise !== hdef.gridNoise) p.set('hgn', String(Number(state.halftoneGridNoise.toFixed(2))));
+  if (state.halftoneContrast !== hdef.contrast) p.set('hc', String(Number(state.halftoneContrast.toFixed(2))));
+  if (state.halftoneType !== hdef.type) p.set('ht', String(Math.max(0, HALFTONE_TYPE_MAP.indexOf(state.halftoneType))));
+  if (state.halftoneFloodC !== hdef.floodC) p.set('hfc', String(Number(state.halftoneFloodC.toFixed(2))));
+  if (state.halftoneGainC !== hdef.gainC) p.set('hgc', String(Number(state.halftoneGainC.toFixed(2))));
+  if (state.halftoneGainY !== hdef.gainY) p.set('hgy', String(Number(state.halftoneGainY.toFixed(2))));
+  if (
+    state.halftoneColorBack !== hdef.colorBack
+    || state.halftoneColorC !== hdef.colorC
+    || state.halftoneColorM !== hdef.colorM
+    || state.halftoneColorY !== hdef.colorY
+    || state.halftoneColorK !== hdef.colorK
+  ) {
+    p.set('hcols', packHexColors([
+      state.halftoneColorBack,
+      state.halftoneColorC,
+      state.halftoneColorM,
+      state.halftoneColorY,
+      state.halftoneColorK,
+    ]));
+  }
   let s = p.toString();
   if (s.length > URL_STATE_MAX_LEN) {
     p.delete('kfa');
@@ -355,6 +453,7 @@ export default function AppV2({
   const [tileArtColorMode, setTileArtColorMode] = useState(IMAGE_RECTS_URL_DEFAULTS.tileArtColorMode);
   const [tileArtGeom, setTileArtGeom] = useState(IMAGE_RECTS_URL_DEFAULTS.tileArtGeom);
   const [tileArtUniformGrid, setTileArtUniformGrid] = useState(IMAGE_RECTS_URL_DEFAULTS.tileArtUniformGrid);
+  const [tileArtDensity, setTileArtDensity] = useState(IMAGE_RECTS_URL_DEFAULTS.tileArtDensity);
   const [tileArtRamp, setTileArtRamp] = useState(() => [...DEFAULT_TILE_ART_RAMP]);
   const [patternWarpShade, setPatternWarpShade] = useState(IMAGE_RECTS_URL_DEFAULTS.patternWarpShade);
   const [patternWeftShade, setPatternWeftShade] = useState(IMAGE_RECTS_URL_DEFAULTS.patternWeftShade);
@@ -390,12 +489,32 @@ export default function AppV2({
   const [rectRadius, setRectRadius] = useState(IMAGE_RECTS_URL_DEFAULTS.rectRadius); // corner radius in cell space (0 = sharp)
   const [rectAspect, setRectAspect] = useState(IMAGE_RECTS_URL_DEFAULTS.rectAspect); // rect width/height (e.g. 34/40)
   const [rectRatio, setRectRatio] = useState(IMAGE_RECTS_URL_DEFAULTS.rectRatio); // rect scale within cell (1 = full)
+  /** Randomize: corner radius + stitch scale locked by default (same as Weave tab). */
+  const [randomizeCornerRadius, setRandomizeCornerRadius] = useState(false);
+  const [randomizeRectRatio, setRandomizeRectRatio] = useState(false);
   const [copyFormat, setCopyFormat] = useState(IMAGE_RECTS_URL_DEFAULTS.copyFormat); // 'png' | 'webp'
   const [copyScale, setCopyScale] = useState(IMAGE_RECTS_URL_DEFAULTS.copyScale); // 1 | 2 | 4 | 8
+  const [mosaicHalftoneOn, setMosaicHalftoneOn] = useState(getInitialMosaicHalftoneOn);
+  const [halftonePresetIndex, setHalftonePresetIndex] = useState(HALFTONE_DEFAULTS.presetIndex);
+  const [halftoneSize, setHalftoneSize] = useState(HALFTONE_DEFAULTS.size);
+  const [halftoneSoftness, setHalftoneSoftness] = useState(HALFTONE_DEFAULTS.softness);
+  const [halftoneGridNoise, setHalftoneGridNoise] = useState(HALFTONE_DEFAULTS.gridNoise);
+  const [halftoneContrast, setHalftoneContrast] = useState(HALFTONE_DEFAULTS.contrast);
+  const [halftoneType, setHalftoneType] = useState(HALFTONE_DEFAULTS.type);
+  const [halftoneColorBack, setHalftoneColorBack] = useState(HALFTONE_DEFAULTS.colorBack);
+  const [halftoneColorC, setHalftoneColorC] = useState(HALFTONE_DEFAULTS.colorC);
+  const [halftoneColorM, setHalftoneColorM] = useState(HALFTONE_DEFAULTS.colorM);
+  const [halftoneColorY, setHalftoneColorY] = useState(HALFTONE_DEFAULTS.colorY);
+  const [halftoneColorK, setHalftoneColorK] = useState(HALFTONE_DEFAULTS.colorK);
+  const [halftoneFloodC, setHalftoneFloodC] = useState(HALFTONE_DEFAULTS.floodC);
+  const [halftoneGainC, setHalftoneGainC] = useState(HALFTONE_DEFAULTS.gainC);
+  const [halftoneGainY, setHalftoneGainY] = useState(HALFTONE_DEFAULTS.gainY);
   const [copyFeedback, setCopyFeedback] = useState(null);
   const copyFeedbackTimeoutRef = useRef(null);
   const stitchPlayRecordTimeoutRef = useRef(null);
   const canvasRef = useRef(null);
+  const halftoneContainerRef = useRef(null);
+  const halftoneCanvasRef = useRef(null);
   const imageRectsCaptureRef = useRef(null);            // { captureAtResolution(w, h) } when canvas ready
   const appliedUrlRef = useRef(false);
   /** Stash kad/kfe/kfa/kfb until `useKeyframePlayback` setters exist. */
@@ -404,6 +523,32 @@ export default function AppV2({
   const mosaicKeyframeStitchOverrideRef = useRef(false);
 
   const IMAGE_RECTS_DPR = 2; // matches useImageRectsSandbox DPR
+
+  const applyHalftonePreset = useCallback((index) => {
+    const preset = halftoneCmykPresets[index];
+    if (!preset?.params) return;
+    const p = preset.params;
+    setHalftoneSize(p.size ?? HALFTONE_DEFAULTS.size);
+    setHalftoneSoftness(p.softness ?? HALFTONE_DEFAULTS.softness);
+    setHalftoneGridNoise(p.gridNoise ?? HALFTONE_DEFAULTS.gridNoise);
+    setHalftoneContrast(p.contrast ?? HALFTONE_DEFAULTS.contrast);
+    setHalftoneType(p.type ?? HALFTONE_DEFAULTS.type);
+    setHalftoneColorBack(p.colorBack ?? HALFTONE_DEFAULTS.colorBack);
+    setHalftoneColorC(p.colorC ?? HALFTONE_DEFAULTS.colorC);
+    setHalftoneColorM(p.colorM ?? HALFTONE_DEFAULTS.colorM);
+    setHalftoneColorY(p.colorY ?? HALFTONE_DEFAULTS.colorY);
+    setHalftoneColorK(p.colorK ?? HALFTONE_DEFAULTS.colorK);
+    setHalftoneFloodC(p.floodC ?? HALFTONE_DEFAULTS.floodC);
+    setHalftoneGainC(p.gainC ?? HALFTONE_DEFAULTS.gainC);
+    setHalftoneGainY(p.gainY ?? HALFTONE_DEFAULTS.gainY);
+    setHalftonePresetIndex(index);
+  }, []);
+
+  const activeCopyCanvas = useCallback(() => {
+    if (mosaicHalftoneOn && halftoneCanvasRef.current) return halftoneCanvasRef.current;
+    return canvasRef.current;
+  }, [mosaicHalftoneOn]);
+
   const capToMax = useCallback((width, height) => {
     if (width <= EXPORT_MAX_DIMENSION && height <= EXPORT_MAX_DIMENSION) return [width, height];
     const r = Math.min(EXPORT_MAX_DIMENSION / width, EXPORT_MAX_DIMENSION / height);
@@ -412,9 +557,9 @@ export default function AppV2({
 
   /** Copy at copyScale×. Uses captureAtResolution when available so sharpness matches resolution. */
   const handleCopy2xPng = useCallback(async () => {
-    const canvas = canvasRef.current;
+    const canvas = activeCopyCanvas();
     if (!canvas || !canvas.width || !canvas.height) return;
-    if (imageRectsCaptureRef.current?.captureAtResolution) {
+    if (!mosaicHalftoneOn && imageRectsCaptureRef.current?.captureAtResolution) {
       const displayW = canvas.width / IMAGE_RECTS_DPR;
       const displayH = canvas.height / IMAGE_RECTS_DPR;
       const [w, h] = capToMax(Math.round(displayW * copyScale), Math.round(displayH * copyScale));
@@ -432,13 +577,13 @@ export default function AppV2({
     ctx.drawImage(canvas, 0, 0, w, h);
     const blob = await new Promise((resolve) => off.toBlob(resolve, 'image/png'));
     if (blob) await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
-  }, [copyScale, capToMax]);
+  }, [copyScale, capToMax, mosaicHalftoneOn, activeCopyCanvas]);
 
   /** Copy at copyScale× as WebP. Uses captureAtResolution when available, then converts to WebP. */
   const handleCopyWebp = useCallback(async () => {
-    const canvas = canvasRef.current;
+    const canvas = activeCopyCanvas();
     if (!canvas || !canvas.width || !canvas.height) return;
-    if (imageRectsCaptureRef.current?.captureAtResolution) {
+    if (!mosaicHalftoneOn && imageRectsCaptureRef.current?.captureAtResolution) {
       const displayW = canvas.width / IMAGE_RECTS_DPR;
       const displayH = canvas.height / IMAGE_RECTS_DPR;
       const [w, h] = capToMax(Math.round(displayW * copyScale), Math.round(displayH * copyScale));
@@ -473,7 +618,7 @@ export default function AppV2({
     ctx.drawImage(canvas, 0, 0, w, h);
     const blob = await new Promise((resolve) => off.toBlob(resolve, 'image/webp', 0.92));
     if (blob) await navigator.clipboard.write([new ClipboardItem({ 'image/webp': blob })]);
-  }, [copyScale, capToMax]);
+  }, [copyScale, capToMax, mosaicHalftoneOn, activeCopyCanvas]);
 
   const handleCopy = useCallback(async () => {
     if (copyFeedbackTimeoutRef.current) clearTimeout(copyFeedbackTimeoutRef.current);
@@ -508,8 +653,8 @@ export default function AppV2({
   } = useCanvasRecorder('shaderbox-image-rects');
 
   const startRecording = useCallback(() => {
-    recStart(canvasRef.current);
-  }, [recStart]);
+    recStart(activeCopyCanvas());
+  }, [recStart, activeCopyCanvas]);
 
   /** Shared stop helper: clear any stitch replay auto-stop timer before stopping recorder. */
   const stopRecordingWithCleanup = useCallback(async () => {
@@ -534,6 +679,7 @@ export default function AppV2({
     tileArtColorMode,
     tileArtGeom,
     tileArtUniformGrid,
+    tileArtDensity,
     tileArtRamp,
     patternWarpShade,
     patternWeftShade,
@@ -578,6 +724,7 @@ export default function AppV2({
     setTileArtColorMode,
     setTileArtGeom,
     setTileArtUniformGrid,
+    setTileArtDensity,
     setTileArtRamp,
     setPatternWarpShade,
     setPatternWeftShade,
@@ -669,6 +816,7 @@ export default function AppV2({
     tileArtColorMode,
     tileArtGeom,
     tileArtUniformGrid,
+    tileArtDensity,
     tileArtRamp,
     patternWarpShade,
     patternWeftShade,
@@ -826,6 +974,7 @@ export default function AppV2({
     setTileArtColorMode(randInt(0, 2));
     setTileArtGeom(randInt(0, 1));
     setTileArtUniformGrid(randInt(0, 1));
+    setTileArtDensity(randInt(0, 1));
     setTileArtRamp(buildDefaultTileArtRamp());
     setPatternWarpShade(randInt(0, 4));
     setPatternWeftShade(randInt(0, 4));
@@ -836,10 +985,10 @@ export default function AppV2({
     setQuantizeMode(randInt(0, 1));
     setQuantizeGamma(Number(rand(0.55, 1.65).toFixed(2)));
     setQuantizeDither(Number(rand(0, 0.85).toFixed(2)));
-    setPatternIndex(randInt(0, PATTERNS.length - 1));
-    setRectRadius(Number(rand(0.05, 0.45).toFixed(2)));
+    setPatternIndex(randomEnabledPatternIndex());
+    if (randomizeCornerRadius) setRectRadius(Number(rand(0.05, 0.45).toFixed(2)));
     setRectAspect(Number(rand(0.3, 1.5).toFixed(2)));
-    setRectRatio(Number(rand(0.3, 1).toFixed(2)));
+    if (randomizeRectRatio) setRectRatio(Number(rand(0.3, 1).toFixed(2)));
     setCellGeometryMode(randInt(0, 1));
     setStitchLumaMax(Number(rand(0.15, 0.75).toFixed(2)));
     setStitchRevealMode(randInt(0, 2));
@@ -852,7 +1001,7 @@ export default function AppV2({
     setStitchRevealBleedRotation(Number(rand(0, 1).toFixed(2)));
     setStitchRevealBleedCrossFiber(Number(rand(0, 0.6).toFixed(2)));
     setStitchRevealBleedDraftCoupled(randInt(0, 1));
-  }, []);
+  }, [randomizeCornerRadius, randomizeRectRatio]);
 
   /** Reset all Image Rects controls to defaults. */
   const handleReset = useCallback(() => {
@@ -868,6 +1017,7 @@ export default function AppV2({
     setTileArtColorMode(IMAGE_RECTS_URL_DEFAULTS.tileArtColorMode);
     setTileArtGeom(IMAGE_RECTS_URL_DEFAULTS.tileArtGeom);
     setTileArtUniformGrid(IMAGE_RECTS_URL_DEFAULTS.tileArtUniformGrid);
+    setTileArtDensity(IMAGE_RECTS_URL_DEFAULTS.tileArtDensity);
     setTileArtRamp([...DEFAULT_TILE_ART_RAMP]);
     setPatternWarpShade(IMAGE_RECTS_URL_DEFAULTS.patternWarpShade);
     setPatternWeftShade(IMAGE_RECTS_URL_DEFAULTS.patternWeftShade);
@@ -899,6 +1049,21 @@ export default function AppV2({
     setStitchRevealBleedCrossFiber(IMAGE_RECTS_URL_DEFAULTS.stitchRevealBleedCrossFiber);
     setStitchRevealBleedDraftCoupled(IMAGE_RECTS_URL_DEFAULTS.stitchRevealBleedDraftCoupled);
     setMediaTextureKind('staticImage');
+    setMosaicHalftoneOn(false);
+    setHalftonePresetIndex(HALFTONE_DEFAULTS.presetIndex);
+    setHalftoneSize(HALFTONE_DEFAULTS.size);
+    setHalftoneSoftness(HALFTONE_DEFAULTS.softness);
+    setHalftoneGridNoise(HALFTONE_DEFAULTS.gridNoise);
+    setHalftoneContrast(HALFTONE_DEFAULTS.contrast);
+    setHalftoneType(HALFTONE_DEFAULTS.type);
+    setHalftoneColorBack(HALFTONE_DEFAULTS.colorBack);
+    setHalftoneColorC(HALFTONE_DEFAULTS.colorC);
+    setHalftoneColorM(HALFTONE_DEFAULTS.colorM);
+    setHalftoneColorY(HALFTONE_DEFAULTS.colorY);
+    setHalftoneColorK(HALFTONE_DEFAULTS.colorK);
+    setHalftoneFloodC(HALFTONE_DEFAULTS.floodC);
+    setHalftoneGainC(HALFTONE_DEFAULTS.gainC);
+    setHalftoneGainY(HALFTONE_DEFAULTS.gainY);
     setImageSource((prev) => {
       if (prev) URL.revokeObjectURL(prev);
       return '';
@@ -935,6 +1100,7 @@ export default function AppV2({
     if (q.tileArtColorMode != null) setTileArtColorMode(q.tileArtColorMode);
     if (q.tileArtGeom != null) setTileArtGeom(q.tileArtGeom);
     if (q.tileArtUniformGrid != null) setTileArtUniformGrid(q.tileArtUniformGrid);
+    if (q.tileArtDensity != null) setTileArtDensity(q.tileArtDensity);
     if (q.tileArtRamp != null) setTileArtRamp([...q.tileArtRamp]);
     if (q.patternWarpShade != null) setPatternWarpShade(q.patternWarpShade);
     if (q.patternWeftShade != null) setPatternWeftShade(q.patternWeftShade);
@@ -968,6 +1134,21 @@ export default function AppV2({
       if (typeof onPatternFitChange === 'function') onPatternFitChange(q.patternFit);
       else setPatternFitInternal(q.patternFit);
     }
+    if (q.mosaicHalftoneOn != null) setMosaicHalftoneOn(!!q.mosaicHalftoneOn);
+    if (q.halftonePresetIndex != null) setHalftonePresetIndex(q.halftonePresetIndex);
+    if (q.halftoneSize != null) setHalftoneSize(q.halftoneSize);
+    if (q.halftoneSoftness != null) setHalftoneSoftness(q.halftoneSoftness);
+    if (q.halftoneGridNoise != null) setHalftoneGridNoise(q.halftoneGridNoise);
+    if (q.halftoneContrast != null) setHalftoneContrast(q.halftoneContrast);
+    if (q.halftoneType != null) setHalftoneType(q.halftoneType);
+    if (q.halftoneFloodC != null) setHalftoneFloodC(q.halftoneFloodC);
+    if (q.halftoneGainC != null) setHalftoneGainC(q.halftoneGainC);
+    if (q.halftoneGainY != null) setHalftoneGainY(q.halftoneGainY);
+    if (q.halftoneColorBack != null) setHalftoneColorBack(q.halftoneColorBack);
+    if (q.halftoneColorC != null) setHalftoneColorC(q.halftoneColorC);
+    if (q.halftoneColorM != null) setHalftoneColorM(q.halftoneColorM);
+    if (q.halftoneColorY != null) setHalftoneColorY(q.halftoneColorY);
+    if (q.halftoneColorK != null) setHalftoneColorK(q.halftoneColorK);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- once on mount; onPatternFitChange is stable (setState)
   }, []);
 
@@ -976,7 +1157,10 @@ export default function AppV2({
   useEffect(() => {
     urlSyncTimeoutRef.current = setTimeout(() => {
       const search = buildUrlStateV2({
-        gridSize, palette, bgShade, bgColorMode, bgCustomColor, rectColorSource, tileArtLevels, tileArtThreshold, tileArtDither, tileArtColorMode, tileArtGeom, tileArtUniformGrid, tileArtRamp,
+        mosaicHalftoneOn,
+        halftonePresetIndex, halftoneSize, halftoneSoftness, halftoneGridNoise, halftoneContrast, halftoneType,
+        halftoneColorBack, halftoneColorC, halftoneColorM, halftoneColorY, halftoneColorK, halftoneFloodC, halftoneGainC, halftoneGainY,
+        gridSize, palette, bgShade, bgColorMode, bgCustomColor, rectColorSource, tileArtLevels, tileArtThreshold, tileArtDither, tileArtColorMode, tileArtGeom, tileArtUniformGrid, tileArtDensity, tileArtRamp,
         quantizeSteps, quantizeMode, quantizeGamma, quantizeDither, patternIndex,
         patternWarpShade, patternWeftShade, lumaSizeMix, lumaSizeInvert, lumaSizeFloor, cellGeometryMode, stitchLumaMax,
         rectRadius, rectAspect, rectRatio, copyFormat, copyScale, menuHidden, mosaicBgGaps, patternFit,
@@ -993,7 +1177,7 @@ export default function AppV2({
       }
     }, 400);
     return () => { clearTimeout(urlSyncTimeoutRef.current); };
-  }, [gridSize, palette, bgShade, bgColorMode, bgCustomColor, rectColorSource, tileArtLevels, tileArtThreshold, tileArtDither, tileArtColorMode, tileArtGeom, tileArtUniformGrid, tileArtRamp, quantizeSteps, quantizeMode, quantizeGamma, quantizeDither, patternIndex, patternWarpShade, patternWeftShade, lumaSizeMix, lumaSizeInvert, lumaSizeFloor, cellGeometryMode, stitchLumaMax, rectRadius, rectAspect, rectRatio, copyFormat, copyScale, menuHidden, mosaicBgGaps, patternFit, stitchRevealMode, stitchRevealDurationSec, stitchRevealSeed, stitchRevealScale, stitchRevealNoiseScale, stitchRevealSoftness, stitchRevealBleedAnisotropy, stitchRevealBleedRotation, stitchRevealBleedCrossFiber, stitchRevealBleedDraftCoupled, keyframeDurationSec, editingAfter, mosaicBefore, mosaicAfter]);
+  }, [mosaicHalftoneOn, halftonePresetIndex, halftoneSize, halftoneSoftness, halftoneGridNoise, halftoneContrast, halftoneType, halftoneColorBack, halftoneColorC, halftoneColorM, halftoneColorY, halftoneColorK, halftoneFloodC, halftoneGainC, halftoneGainY, gridSize, palette, bgShade, bgColorMode, bgCustomColor, rectColorSource, tileArtLevels, tileArtThreshold, tileArtDither, tileArtColorMode, tileArtGeom, tileArtUniformGrid, tileArtDensity, tileArtRamp, quantizeSteps, quantizeMode, quantizeGamma, quantizeDither, patternIndex, patternWarpShade, patternWeftShade, lumaSizeMix, lumaSizeInvert, lumaSizeFloor, cellGeometryMode, stitchLumaMax, rectRadius, rectAspect, rectRatio, copyFormat, copyScale, menuHidden, mosaicBgGaps, patternFit, stitchRevealMode, stitchRevealDurationSec, stitchRevealSeed, stitchRevealScale, stitchRevealNoiseScale, stitchRevealSoftness, stitchRevealBleedAnisotropy, stitchRevealBleedRotation, stitchRevealBleedCrossFiber, stitchRevealBleedDraftCoupled, keyframeDurationSec, editingAfter, mosaicBefore, mosaicAfter]);
 
   /** Keyboard shortcuts: Mod+C copy, Mod+Shift+R / F5 reload (no presets in v2). */
   useEffect(() => {
@@ -1014,10 +1198,9 @@ export default function AppV2({
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [handleCopy, handleReload]);
 
-  const patternOptions = PATTERNS.map((p, i) => ({
-    value: i,
-    label: p.name,
-    icon: WEAVE_ICONS[p.id] ?? 'texture',
+  const patternOptions = buildPatternSelectOptions(PATTERNS, patternIndex).map((o) => ({
+    ...o,
+    icon: WEAVE_ICONS[PATTERNS[o.value]?.id] ?? 'texture',
   }));
   const shadeOptions = (prefix) => SHADE_NAMES.map((name, i) => ({ value: i, label: prefix ? `${prefix}: ${name}` : name }));
 
@@ -1057,6 +1240,26 @@ export default function AppV2({
           {viewTitle}
         </h1>
         <div className="flex flex-col gap-3">
+          <div className={`${sidebarGroup} ${sidebarGroupSticky}`}>
+            <div className={sidebarGroupTitle}>Resolution</div>
+            <div className="flex flex-wrap items-center gap-2">
+              <GroupIcon name="grid_on" title="Tile size (grid cells)" />
+              <Label.Root className="sr-only" htmlFor="grid-slider-v2">Resolution</Label.Root>
+              <SliderWithInput
+                id="grid-slider-v2"
+                value={gridSize}
+                onValueChange={setGridSize}
+                defaultValue={IMAGE_RECTS_URL_DEFAULTS.gridSize}
+                onReset={() => setGridSize(IMAGE_RECTS_URL_DEFAULTS.gridSize)}
+                min={8}
+                max={256}
+                step={1}
+                snapValues={GRID_SNAPS}
+                snapPointCount={GRID_SNAPS.length}
+                aria-label="Tile size (grid cells)"
+              />
+            </div>
+          </div>
           {!patternFitExternal && (
             <div className={`${sidebarGroup} ${sidebarGroupSticky}`}>
               <div className={sidebarGroupTitle}>Viewport</div>
@@ -1100,6 +1303,7 @@ export default function AppV2({
                 <Icon name="restart_alt" className={iconResetGlyphMd} />
                 <span>Reset</span>
               </button>
+              {!patternFitExternal ? <ThemeToggle /> : null}
               <label className={btnGhost + ' cursor-pointer'}>
                 <Icon name="upload_file" className={iconMd} />
                 <span>Pick media</span>
@@ -1113,6 +1317,117 @@ export default function AppV2({
               </label>
             </div>
           </div>
+          <div className={sidebarGroup}>
+            <div className="flex flex-wrap items-center gap-2">
+              <GroupIcon name="lens_blur" title="Halftone output" />
+              <span className={`${controlLabel} ${typeLabel}`}>Halftone</span>
+              <SegmentedControl>
+                <div className="flex h-full">
+                  <SegmentedControlButton
+                    active={!mosaicHalftoneOn}
+                    aria-pressed={!mosaicHalftoneOn}
+                    aria-label="Flat mosaic output"
+                    onClick={() => setMosaicHalftoneOn(false)}
+                  >
+                    Off
+                  </SegmentedControlButton>
+                  <SegmentedControlButton
+                    active={mosaicHalftoneOn}
+                    aria-pressed={mosaicHalftoneOn}
+                    aria-label="CMYK halftone over mosaic"
+                    onClick={() => setMosaicHalftoneOn(true)}
+                  >
+                    On
+                  </SegmentedControlButton>
+                </div>
+              </SegmentedControl>
+            </div>
+          </div>
+          {mosaicHalftoneOn && (
+            <>
+              <div className={sidebarGroup}>
+                <div className={`${sidebarGroupTitle} inline-flex items-center gap-1`}><Icon name="lens_blur" className={iconXs} /> preset</div>
+                <AppSelect
+                  value={halftonePresetIndex}
+                  onValueChange={(v) => applyHalftonePreset(Number(v))}
+                  defaultValue={HALFTONE_DEFAULTS.presetIndex}
+                  onReset={() => applyHalftonePreset(HALFTONE_DEFAULTS.presetIndex)}
+                  options={halftoneCmykPresets.map((p, i) => ({ value: i, label: p.name }))}
+                  title="Halftone preset"
+                  placeholder="Preset"
+                />
+              </div>
+              <div className={sidebarGroup}>
+                <div className={`${sidebarGroupTitle} inline-flex items-center gap-1`}><Icon name="lens_blur" className={iconXs} /> dot & grid</div>
+                <div className="flex flex-col gap-1">
+                  <Label.Root className={typeLabel} htmlFor="mosaic-halftone-size">Size</Label.Root>
+                  <SliderWithInput id="mosaic-halftone-size" aria-label="Grid size" value={halftoneSize} onValueChange={setHalftoneSize} defaultValue={HALFTONE_DEFAULTS.size} onReset={() => setHalftoneSize(HALFTONE_DEFAULTS.size)} min={0.01} max={1} step={0.01} format={(n) => n.toFixed(2)} />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <Label.Root className={typeLabel} htmlFor="mosaic-halftone-softness">Softness</Label.Root>
+                  <SliderWithInput id="mosaic-halftone-softness" aria-label="Dot softness" value={halftoneSoftness} onValueChange={setHalftoneSoftness} defaultValue={HALFTONE_DEFAULTS.softness} onReset={() => setHalftoneSoftness(HALFTONE_DEFAULTS.softness)} min={0} max={1} step={0.05} format={(n) => n.toFixed(2)} />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <Label.Root className={typeLabel} htmlFor="mosaic-halftone-gridnoise">Grid noise</Label.Root>
+                  <SliderWithInput id="mosaic-halftone-gridnoise" aria-label="Grid noise" value={halftoneGridNoise} onValueChange={setHalftoneGridNoise} defaultValue={HALFTONE_DEFAULTS.gridNoise} onReset={() => setHalftoneGridNoise(HALFTONE_DEFAULTS.gridNoise)} min={0} max={1} step={0.05} format={(n) => n.toFixed(2)} />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <Label.Root className={typeLabel}>Type</Label.Root>
+                  <AppSelect
+                    value={halftoneType}
+                    onValueChange={setHalftoneType}
+                    defaultValue={HALFTONE_DEFAULTS.type}
+                    onReset={() => setHalftoneType(HALFTONE_DEFAULTS.type)}
+                    options={[{ value: 'dots', label: 'Dots' }, { value: 'ink', label: 'Ink' }, { value: 'sharp', label: 'Sharp' }]}
+                    title="Dot type"
+                    placeholder="Type"
+                  />
+                </div>
+              </div>
+              <div className={sidebarGroup}>
+                <div className={`${sidebarGroupTitle} inline-flex items-center gap-1`}><Icon name="lens_blur" className={iconXs} /> tone</div>
+                <div className="flex flex-col gap-1">
+                  <Label.Root className={typeLabel} htmlFor="mosaic-halftone-contrast">Contrast</Label.Root>
+                  <SliderWithInput id="mosaic-halftone-contrast" aria-label="Contrast" value={halftoneContrast} onValueChange={setHalftoneContrast} defaultValue={HALFTONE_DEFAULTS.contrast} onReset={() => setHalftoneContrast(HALFTONE_DEFAULTS.contrast)} min={0} max={2} step={0.05} format={(n) => n.toFixed(2)} />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <Label.Root className={typeLabel} htmlFor="mosaic-halftone-floodc">Flood C</Label.Root>
+                  <SliderWithInput id="mosaic-halftone-floodc" aria-label="Cyan flood" value={halftoneFloodC} onValueChange={setHalftoneFloodC} defaultValue={HALFTONE_DEFAULTS.floodC} onReset={() => setHalftoneFloodC(HALFTONE_DEFAULTS.floodC)} min={0} max={1} step={0.05} format={(n) => n.toFixed(2)} />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <Label.Root className={typeLabel} htmlFor="mosaic-halftone-gainc">Gain C</Label.Root>
+                  <SliderWithInput id="mosaic-halftone-gainc" aria-label="Cyan gain" value={halftoneGainC} onValueChange={setHalftoneGainC} defaultValue={HALFTONE_DEFAULTS.gainC} onReset={() => setHalftoneGainC(HALFTONE_DEFAULTS.gainC)} min={-1} max={1} step={0.05} format={(n) => n.toFixed(2)} />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <Label.Root className={typeLabel} htmlFor="mosaic-halftone-gainy">Gain Y</Label.Root>
+                  <SliderWithInput id="mosaic-halftone-gainy" aria-label="Yellow gain" value={halftoneGainY} onValueChange={setHalftoneGainY} defaultValue={HALFTONE_DEFAULTS.gainY} onReset={() => setHalftoneGainY(HALFTONE_DEFAULTS.gainY)} min={-1} max={1} step={0.05} format={(n) => n.toFixed(2)} />
+                </div>
+              </div>
+              <div className={sidebarGroup}>
+                <div className={`${sidebarGroupTitle} inline-flex items-center gap-1`}><Icon name="lens_blur" className={iconXs} /> ink colors</div>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {[
+                    { label: 'Back', value: halftoneColorBack, set: setHalftoneColorBack },
+                    { label: 'C', value: halftoneColorC, set: setHalftoneColorC },
+                    { label: 'M', value: halftoneColorM, set: setHalftoneColorM },
+                    { label: 'Y', value: halftoneColorY, set: setHalftoneColorY },
+                    { label: 'K', value: halftoneColorK, set: setHalftoneColorK },
+                  ].map(({ label, value, set }) => (
+                    <div key={label} className="flex items-center gap-1.5">
+                      <span className={`${typeLabel} w-6`}>{label}</span>
+                      <input
+                        type="color"
+                        value={value}
+                        onChange={(e) => set(e.target.value)}
+                        className="h-7 w-10 cursor-pointer rounded border border-border-subtle bg-surface-input"
+                        aria-label={`${label} color`}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
           <div className={sidebarGroup}>
             <div className={sidebarGroupTitle}>Weave & colorway</div>
             <div className="flex flex-wrap items-center gap-2">
@@ -1301,11 +1616,46 @@ export default function AppV2({
                     )}
                   </div>
                 </AppTooltip>
+                <AppTooltip content="Off = full weave in each macro cell. On = mini-stitches appear from local image brightness + dither (sparse→dense edges); warp/weft draft and colors unchanged.">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className={`${controlLabel} ${typeLabel}`} title="Per mini-cell visibility">Density</span>
+                    <SegmentedControl>
+                      <div className="flex h-full">
+                        <SegmentedControlButton
+                          active={tileArtDensity === 0}
+                          aria-pressed={tileArtDensity === 0}
+                          aria-label="Density off"
+                          onClick={() => setTileArtDensity(0)}
+                        >
+                          Off
+                        </SegmentedControlButton>
+                        <SegmentedControlButton
+                          active={tileArtDensity === 1}
+                          aria-pressed={tileArtDensity === 1}
+                          aria-label="Density on"
+                          onClick={() => setTileArtDensity(1)}
+                        >
+                          On
+                        </SegmentedControlButton>
+                      </div>
+                    </SegmentedControl>
+                    {tileArtDensity !== IMAGE_RECTS_URL_DEFAULTS.tileArtDensity && (
+                      <IconButton size="resetSm" onClick={() => setTileArtDensity(IMAGE_RECTS_URL_DEFAULTS.tileArtDensity)} title="Reset density to Off" aria-label="Reset tile density">
+                        <Icon name="restart_alt" className={iconResetGlyph} />
+                      </IconButton>
+                    )}
+                  </div>
+                </AppTooltip>
                 <div className="flex flex-col gap-1.5">
                   <span className={`${typeLabel} text-text-muted`}>Mini stitch shape</span>
                   <AppTooltip content="Corner radius of each mini stitch in sub-cell space (0 = sharp).">
                     <div className="flex flex-wrap items-center gap-2">
-                      <GroupIcon name="rounded_corner" title="Corner radius" />
+                      <GroupIcon
+                        name="rounded_corner"
+                        title="Corner radius"
+                        locked={!randomizeCornerRadius}
+                        onLockChange={() => setRandomizeCornerRadius((v) => !v)}
+                      />
                       <Label.Root className="sr-only" htmlFor="tile-art-rect-radius-v2">Corner radius</Label.Root>
                       <SliderWithInput
                         id="tile-art-rect-radius-v2"
@@ -1341,7 +1691,12 @@ export default function AppV2({
                   </AppTooltip>
                   <AppTooltip content="Scale of each mini stitch inside its sub-cell (1 = full cell).">
                     <div className="flex flex-wrap items-center gap-2">
-                      <GroupIcon name="unfold_more" title="Stitch scale" />
+                      <GroupIcon
+                        name="unfold_more"
+                        title="Stitch scale"
+                        locked={!randomizeRectRatio}
+                        onLockChange={() => setRandomizeRectRatio((v) => !v)}
+                      />
                       <Label.Root className="sr-only" htmlFor="tile-art-rect-ratio-v2">Stitch scale</Label.Root>
                       <SliderWithInput
                         id="tile-art-rect-ratio-v2"
@@ -1391,7 +1746,7 @@ export default function AppV2({
                     />
                   </div>
                 </AppTooltip>
-                <AppTooltip content="Jitter band edges for scattered single tiles at boundaries.">
+                <AppTooltip content={tileArtDensity === 1 ? 'Jitter mini-cell density edges (grainy dissolve). With Density off, jitters macro luma bands instead.' : 'Jitter macro luma band edges. Turn Density on to use dither on mini-cell visibility instead.'}>
                   <div className="flex flex-wrap items-center gap-2">
                     <Label.Root className="sr-only" htmlFor="tile-art-dither-v2">Dither</Label.Root>
                     <SliderWithInput
@@ -1792,80 +2147,131 @@ export default function AppV2({
               </div>
             </div>
           </div>
-          <div className={sidebarGroup}>
-            <div className={sidebarGroupTitle}>Grid</div>
-            <div className="flex flex-wrap items-center gap-2">
-              <GroupIcon name="grid_on" title="Grid size" />
-              <Label.Root className="sr-only" htmlFor="grid-slider-v2">Grid size</Label.Root>
-              <SliderWithInput
-                id="grid-slider-v2"
-                value={gridSize}
-                onValueChange={setGridSize}
-                defaultValue={IMAGE_RECTS_URL_DEFAULTS.gridSize}
-                onReset={() => setGridSize(IMAGE_RECTS_URL_DEFAULTS.gridSize)}
-                min={8}
-                max={256}
-                step={1}
-                snapValues={GRID_SNAPS}
-                snapPointCount={GRID_SNAPS.length}
-                aria-label="Grid size (cells)"
-              />
-            </div>
-          </div>
         </div>
       </motion.aside>
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-        <main className="flex min-h-0 flex-1 flex-col overflow-hidden p-4">
-          <ImageRectsCanvas
-            imageSource={imageSource}
-            mediaTextureKind={mediaTextureKind}
-            gridSize={gridSize}
-            palette={palette}
-            bgShade={bgShade}
-            bgColorMode={bgColorMode}
-            bgCustomColor={bgCustomColor}
-            rectColorSource={rectColorSource}
-            quantizeSteps={quantizeSteps}
-            quantizeMode={quantizeMode}
-            quantizeGamma={quantizeGamma}
-            quantizeDither={quantizeDither}
-            rectShade={rectShade}
-            shadeFrom={shadeFromLocked}
-            patternWarpShade={patternWarpShade}
-            patternWeftShade={patternWeftShade}
-            patternIndex={patternIndex}
-            patterns={PATTERNS}
-            rectRadius={rectRadius}
-            rectAspect={rectAspect}
-            rectRatio={rectRatio}
-            lumaSizeMix={lumaSizeMix}
-            lumaSizeInvert={lumaSizeInvert}
-            lumaSizeFloor={lumaSizeFloor}
-            cellGeometryMode={cellGeometryMode}
-            stitchLumaMax={stitchLumaMax}
-            nonStitchShowsBg={mosaicBgGaps}
-            stitchRevealMode={stitchRevealMode}
-            stitchRevealProgress={stitchRevealProgress}
-            stitchRevealSeed={stitchRevealSeed}
-            stitchRevealScale={stitchRevealScale}
-            stitchRevealNoiseScale={stitchRevealNoiseScale}
-            stitchRevealSoftness={stitchRevealSoftness}
-            stitchRevealBleedAnisotropy={stitchRevealBleedAnisotropy}
-            stitchRevealBleedRotation={stitchRevealBleedRotation}
-            stitchRevealBleedCrossFiber={stitchRevealBleedCrossFiber}
-            stitchRevealBleedDraftCoupled={stitchRevealBleedDraftCoupled}
-            tileArtLevels={tileArtLevels}
-            tileArtThreshold={tileArtThreshold}
-            tileArtDither={tileArtDither}
-            tileArtColorMode={tileArtColorMode}
-            tileArtGeom={tileArtGeom}
-            tileArtUniformGrid={tileArtUniformGrid}
-            tileArtRamp={tileArtRamp}
-            patternFit={patternFit}
-            onCanvasRef={(el) => { canvasRef.current = el; }}
-            onCaptureReady={(api) => { imageRectsCaptureRef.current = api; }}
-          />
+        <main className={`flex min-h-0 flex-1 flex-col overflow-hidden p-4${mosaicHalftoneOn ? ' items-stretch' : ''}`}>
+          {mosaicHalftoneOn ? (
+            <Suspense fallback={<div className="flex flex-1 items-center justify-center text-text-secondary">Loading…</div>}>
+              <div className="flex min-h-0 flex-1 w-full flex-col">
+                <ImageRectsHalftoneStage
+                  imageSource={imageSource}
+                  mediaTextureKind={mediaTextureKind}
+                  gridSize={gridSize}
+                  palette={palette}
+                  bgShade={bgShade}
+                  bgColorMode={bgColorMode}
+                  bgCustomColor={bgCustomColor}
+                  rectColorSource={rectColorSource}
+                  quantizeSteps={quantizeSteps}
+                  quantizeMode={quantizeMode}
+                  quantizeGamma={quantizeGamma}
+                  quantizeDither={quantizeDither}
+                  rectShade={rectShade}
+                  shadeFrom={shadeFromLocked}
+                  patternWarpShade={patternWarpShade}
+                  patternWeftShade={patternWeftShade}
+                  patternIndex={patternIndex}
+                  patterns={PATTERNS}
+                  rectRadius={rectRadius}
+                  rectAspect={rectAspect}
+                  rectRatio={rectRatio}
+                  lumaSizeMix={lumaSizeMix}
+                  lumaSizeInvert={lumaSizeInvert}
+                  lumaSizeFloor={lumaSizeFloor}
+                  cellGeometryMode={cellGeometryMode}
+                  stitchLumaMax={stitchLumaMax}
+                  nonStitchShowsBg={mosaicBgGaps}
+                  stitchRevealMode={stitchRevealMode}
+                  stitchRevealProgress={stitchRevealProgress}
+                  stitchRevealSeed={stitchRevealSeed}
+                  stitchRevealScale={stitchRevealScale}
+                  stitchRevealNoiseScale={stitchRevealNoiseScale}
+                  stitchRevealSoftness={stitchRevealSoftness}
+                  stitchRevealBleedAnisotropy={stitchRevealBleedAnisotropy}
+                  stitchRevealBleedRotation={stitchRevealBleedRotation}
+                  stitchRevealBleedCrossFiber={stitchRevealBleedCrossFiber}
+                  stitchRevealBleedDraftCoupled={stitchRevealBleedDraftCoupled}
+                  tileArtLevels={tileArtLevels}
+                  tileArtThreshold={tileArtThreshold}
+                  tileArtDither={tileArtDither}
+                  tileArtColorMode={tileArtColorMode}
+                  tileArtGeom={tileArtGeom}
+                  tileArtUniformGrid={tileArtUniformGrid}
+                  tileArtDensity={tileArtDensity}
+                  tileArtRamp={tileArtRamp}
+                  patternFit={patternFit}
+                  size={halftoneSize}
+                  softness={halftoneSoftness}
+                  gridNoise={halftoneGridNoise}
+                  contrast={halftoneContrast}
+                  type={halftoneType}
+                  colorBack={halftoneColorBack}
+                  colorC={halftoneColorC}
+                  colorM={halftoneColorM}
+                  colorY={halftoneColorY}
+                  colorK={halftoneColorK}
+                  floodC={halftoneFloodC}
+                  gainC={halftoneGainC}
+                  gainY={halftoneGainY}
+                  halftoneContainerRef={halftoneContainerRef}
+                  halftoneCanvasRef={halftoneCanvasRef}
+                />
+              </div>
+            </Suspense>
+          ) : (
+            <ImageRectsCanvas
+              imageSource={imageSource}
+              mediaTextureKind={mediaTextureKind}
+              gridSize={gridSize}
+              palette={palette}
+              bgShade={bgShade}
+              bgColorMode={bgColorMode}
+              bgCustomColor={bgCustomColor}
+              rectColorSource={rectColorSource}
+              quantizeSteps={quantizeSteps}
+              quantizeMode={quantizeMode}
+              quantizeGamma={quantizeGamma}
+              quantizeDither={quantizeDither}
+              rectShade={rectShade}
+              shadeFrom={shadeFromLocked}
+              patternWarpShade={patternWarpShade}
+              patternWeftShade={patternWeftShade}
+              patternIndex={patternIndex}
+              patterns={PATTERNS}
+              rectRadius={rectRadius}
+              rectAspect={rectAspect}
+              rectRatio={rectRatio}
+              lumaSizeMix={lumaSizeMix}
+              lumaSizeInvert={lumaSizeInvert}
+              lumaSizeFloor={lumaSizeFloor}
+              cellGeometryMode={cellGeometryMode}
+              stitchLumaMax={stitchLumaMax}
+              nonStitchShowsBg={mosaicBgGaps}
+              stitchRevealMode={stitchRevealMode}
+              stitchRevealProgress={stitchRevealProgress}
+              stitchRevealSeed={stitchRevealSeed}
+              stitchRevealScale={stitchRevealScale}
+              stitchRevealNoiseScale={stitchRevealNoiseScale}
+              stitchRevealSoftness={stitchRevealSoftness}
+              stitchRevealBleedAnisotropy={stitchRevealBleedAnisotropy}
+              stitchRevealBleedRotation={stitchRevealBleedRotation}
+              stitchRevealBleedCrossFiber={stitchRevealBleedCrossFiber}
+              stitchRevealBleedDraftCoupled={stitchRevealBleedDraftCoupled}
+              tileArtLevels={tileArtLevels}
+              tileArtThreshold={tileArtThreshold}
+              tileArtDither={tileArtDither}
+              tileArtColorMode={tileArtColorMode}
+              tileArtGeom={tileArtGeom}
+              tileArtUniformGrid={tileArtUniformGrid}
+              tileArtDensity={tileArtDensity}
+              tileArtRamp={tileArtRamp}
+              patternFit={patternFit}
+              onCanvasRef={(el) => { canvasRef.current = el; }}
+              onCaptureReady={(api) => { imageRectsCaptureRef.current = api; }}
+            />
+          )}
         </main>
 
         <CaptureToolbar
@@ -1911,6 +2317,7 @@ export default function AppV2({
                 <span className={pill}>Ramp: {tileArtLevels} bands</span>
                 <span className={pill}>{tileArtGeom === 1 ? 'Rounded' : 'Flat'} stitches</span>
                 <span className={pill}>{tileArtUniformGrid === 1 ? `Uniform ${TILE_ART_UNIFORM_TILE_W}×${TILE_ART_UNIFORM_TILE_H}` : 'Pattern cells'}</span>
+                {tileArtDensity === 1 ? <span className={pill}>Density on</span> : null}
               </>
             )}
             <span className={pill}>Color: {RECT_COLOR_SOURCE_OPTIONS.find((o) => o.value === rectColorSource)?.label ?? '—'}</span>
@@ -1943,6 +2350,7 @@ export default function AppV2({
             </span>
             <span className={pill}>Grid: {gridSize}</span>
             <div className="ml-auto flex items-center gap-2">
+              {mosaicHalftoneOn ? <span className={pill}>Halftone on</span> : null}
               <span className={pill}>WebGL 1</span>
             </div>
           </div>
