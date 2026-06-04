@@ -19,7 +19,9 @@ import {
   sidebarGroupTitle,
   inputText,
 } from '../uiConstants';
-import { Icon } from './ui';
+import { Icon, IconButton } from './ui';
+import { HALFTONE_DEFAULTS } from '../urlDefaults';
+import { iconResetGlyph } from '../uiConstants';
 
 const DEFAULT_IMAGE = 'https://paper.design/flowers.webp';
 const TYPE_OPTIONS = [
@@ -174,24 +176,48 @@ export default function HalftoneCmykView() {
           </div>
         </div>
         <div className={sidebarGroup}>
-          <div className={sidebarGroupTitle}>Ink colors</div>
+          <div className={`${sidebarGroupTitle} inline-flex w-full items-center gap-1`}>
+            <span className="flex-1">Ink colors</span>
+            <IconButton
+              size="resetSm"
+              onClick={() => {
+                setColorBack(HALFTONE_DEFAULTS.colorBack);
+                setColorC(HALFTONE_DEFAULTS.colorC);
+                setColorM(HALFTONE_DEFAULTS.colorM);
+                setColorY(HALFTONE_DEFAULTS.colorY);
+                setColorK(HALFTONE_DEFAULTS.colorK);
+              }}
+              title="Reset all ink colors to default"
+              aria-label="Reset all ink colors to default"
+            >
+              <Icon name="restart_alt" className={iconResetGlyph} />
+            </IconButton>
+          </div>
           <div className="grid grid-cols-2 gap-1.5">
             {[
-              { label: 'Back', value: colorBack, set: setColorBack },
-              { label: 'C', value: colorC, set: setColorC },
-              { label: 'M', value: colorM, set: setColorM },
-              { label: 'Y', value: colorY, set: setColorY },
-              { label: 'K', value: colorK, set: setColorK },
-            ].map(({ label, value, set }) => (
-              <div key={label} className="flex items-center gap-1.5">
-                <span className={`${typeLabel} w-6`}>{label}</span>
+              { label: 'Back', value: colorBack, set: setColorBack, default: HALFTONE_DEFAULTS.colorBack },
+              { label: 'C', value: colorC, set: setColorC, default: HALFTONE_DEFAULTS.colorC },
+              { label: 'M', value: colorM, set: setColorM, default: HALFTONE_DEFAULTS.colorM },
+              { label: 'Y', value: colorY, set: setColorY, default: HALFTONE_DEFAULTS.colorY },
+              { label: 'K', value: colorK, set: setColorK, default: HALFTONE_DEFAULTS.colorK },
+            ].map(({ label, value, set, default: inkDefault }) => (
+              <div key={label} className="flex items-center gap-1">
+                <span className={`${typeLabel} w-6 shrink-0`}>{label}</span>
                 <input
                   type="color"
                   value={value}
                   onChange={(e) => set(e.target.value)}
-                  className="h-7 w-10 cursor-pointer rounded border border-border-subtle bg-surface-input"
-                  aria-label={`${label} color`}
+                  className="h-7 w-10 shrink-0 cursor-pointer rounded border border-border-subtle bg-surface-input"
+                  aria-label={`${label} ink color`}
                 />
+                <IconButton
+                  size="resetSm"
+                  onClick={() => set(inkDefault)}
+                  title={`Reset ${label} ink to default`}
+                  aria-label={`Reset ${label} ink color to default`}
+                >
+                  <Icon name="restart_alt" className={iconResetGlyph} />
+                </IconButton>
               </div>
             ))}
           </div>
