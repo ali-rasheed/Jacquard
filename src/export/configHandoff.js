@@ -2,8 +2,7 @@
  * Build shareable configuration payloads for handoff (URL + structured JSON).
  * Media blobs are not included — recipients reopen the share link and load their own image/video.
  */
-import { COLORWAY_ANIM_INITIAL } from '../colorwayUtils';
-import { encodeColorwayAnimPlaying } from '../colorwayAnimUrl';
+import { encodeColorwayAnimPlaying, COLORWAY_ANIM_INITIAL } from '../colorwayAnimUrl';
 import { inferShaderEmbedDrivers } from './shaderEmbedInferAnimation';
 
 const HANDOFF_VERSION = 2;

@@ -20,6 +20,11 @@ export const COLORWAY_ANIM_KEY_ORDER = [
   'bleedDraftCoupled',
 ];
 
+/** Default play toggles for colorway sidebar; keys match `COLORWAY_ANIM_KEY_ORDER`. */
+export const COLORWAY_ANIM_INITIAL = Object.fromEntries(
+  COLORWAY_ANIM_KEY_ORDER.map((k) => [k, false]),
+);
+
 const MAX_MASK = (1 << COLORWAY_ANIM_KEY_ORDER.length) - 1;
 
 /** @param {Record<string, boolean>} playing */
