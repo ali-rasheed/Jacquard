@@ -12,6 +12,7 @@ import { useKeyframePlayback } from './hooks/useKeyframePlayback';
 import { getWeaveAppKeyframeSnapshot, applyWeaveAppKeyframe } from './keyframe/weaveAppKeyframe';
 import { CaptureToolbar } from './components/CaptureToolbar';
 import { ShaderEmbedExportModal } from './components/ShaderEmbedExportModal.jsx';
+import { ConfigExportModal } from './components/ConfigExportModal.jsx';
 import { halftoneCmykPresets } from '@paper-design/shaders-react';
 import { PATTERNS, buildPatternSelectOptions, randomEnabledPatternIndex } from './patterns';
 import { getCopyCanvas } from './copyHelpers';
@@ -665,11 +666,15 @@ export default function App() {
   /** In-shader ENS corner mark (`u_ensMarkVisible`); URL `ensm` 0|1. */
   const [weaveEnsMarkVisible, setWeaveEnsMarkVisible] = useState(WEAVING_URL_DEFAULTS.weaveEnsMarkVisible);
   const [embedExportOpen, setEmbedExportOpen] = useState(false);
+  const [configExportOpen, setConfigExportOpen] = useState(false);
   const [fps, setFps] = useState(0);
 
   useEffect(() => {
     if (view !== 'weaving' && embedExportOpen) setEmbedExportOpen(false);
   }, [view, embedExportOpen]);
+  useEffect(() => {
+    if (view !== 'weaving' && configExportOpen) setConfigExportOpen(false);
+  }, [view, configExportOpen]);
   /** Shimmer: looping highlight band; speed, width, intensity, position. */
   const [shimmer, setShimmer] = useState(WEAVING_URL_DEFAULTS.shimmer);
   /** When false, shimmer band is frozen at current position (u_shimmerTime paused). */
@@ -1450,6 +1455,20 @@ export default function App() {
     ],
   );
 
+  const configHandoffState = useMemo(
+    () => ({
+      ...weaveKeyframeState,
+      presetIndex,
+      weaveHalftoneOn,
+      copyFormat,
+      copyScale,
+      exportScale,
+      shimmerPlaying,
+      colorwayAnimPlaying,
+    }),
+    [weaveKeyframeState, presetIndex, weaveHalftoneOn, copyFormat, copyScale, exportScale, shimmerPlaying, colorwayAnimPlaying],
+  );
+
   const weaveKeyframeSettersRef = useRef({});
   weaveKeyframeSettersRef.current = {
     setPattern,
@@ -1569,6 +1588,25 @@ export default function App() {
     defaultDurationSec: KEYFRAME_ANIM_DEFAULT_SEC,
   });
   weaveKeyframePlayingRef.current = weaveKeyframePlaying;
+
+  const configHandoffAnimation = useMemo(
+    () => ({
+      keyframeTransportPlaying: weaveKeyframePlaying,
+      shimmerEnabled: shimmer,
+      shimmerPlaying,
+      useAllColorways,
+      colorwayAnimPlaying,
+      stitchRevealMode: weaveStitchRevealMode,
+      stitchRevealKeyframeDrive: weaveStitchRevealKeyframeDrive,
+      stitchRevealProgress: weaveStitchRevealProgress,
+      inferState: weaveKeyframeState,
+    }),
+    [
+      weaveKeyframePlaying, shimmer, shimmerPlaying, useAllColorways, colorwayAnimPlaying,
+      weaveStitchRevealMode, weaveStitchRevealKeyframeDrive,
+      weaveStitchRevealProgress, weaveKeyframeState,
+    ],
+  );
 
   /** One-shot: apply `kad` / `kfe` / `kfa` / `kfb` after keyframe hook exists. */
   useEffect(() => {
@@ -3586,6 +3624,7 @@ export default function App() {
             showExport
             showEmbedExport={view === 'weaving'}
             onOpenEmbedExport={() => setEmbedExportOpen(true)}
+            onOpenConfigExport={() => setConfigExportOpen(true)}
             exportScale={exportScale}
             setExportScale={setExportScale}
             exportDefaults={{ exportScale: WEAVING_URL_DEFAULTS.exportScale }}
@@ -3619,6 +3658,22 @@ export default function App() {
             isKeyframePlaying={weaveKeyframePlaying}
             shimmerPlaying={shimmerPlaying}
             colorwayAnimPlaying={colorwayAnimPlaying}
+          />
+          <ConfigExportModal
+            open={configExportOpen}
+            onClose={() => setConfigExportOpen(false)}
+            tab="weave"
+            state={configHandoffState}
+            meta={{ view, presetIndex: presetIndex ?? null }}
+            animation={configHandoffAnimation}
+            keyframes={{
+              durationSec: weaveKeyframeDurationSec,
+              editingAfter: weaveEditingAfter,
+              setA: weaveBefore,
+              setB: weaveAfter,
+            }}
+            hasKeyframeA={!!weaveBefore && Object.keys(weaveBefore).length > 0}
+            hasKeyframeB={!!weaveAfter && Object.keys(weaveAfter).length > 0}
           />
 
           <footer className="relative h-[100px] shrink-0 overflow-hidden border-t border-border-subtle bg-surface-elevated">

@@ -9,6 +9,7 @@ import { Icon } from './ui/Icon';
 import { IconButton } from './ui/IconButton';
 import { SegmentedControl, SegmentedControlButton } from './ui/SegmentedControl';
 import { AppTooltip } from './ui/AppTooltip';
+import { ExportMenu } from './ExportMenu';
 import { iconSm, iconResetGlyph, btnGhost, typeLabel } from '../uiConstants';
 
 export function CaptureToolbar({
@@ -35,6 +36,8 @@ export function CaptureToolbar({
   keyframe,
   showEmbedExport = false,
   onOpenEmbedExport,
+  showConfigExport = true,
+  onOpenConfigExport,
 }) {
   const recordTitle = isProcessing
     ? 'Processing…'
@@ -113,15 +116,13 @@ export function CaptureToolbar({
               </span>
             </AppTooltip>
           )}
-          {showEmbedExport && typeof onOpenEmbedExport === 'function' && (
-            <AppTooltip content="Generate embeddable React and HTML shader snippets">
-              <span className="inline-flex cursor-default items-center gap-1">
-                <IconButton size="sm" aria-label="Export embed code" onClick={onOpenEmbedExport}>
-                  <Icon name="code" className={iconSm} />
-                </IconButton>
-                <span className={`${typeLabel} hidden md:inline`}>Export Embed</span>
-              </span>
-            </AppTooltip>
+          {(showConfigExport || showEmbedExport) && (
+            <ExportMenu
+              showConfigExport={showConfigExport}
+              onOpenConfigExport={onOpenConfigExport}
+              showEmbedExport={showEmbedExport}
+              onOpenEmbedExport={onOpenEmbedExport}
+            />
           )}
           {copyFeedback && (
             <span className={`shrink-0 text-xs ${copyFeedback === 'Copied!' ? 'text-accent' : 'text-error'}`} role="status">

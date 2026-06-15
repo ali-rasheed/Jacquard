@@ -3,7 +3,7 @@
  * brand / image / pattern color; quantize, stitches, optional background gaps (legacy v5), Fit/Fill canvas.
  * Copy, WebM/MP4 record, URL state (?v=2, gap=, display=), shortcuts.
  */
-import { useState, useCallback, useEffect, useRef, lazy, Suspense } from 'react';
+import { useState, useCallback, useEffect, useRef, useMemo, lazy, Suspense } from 'react';
 import { halftoneCmykPresets } from '@paper-design/shaders-react';
 import { motion } from 'motion/react';
 import * as Label from '@radix-ui/react-label';
@@ -13,6 +13,7 @@ import { useCanvasRecorder } from './hooks/useCanvasRecorder';
 import { useKeyframePlayback } from './hooks/useKeyframePlayback';
 import { getMosaicKeyframeSnapshot, applyMosaicKeyframe } from './keyframe/mosaicKeyframe';
 import { CaptureToolbar } from './components/CaptureToolbar';
+import { ConfigExportModal } from './components/ConfigExportModal.jsx';
 import { PATTERNS, buildPatternSelectOptions, randomEnabledPatternIndex } from './patterns';
 import {
   DEFAULT_TILE_ART_RAMP,
@@ -510,6 +511,7 @@ export default function AppV2({
   const [halftoneGainC, setHalftoneGainC] = useState(HALFTONE_DEFAULTS.gainC);
   const [halftoneGainY, setHalftoneGainY] = useState(HALFTONE_DEFAULTS.gainY);
   const [copyFeedback, setCopyFeedback] = useState(null);
+  const [configExportOpen, setConfigExportOpen] = useState(false);
   const copyFeedbackTimeoutRef = useRef(null);
   const stitchPlayRecordTimeoutRef = useRef(null);
   const canvasRef = useRef(null);
@@ -744,6 +746,82 @@ export default function AppV2({
     patternFit,
   });
 
+  const configHandoffState = useMemo(() => ({
+    ...getMosaicKeyframeSnapshot({
+      gridSize,
+      palette,
+      bgShade,
+      bgColorMode,
+      bgCustomColor,
+      rectColorSource,
+      tileArtLevels,
+      tileArtThreshold,
+      tileArtDither,
+      tileArtColorMode,
+      tileArtGeom,
+      tileArtUniformGrid,
+      tileArtDensity,
+      tileArtRamp,
+      patternWarpShade,
+      patternWeftShade,
+      lumaSizeMix,
+      lumaSizeInvert,
+      lumaSizeFloor,
+      cellGeometryMode,
+      mosaicBgGaps,
+      stitchLumaMax,
+      stitchRevealMode,
+      stitchRevealProgress,
+      stitchRevealSeed,
+      stitchRevealScale,
+      stitchRevealNoiseScale,
+      stitchRevealSoftness,
+      stitchRevealBleedAnisotropy,
+      stitchRevealBleedRotation,
+      stitchRevealBleedCrossFiber,
+      stitchRevealBleedDraftCoupled,
+      quantizeSteps,
+      quantizeMode,
+      quantizeGamma,
+      quantizeDither,
+      patternIndex,
+      rectRadius,
+      rectAspect,
+      rectRatio,
+      patternFit,
+    }),
+    mosaicHalftoneOn,
+    halftonePresetIndex,
+    halftoneSize,
+    halftoneSoftness,
+    halftoneGridNoise,
+    halftoneContrast,
+    halftoneType,
+    halftoneColorBack,
+    halftoneColorC,
+    halftoneColorM,
+    halftoneColorY,
+    halftoneColorK,
+    halftoneFloodC,
+    halftoneGainC,
+    halftoneGainY,
+    copyFormat,
+    copyScale,
+    stitchRevealDurationSec,
+    mediaTextureKind,
+  }), [
+    gridSize, palette, bgShade, bgColorMode, bgCustomColor, rectColorSource, tileArtLevels, tileArtThreshold,
+    tileArtDither, tileArtColorMode, tileArtGeom, tileArtUniformGrid, tileArtDensity, tileArtRamp,
+    patternWarpShade, patternWeftShade, lumaSizeMix, lumaSizeInvert, lumaSizeFloor, cellGeometryMode,
+    mosaicBgGaps, stitchLumaMax, stitchRevealMode, stitchRevealProgress, stitchRevealSeed, stitchRevealScale,
+    stitchRevealNoiseScale, stitchRevealSoftness, stitchRevealBleedAnisotropy, stitchRevealBleedRotation,
+    stitchRevealBleedCrossFiber, stitchRevealBleedDraftCoupled, quantizeSteps, quantizeMode, quantizeGamma,
+    quantizeDither, patternIndex, rectRadius, rectAspect, rectRatio, patternFit, mosaicHalftoneOn,
+    halftonePresetIndex, halftoneSize, halftoneSoftness, halftoneGridNoise, halftoneContrast, halftoneType,
+    halftoneColorBack, halftoneColorC, halftoneColorM, halftoneColorY, halftoneColorK, halftoneFloodC,
+    halftoneGainC, halftoneGainY, copyFormat, copyScale, stitchRevealDurationSec, mediaTextureKind,
+  ]);
+
   const mosaicSettersRef = useRef({});
   mosaicSettersRef.current = {
     setGridSize,
@@ -814,6 +892,15 @@ export default function AppV2({
     applySnapshot: applyMosaicSnapshot,
     defaultDurationSec: KEYFRAME_ANIM_DEFAULT_SEC,
   });
+
+  const configHandoffAnimation = useMemo(
+    () => ({
+      keyframeTransportPlaying: keyframePlaying,
+      stitchRevealMode,
+      stitchRevealProgress,
+    }),
+    [keyframePlaying, stitchRevealMode, stitchRevealProgress],
+  );
 
   useEffect(() => {
     const h = keyframeUrlHydrateRef.current;
@@ -2356,6 +2443,7 @@ export default function AppV2({
           onCopy={handleCopy}
           copyFeedback={copyFeedback}
           showExport={false}
+          onOpenConfigExport={() => setConfigExportOpen(true)}
           recordFormat={recordFormat}
           setRecordFormat={setRecordFormat}
           isRecording={isRecording}
@@ -2374,6 +2462,23 @@ export default function AppV2({
             onPlay: startMosaicKeyframePlay,
             onStop: stopMosaicKeyframe,
           }}
+        />
+
+        <ConfigExportModal
+          open={configExportOpen}
+          onClose={() => setConfigExportOpen(false)}
+          tab="mosaic"
+          state={configHandoffState}
+          meta={{ mediaLoaded: !!imageSource }}
+          animation={configHandoffAnimation}
+          keyframes={{
+            durationSec: keyframeDurationSec,
+            editingAfter,
+            setA: mosaicBefore,
+            setB: mosaicAfter,
+          }}
+          hasKeyframeA={!!mosaicBefore && Object.keys(mosaicBefore).length > 0}
+          hasKeyframeB={!!mosaicAfter && Object.keys(mosaicAfter).length > 0}
         />
 
         <footer className="relative h-[100px] shrink-0 overflow-hidden border-t border-border-subtle bg-surface-elevated">
