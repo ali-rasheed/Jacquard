@@ -1,6 +1,7 @@
 /**
  * CanvasDemoPage — Weave canvas feature gallery (one live preview at a time).
  * Specimen list + single ShaderCanvas / WeavingHalftoneStage avoids WebGL context limits.
+ * URL: `section`, `spec`, `shp`, `cwp` (same play hints as main app).
  */
 import { useEffect, useMemo, useState } from 'react';
 import { PRESETS } from '../constants';
@@ -10,7 +11,24 @@ import { ThemeToggle } from '../components/ThemeToggle';
 import { Icon, SegmentedControl, SegmentedControlButton } from '../components/ui';
 import { PATTERNS } from '../patterns';
 import { HALFTONE_DEFAULTS, WEAVING_URL_DEFAULTS } from '../urlDefaults';
-import { btnGhost, sidebarGroupTitle, toggleBtn, toggleBtnActive, typeBase, typeCaption, typeLabel } from '../uiConstants';
+import { useColorwayState } from '../hooks/useColorwayState';
+import { COLORWAY_ANIM_INITIAL } from '../colorwayUtils';
+import {
+  decodeColorwayAnimBitsToPartial,
+  parseCanvasDemoUrl,
+  replaceCanvasDemoUrl,
+} from '../canvasDemoUrl';
+import {
+  btnGhost,
+  iconPlayGlyph,
+  sidebarGroupTitle,
+  toggleBtn,
+  toggleBtnActive,
+  toggleBtnIcon,
+  typeBase,
+  typeCaption,
+  typeLabel,
+} from '../uiConstants';
 
 const SHIMMER_PRESET = PRESETS.find((p) => p.id === 'lapis-houndstooth-shimmer');
 
@@ -198,7 +216,6 @@ function buildWeaveProps(overrides = {}) {
     shimmerNoiseMin: d.shimmerNoiseMin,
     shimmerNoiseMax: d.shimmerNoiseMax,
     shimmerBlendMode: d.shimmerBlendMode,
-    shimmerPlaying: true,
     useAllColorways: d.useAllColorways,
     colorwaySeed: d.colorwaySeed,
     colorwayNoiseScale: d.colorwayNoiseScale,
@@ -218,9 +235,66 @@ function buildWeaveProps(overrides = {}) {
   };
 }
 
+function syncColorwayFromWeaveProps(wp, c) {
+  c.setUseAllColorways(!!wp.useAllColorways);
+  c.setColorwaySeed(wp.colorwaySeed);
+  c.setColorwayNoiseScale(wp.colorwayNoiseScale);
+  c.setColorwayNoiseMode(wp.colorwayNoiseMode);
+  c.setColorwayNoiseOctaves(wp.colorwayNoiseOctaves);
+  c.setColorwayNoisePersistence(wp.colorwayNoisePersistence);
+  c.setColorwayNoiseLacunarity(wp.colorwayNoiseLacunarity);
+  c.setColorwayNoiseBias(wp.colorwayNoiseBias);
+  c.setColorwayNoiseX(wp.colorwayNoiseX);
+  c.setColorwayBleedAnisotropy(wp.colorwayBleedAnisotropy);
+  c.setColorwayBleedRotation(wp.colorwayBleedRotation);
+  c.setColorwayBleedCrossFiber(wp.colorwayBleedCrossFiber);
+  c.setColorwayBleedDraftCoupled(!!wp.colorwayBleedDraftCoupled);
+  c.setColorwayIncludeMask(wp.colorwayIncludeMask);
+}
+
 export default function CanvasDemoPage() {
-  const [activeSectionId, setActiveSectionId] = useState(DEMO_SECTIONS[0].id);
-  const [activeSpecId, setActiveSpecId] = useState(DEMO_SECTIONS[0].specs[0].id);
+  const initialUrl = useMemo(
+    () => parseCanvasDemoUrl(window.location.search, DEMO_SECTIONS),
+    [],
+  );
+
+  const [activeSectionId, setActiveSectionId] = useState(initialUrl.sectionId);
+  const [activeSpecId, setActiveSpecId] = useState(initialUrl.specId);
+  const [shimmerPlaying, setShimmerPlaying] = useState(initialUrl.shimmerPlaying);
+
+  const colorway = useColorwayState();
+  const {
+    useAllColorways,
+    setUseAllColorways,
+    colorwaySeed,
+    setColorwaySeed,
+    colorwayNoiseScale,
+    setColorwayNoiseScale,
+    colorwayNoiseMode,
+    setColorwayNoiseMode,
+    colorwayNoiseOctaves,
+    setColorwayNoiseOctaves,
+    colorwayNoisePersistence,
+    setColorwayNoisePersistence,
+    colorwayNoiseLacunarity,
+    setColorwayNoiseLacunarity,
+    colorwayNoiseBias,
+    setColorwayNoiseBias,
+    colorwayNoiseX,
+    setColorwayNoiseX,
+    colorwayBleedAnisotropy,
+    setColorwayBleedAnisotropy,
+    colorwayBleedRotation,
+    setColorwayBleedRotation,
+    colorwayBleedCrossFiber,
+    setColorwayBleedCrossFiber,
+    colorwayBleedDraftCoupled,
+    setColorwayBleedDraftCoupled,
+    colorwayIncludeMask,
+    setColorwayIncludeMask,
+    colorwayAnimPlaying,
+    setColorwayAnimPlaying,
+  } = colorway;
 
   const sections = useMemo(
     () =>
@@ -237,11 +311,104 @@ export default function CanvasDemoPage() {
   const activeSection = sections.find((s) => s.id === activeSectionId) ?? sections[0];
   const activeSpec = activeSection.specs.find((s) => s.id === activeSpecId) ?? activeSection.specs[0];
 
+  const previewProps = useMemo(
+    () => ({
+      ...activeSpec.weaveProps,
+      useAllColorways,
+      colorwaySeed,
+      colorwayNoiseScale,
+      colorwayNoiseMode,
+      colorwayNoiseOctaves,
+      colorwayNoisePersistence,
+      colorwayNoiseLacunarity,
+      colorwayNoiseBias,
+      colorwayNoiseX,
+      colorwayBleedAnisotropy,
+      colorwayBleedRotation,
+      colorwayBleedCrossFiber,
+      colorwayBleedDraftCoupled,
+      colorwayIncludeMask,
+      shimmerPlaying,
+    }),
+    [
+      activeSpec.weaveProps,
+      useAllColorways,
+      colorwaySeed,
+      colorwayNoiseScale,
+      colorwayNoiseMode,
+      colorwayNoiseOctaves,
+      colorwayNoisePersistence,
+      colorwayNoiseLacunarity,
+      colorwayNoiseBias,
+      colorwayNoiseX,
+      colorwayBleedAnisotropy,
+      colorwayBleedRotation,
+      colorwayBleedCrossFiber,
+      colorwayBleedDraftCoupled,
+      colorwayIncludeMask,
+      shimmerPlaying,
+    ],
+  );
+
+  useEffect(() => {
+    syncColorwayFromWeaveProps(activeSpec.weaveProps, {
+      setUseAllColorways,
+      setColorwaySeed,
+      setColorwayNoiseScale,
+      setColorwayNoiseMode,
+      setColorwayNoiseOctaves,
+      setColorwayNoisePersistence,
+      setColorwayNoiseLacunarity,
+      setColorwayNoiseBias,
+      setColorwayNoiseX,
+      setColorwayBleedAnisotropy,
+      setColorwayBleedRotation,
+      setColorwayBleedCrossFiber,
+      setColorwayBleedDraftCoupled,
+      setColorwayIncludeMask,
+    });
+  }, [
+    activeSectionId,
+    activeSpecId,
+    activeSpec.weaveProps,
+    setUseAllColorways,
+    setColorwaySeed,
+    setColorwayNoiseScale,
+    setColorwayNoiseMode,
+    setColorwayNoiseOctaves,
+    setColorwayNoisePersistence,
+    setColorwayNoiseLacunarity,
+    setColorwayNoiseBias,
+    setColorwayNoiseX,
+    setColorwayBleedAnisotropy,
+    setColorwayBleedRotation,
+    setColorwayBleedCrossFiber,
+    setColorwayBleedDraftCoupled,
+    setColorwayIncludeMask,
+  ]);
+
+  useEffect(() => {
+    if (initialUrl.colorwayPlayBits == null) return;
+    setColorwayAnimPlaying({
+      ...COLORWAY_ANIM_INITIAL,
+      ...decodeColorwayAnimBitsToPartial(initialUrl.colorwayPlayBits),
+    });
+  }, [initialUrl.colorwayPlayBits, setColorwayAnimPlaying]);
+
   useEffect(() => {
     if (!activeSection.specs.some((s) => s.id === activeSpecId)) {
       setActiveSpecId(activeSection.specs[0].id);
     }
   }, [activeSection, activeSpecId]);
+
+  useEffect(() => {
+    replaceCanvasDemoUrl({
+      sectionId: activeSectionId,
+      specId: activeSpecId,
+      shimmerPlaying,
+      colorwayAnimPlaying,
+    });
+  }, [activeSectionId, activeSpecId, shimmerPlaying, colorwayAnimPlaying]);
 
   return (
     <div className="flex h-[100dvh] flex-col bg-surface text-text">
@@ -304,12 +471,23 @@ export default function CanvasDemoPage() {
             {activeSpec.halftone ? (
               <span className={`${typeCaption} rounded bg-surface-input px-1.5 py-0.5`}>halftone</span>
             ) : null}
+            {activeSpec.weaveProps.shimmer ? (
+              <button
+                type="button"
+                className={`${toggleBtnIcon} ml-auto ${shimmerPlaying ? toggleBtnActive : ''}`}
+                aria-pressed={shimmerPlaying}
+                aria-label={shimmerPlaying ? 'Pause shimmer animation' : 'Play shimmer animation'}
+                onClick={() => setShimmerPlaying((p) => !p)}
+              >
+                <Icon name={shimmerPlaying ? 'pause' : 'play_arrow'} className={iconPlayGlyph} />
+              </button>
+            ) : null}
           </div>
           <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-border-subtle bg-surface-secondary">
             {activeSpec.halftone ? (
-              <WeavingHalftoneStage key={activeSpec.id} {...activeSpec.weaveProps} {...HALFTONE_PROPS} />
+              <WeavingHalftoneStage key={activeSpec.id} {...previewProps} {...HALFTONE_PROPS} />
             ) : (
-              <ShaderCanvas key={activeSpec.id} {...activeSpec.weaveProps} />
+              <ShaderCanvas key={activeSpec.id} {...previewProps} />
             )}
           </div>
         </main>
