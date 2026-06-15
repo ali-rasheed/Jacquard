@@ -100,6 +100,9 @@ export default function DesignSystemPage() {
             <Icon name="arrow_back" className="text-[14px]" />
             App
           </a>
+          <a href="./canvas-demo.html" className={btnGhost}>
+            Canvas demo
+          </a>
         </div>
       </header>
 

@@ -8,8 +8,10 @@
     "test": "vitest run",
     "dev": "npm run check && vite",
     "dev:ds": "vite --open /design-system.html",
+    "dev:canvas": "vite --open /canvas-demo.html",
     "devp": "portless shaderbox vite",
     "devp:ds": "portless shaderbox-design-system vite --open /design-system.html",
+    "devp:canvas": "portless shaderbox-canvas-demo vite --open /canvas-demo.html",
     "build": "npm run check && vite build",
     "preview": "vite preview",
     "preset-maker": "node bin/preset-maker.js"

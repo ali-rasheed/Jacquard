@@ -11,6 +11,7 @@ export default defineConfig({
       input: {
         main: resolve(__dirname, 'index.html'),
         designSystem: resolve(__dirname, 'design-system.html'),
+        canvasDemo: resolve(__dirname, 'canvas-demo.html'),
       },
     },
   },
