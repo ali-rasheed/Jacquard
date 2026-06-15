@@ -92,6 +92,25 @@ function colorwayOscClamped(tMs, periodMs, minV, maxV, origin) {
   return colorwayOscFromOrigin(tMs, periodMs, minV, maxV, clamped);
 }
 
+function colorwaySweepFromOrigin(tMs, periodMs, minV, maxV, origin) {
+  const span = maxV - minV;
+  if (span <= 0) return origin;
+  const o = Number(origin);
+  const clamped = Number.isFinite(o) ? clamp(o, minV, maxV) : (minV + maxV) * 0.5;
+  const startNorm = (clamped - minV) / span;
+  const u = (((tMs % periodMs) + periodMs) % periodMs) / periodMs;
+  const startPhase = startNorm >= 0.5 ? 1 - startNorm : 1 + startNorm;
+  const p = (startPhase + u * 2) % 2;
+  const norm = p <= 1 ? 1 - p : p - 1;
+  return minV + norm * span;
+}
+
+function colorwaySweepClamped(tMs, periodMs, minV, maxV, origin) {
+  const o = Number(origin);
+  const clamped = Number.isFinite(o) ? clamp(o, minV, maxV) : (minV + maxV) * 0.5;
+  return colorwaySweepFromOrigin(tMs, periodMs, minV, maxV, clamped);
+}
+
 function snapColorwayBleedRotation(turns) {
   const clamped = clamp(Number(turns) || 0, 0, 1);
   const deg = clamped * 360.0;
@@ -384,7 +403,7 @@ export function WeavingShaderEmbed({
           : colorwayOscClamped(tMs, 56000, 1.05, 4, c.colorwayNoiseLacunarityValue);
         const resolvedBias = c.colorwayNoiseBiasMode === 'controlled'
           ? Number(c.colorwayNoiseBiasValue)
-          : colorwayOscClamped(tMs, 44000, 0.25, 4, c.colorwayNoiseBiasValue);
+          : colorwaySweepClamped(tMs, 44000, 0.25, 4, c.colorwayNoiseBiasValue);
         const resolvedNoiseX = c.colorwayNoiseXMode === 'controlled'
           ? Number(c.colorwayNoiseXValue)
           : Number(colorwayOscClamped(tMs, 3000000, -500, 500, c.colorwayNoiseXValue).toFixed(2));
@@ -515,6 +534,23 @@ export function generateHtmlEmbedCode(payload) {
     const o = Number(origin);
     const clamped = Number.isFinite(o) ? clamp(o, minV, maxV) : (minV + maxV) * 0.5;
     return colorwayOscFromOrigin(tMs, periodMs, minV, maxV, clamped);
+  }
+  function colorwaySweepFromOrigin(tMs, periodMs, minV, maxV, origin) {
+    const span = maxV - minV;
+    if (span <= 0) return origin;
+    const o = Number(origin);
+    const clamped = Number.isFinite(o) ? clamp(o, minV, maxV) : (minV + maxV) * 0.5;
+    const startNorm = (clamped - minV) / span;
+    const u = (((tMs % periodMs) + periodMs) % periodMs) / periodMs;
+    const startPhase = startNorm >= 0.5 ? 1 - startNorm : 1 + startNorm;
+    const p = (startPhase + u * 2) % 2;
+    const norm = p <= 1 ? 1 - p : p - 1;
+    return minV + norm * span;
+  }
+  function colorwaySweepClamped(tMs, periodMs, minV, maxV, origin) {
+    const o = Number(origin);
+    const clamped = Number.isFinite(o) ? clamp(o, minV, maxV) : (minV + maxV) * 0.5;
+    return colorwaySweepFromOrigin(tMs, periodMs, minV, maxV, clamped);
   }
   function snapColorwayBleedRotation(turns) {
     const clamped = clamp(Number(turns) || 0, 0, 1);
@@ -674,7 +710,7 @@ export function generateHtmlEmbedCode(payload) {
         : colorwayOscClamped(tMs, 56000, 1.05, 4, opts.colorwayNoiseLacunarityValue);
       const resolvedBias = opts.colorwayNoiseBiasMode === 'controlled'
         ? Number(opts.colorwayNoiseBiasValue)
-        : colorwayOscClamped(tMs, 44000, 0.25, 4, opts.colorwayNoiseBiasValue);
+        : colorwaySweepClamped(tMs, 44000, 0.25, 4, opts.colorwayNoiseBiasValue);
       const resolvedNoiseX = opts.colorwayNoiseXMode === 'controlled'
         ? Number(opts.colorwayNoiseXValue)
         : Number(colorwayOscClamped(tMs, 3000000, -500, 500, opts.colorwayNoiseXValue).toFixed(2));
