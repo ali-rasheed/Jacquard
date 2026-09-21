@@ -40,7 +40,7 @@ React + Vite app for **ENS-style weave drafts** and **image-to-grid** experiment
 | Layer | Role |
 |--------|------|
 | **`App.jsx`** | Root shell: `view` routing (weave / mosaic / print mosaic), URL sync for weaving + halftone + combo, shared sidebar for weave & print mosaic, **capture toolbar** + keyframes under the stage. Lazy-loads halftone stages. |
-| **`AppV2.jsx`** | **Mosaic**: standalone sidebar, footer, **capture toolbar** + keyframes, URL state (`v=2`, `gap=`, `display=`, …), **`ImageRectsCanvas`**. |
+| **`AppV2.jsx`** | **Mosaic**: standalone sidebar, **capture toolbar** + keyframes, URL state (`v=2`, `gap=`, `display=`, …), **`ImageRectsCanvas`**. |
 | **`ShaderCanvas` + weaving hook** | **Weave** draft (`fragment.glsl` + `vertex.glsl`): grid of rounded rects, warp/weft, gradients, shimmer, colorways, optional **ENS mark** overlay. |
 | **`ImageRectsCanvas` + `useImageRectsSandbox`** | **Mosaic** pipeline (`fragmentImageRects.glsl`): static image, video, or GIF → rects. |
 | **`WeavingHalftoneStage`** | Weave → intermediate buffer → **CMYK halftone** (`@paper-design/shaders-react`). |
@@ -149,7 +149,8 @@ There are no global shortcuts today for **randomize**, **reset**, **record**, **
 - **What:** MP4 recording shutdown now marks the encode session as stopping before `flush()`/`close()` and ignores in-flight rAF `encode()` calls that arrive after codec close. **Why:** Prevents transient `VideoEncoder.encode` "closed codec" errors when stopping near frame boundaries.
 - **What:** MP4 recording now negotiates AVC level per canvas size (`avc1` Level 5.1 → 5.0 → 4.2 → 4.0) instead of forcing Level 4.0. **Why:** Large captures (for example ~1538×1538) exceed Level 4.0 coded-area limits; level negotiation avoids false start failures while preserving MP4 output when supported.
 - **What:** MP4 muxer metadata is now normalized before `addVideoChunk` (drops null/invalid `decoderConfig.colorSpace` payloads). **Why:** avoids browser-specific `Cannot read properties of null (reading 'colorSpace')` failures during recording.
-- **What:** Mosaic no longer shows FPS readouts (footer meter removed and top-right canvas FPS pill removed); footer keeps only **WebGL 1** status. **Why:** keep diagnostics minimal and reduce visual clutter.
+- **What:** Mosaic no longer shows FPS readouts (footer meter removed and top-right canvas FPS pill removed); the Mosaic **status-pill footer** (Image loaded / Weave / Color / Grid / Halftone / WebGL) is removed entirely. Capture bar remains. **Why:** status duplicated sidebar state and added chrome. **Re-enable:** restore the `<footer>` block in **`AppV2.jsx`**.
+- **What:** With **Print / Halftone On**, the capture bar **WebP** format toggle is hidden and copy/download stay on **PNG**. Chromium clipboard `write` rejects `image/webp` (`Type image/webp not supported on write`); PNG copy works. Flat mosaic still offers WebP (download works; copy still needs PNG MIME — kept for download parity). **Why:** avoid a broken WebP copy path on the Print output. Same rule on Weave when Halftone is On.
 
 ---
 
@@ -187,6 +188,20 @@ There are no global shortcuts today for **randomize**, **reset**, **record**, **
 - **Now:** Hidden; defaults (RGB, γ 1, dither 0) unless URL sets **`qm`** / **`qg`** / **`qd`**. **Steps** slider remains.
 - **Why:** Advanced banding controls were rarely used; cluttered the sidebar.
 - **Re-enable:** Restore the three controls in the Quantize group in **`AppV2.jsx`**.
+
+### 6. Mosaic — status-pill footer
+
+- **Was:** Bottom footer pills (media / weave / color / quantize / palette / BG / grid / Halftone / WebGL).
+- **Now:** Removed; capture bar only.
+- **Why:** Duplicated sidebar state; visual clutter.
+- **Re-enable:** Restore the `<footer>` block in **`AppV2.jsx`**.
+
+### 7. Print / Halftone — WebP format in capture bar
+
+- **Was:** PNG | WebP always available for copy/download.
+- **Now:** WebP hidden while Print/Halftone is On (Mosaic **`mosaicHalftoneOn`**, Weave **`weaveHalftoneOn`**, print-mosaic view); selection forced to PNG.
+- **Why:** Chromium clipboard cannot write `image/webp`.
+- **Re-enable:** Pass `imageFormats={['png','webp']}` always from **`CaptureToolbar`** callers (download-only WebP would need a separate control).
 
 ---
 
