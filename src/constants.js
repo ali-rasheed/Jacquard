@@ -103,9 +103,11 @@ export const PRESETS = [
 ];
 
 /**
- * Shared black/white mask look for Mosaic (Quartz: black stitches on transparent BG).
- * Background gaps + stitch-by-darkness turn the image into a B&W silhouette cutout.
- * Mirrors Weave preset `mask-bw-plain`.
+ * Shared black/white mask look for Mosaic (Quartz warp/weft on transparent BG).
+ * Warp black + weft light keeps interlacement contrast so Print → Style: Ink can
+ * still splotch the weave instead of flooding solid-K cells. Gaps + darkness gate
+ * silhouette the image. Does not force Print off — leave user's Ink/Dots setting.
+ * Mirrors Weave preset `mask-bw-plain` (flat B&W); Mosaic favors weave-readable shades.
  */
 export const MOSAIC_MASK_BW_PRESET = {
   id: 'mask-bw-plain',
@@ -116,8 +118,7 @@ export const MOSAIC_MASK_BW_PRESET = {
   rectColorSource: 2,
   patternIndex: 0,
   patternWarpShade: 0,
-  patternWeftShade: 0,
-  mosaicHalftoneOn: false,
+  patternWeftShade: 3,
   mosaicBgGaps: true,
   cellGeometryMode: 1,
   stitchLumaMax: 0.55,

@@ -111,10 +111,14 @@ There are no global shortcuts today for **randomize**, **reset**, **record**, **
 ## Mosaic (`AppV2`)
 
 - **Media:** image, video, or GIF via one file input; **`mediaTextureKind`** inferred from file.
-- **What:** Mosaic **Preset** control (Weave & colorway): **Mask · B&W · Plain** applies Quartz black warp/weft stitches, **Transparent** BG, plain draft, **Background gaps** on (dark→black stitches, bright→transparent gaps), halftone off. Shared id with Weave mask preset. **Why:** same one-click B&W silhouette cutout from the loaded image.
+- **What:** Mosaic **Look** (Weave & colorway): **Mask · B&W · Plain** applies Quartz **black warp / light weft** (interlacement contrast), **Transparent** BG, plain draft, **Gaps** on (dark→stitches, bright→transparent). Does **not** force Print off so **Style: Ink** can still splotch the weave. **Look: Custom** restores the prior weave/colorway snapshot. **Why:** one-click silhouette that stays readable under ink instead of solid-K cells; leaving Mask undoes the preset.
+- **What:** Mosaic sidebar **Frame** merges former Resolution + Canvas (+ Fit/Fill when not in App shell): cell count + edge inset. **Print** is one card (Off/On): **Look** (CMYK preset) + **Style** (Dots/Ink/Sharp) + **Paper**, then **Screen** (Dot size / Softness / Noise) and **Ink** (Contrast / Flood / Cyan·Yellow gain + plate colors). Replaces separate Preset / Dot & grid / Tone / Ink colors groups. **Why:** fewer chrome cards and print-shop naming.
+- **What:** Weave & colorway consolidated: Look / Color / Draft / palette / unified BG / Warp·Weft / **Gaps** (+ darkness cutoff); one group reset clears Mask stitch fields too (no per-field resets). **Gaps** moved here from Brightness & stitches. **Why:** silhouette controls sit with the Look that drives them; shorter mosaic sidebar.
+- **What:** Brightness **Size from brightness** shows polarity / floor only when mix &gt; 0. **Why:** hide rarely touched follow-on controls until brightness sizing is on.
+- **What:** Quantize **mode** (RGB/HSV), **gamma**, and **dither** controls are hidden in the Mosaic sidebar; **steps** remain. URL keys **`qm`**, **`qg`**, **`qd`** still hydrate. **Why:** barely used advanced banding chrome. **Re-enable:** restore the three controls under Quantize in **`AppV2.jsx`**.
 - **What:** When you load a **video** file (switch from still image / GIF to **video** as the decoded source), **canvas recording starts automatically** (WebM/MP4 per **capture bar**). **Why:** Capture the mosaic output together with the source video without an extra click; stop from the capture bar or by switching back to image/GIF (recording stops when **`mediaTextureKind`** is not **`video`**).
-- **Background gaps:** toggle + URL **`gap=`**; aligns with legacy v5 shader flag **`nonStitchShowsBg`**.
-- **What:** In **Brightness & stitches**, the **Cell geometry** dropdown (including **Dark stitches**) is hidden for now and replaced in-place by the **Background gaps** toggle button. **Why:** simplify the control row while keeping the main stitch-vs-background switch accessible.
+- **Background gaps:** toggle + URL **`gap=`** in Weave & colorway; aligns with legacy v5 shader flag **`nonStitchShowsBg`**.
+- **What:** In **Brightness & stitches**, the **Cell geometry** dropdown (including **Dark stitches**) remains hidden; **Gaps** is the silhouette switch (now under Weave & colorway). **Why:** simplify the control row while keeping the main stitch-vs-background switch accessible.
 - **What:** Mosaic background now supports two sources in the sidebar: **Preset** (existing BG shade dropdown) or **Color** (native color picker). **Why:** keep quick ENS shade presets while allowing precise custom background color selection. URL keys: **`bgm`** (0 preset / 1 color) and **`bgc`** (hex without `#`).
 - **Viewport:** **`patternFit`** from **`App.jsx`** (nav bar) + URL **`display=`** and **`cpad`** (canvas edge inset 0–45%, background band). **`cpad`** shrinks the mosaic sampling area; outer band uses BG color only (halftone back ink when halftone on). Passed through to **`ImageRectsCanvas`**.
 - **What:** **Stitch-in** (sidebar **Stitch-in**): optional animation from a **blank** background-only frame to the full mosaic by ramping **`u_stitchRevealProgress`** 0→1. **Noise** uses isotropic FBM on cell IDs (organic scatter); **Bleed** uses the same dye-bleed–style streaks as weave “all colorways” (rotation, anisotropy, optional draft coupling to warp/weft). **Replay** / **New seed** / **duration** / **scale** / **softness** control the look; **Why:** lets mosaic reads like thread appearing from empty cloth, with two distinct visual orders.
@@ -127,11 +131,11 @@ There are no global shortcuts today for **randomize**, **reset**, **record**, **
 
 ## Mosaic halftone (legacy `?v=4`)
 
-- **Halftone Off / On** in the Mosaic sidebar (like Weave); **On** uses **`ImageRectsHalftoneStage`** with the same CMYK controls (preset, dot/grid, tone, ink colors).
-- **`?v=4`** bookmarks still work (Mosaic + halftone on). Halftone tuning uses shared URL keys (`hp`, `hs`, `ht`, `hcols`, …).
-- **What:** Mosaic halftone preserves **transparency** from uploaded PNG/GIF alpha and from **Transparent** BG / **Background gaps** — copy, export, and record use the alpha-composited output. **Why:** export cutouts without flattening to paper when halftone is on.
-- **What:** Halftone ink sidebar **Paper** control: **Cream** (default print stock) or **White (clean)** (`#ffffff`, flood/grid noise off — no cyan specks on highlights). URL **`hbp=1`** for white. Same on Weave halftone. **Why:** pure white export without flood ink on bright areas.
-- **What:** **Resolution** grid slider has denser snap stops (e.g. 20, 28, 40, 56 … between former coarse values). **Why:** finer tuning of rounded-rect cell density on Weave and Mosaic.
+- **Print Off / On** in the Mosaic sidebar (same pipeline as former Halftone toggle); **On** uses **`ImageRectsHalftoneStage`** with Look / Style / Paper / Screen / Ink in one group.
+- **`?v=4`** bookmarks still work (Mosaic + print/halftone on). Tuning uses shared URL keys (`hp`, `hs`, `ht`, `hcols`, …).
+- **What:** Mosaic print preserves **transparency** from uploaded PNG/GIF alpha and from **Transparent** BG / **Background gaps** — copy, export, and record use the alpha-composited output. **Why:** export cutouts without flattening to paper when print is on.
+- **What:** Print **Paper** control: **Cream** (default stock) or **White** (`#ffffff`, flood/noise off). URL **`hbp=1`** for white. Same on Weave. **Why:** pure white export without flood ink on bright areas.
+- **What:** **Frame** cell-count slider has denser snap stops (e.g. 20, 28, 40, 56 … between former coarse values). **Why:** finer tuning of rounded-rect cell density on Weave and Mosaic.
 - **What:** Fixed invalid GLSL `vec3` constructor in **`fragmentImageRects.glsl`** tile-art density dither (WebGL 1 / GLSL ES 1.00). **Why:** `vec3(cellID, gCol, gRow)` failed to compile and blocked all Image Rects views with a shader error on stage.
 
 ---
@@ -176,6 +180,13 @@ There are no global shortcuts today for **randomize**, **reset**, **record**, **
 - **Was:** Listed in weave / print-mosaic / Mosaic pattern pickers, tile-art ramp defaults, and Randomize.
 - **Now:** Omitted from **`buildPatternSelectOptions`** (unless already selected via legacy URL), excluded from **`buildComplexityOrderedPatternIndices`** / default **`tar`** ramp, and not chosen by **`randomEnabledPatternIndex`**. Pattern data stays in **`PATTERNS`** and the GPU atlas so old **`p=7`** / **`tar`** URLs still render until the user picks another weave.
 - **Re-enable:** Remove **`weft-rib-irregular`** from **`DISABLED_PATTERN_IDS`** in **`src/patterns/index.js`**.
+
+### 5. Mosaic — Quantize mode / gamma / dither
+
+- **Was:** Always-visible **RGB/HSV**, **gamma**, and **dither** controls under Mosaic **Quantize**.
+- **Now:** Hidden; defaults (RGB, γ 1, dither 0) unless URL sets **`qm`** / **`qg`** / **`qd`**. **Steps** slider remains.
+- **Why:** Advanced banding controls were rarely used; cluttered the sidebar.
+- **Re-enable:** Restore the three controls in the Quantize group in **`AppV2.jsx`**.
 
 ---
 
