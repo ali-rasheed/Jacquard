@@ -26,7 +26,7 @@ import {
   serializeTileArtRamp,
 } from './patterns/tileArtRamp';
 import { AppTooltip } from './components/ui/AppTooltip';
-import { GRID_SNAPS, getGridSizeIndex, URL_STATE_MAX_LEN, WEAVE_ICONS } from './constants';
+import { GRID_SNAPS, getGridSizeIndex, URL_STATE_MAX_LEN, WEAVE_ICONS, MOSAIC_PRESETS } from './constants';
 import { IMAGE_RECTS_URL_DEFAULTS, HALFTONE_DEFAULTS, KEYFRAME_ANIM_DEFAULT_SEC } from './urlDefaults';
 import {
   applyHalftonePaperPreset,
@@ -535,6 +535,7 @@ export default function AppV2({
   const [halftoneGainC, setHalftoneGainC] = useState(HALFTONE_DEFAULTS.gainC);
   const [halftoneGainY, setHalftoneGainY] = useState(HALFTONE_DEFAULTS.gainY);
   const [halftonePaperMode, setHalftonePaperMode] = useState('cream');
+  const [mosaicPresetIndex, setMosaicPresetIndex] = useState(null); // null = custom
   const [copyFeedback, setCopyFeedback] = useState(null);
   const [exportFeedback, setExportFeedback] = useState(null);
   const [configExportOpen, setConfigExportOpen] = useState(false);
@@ -603,6 +604,24 @@ export default function AppV2({
   const onHalftoneFloodCChange = useCallback((value) => {
     setHalftoneFloodC(value);
     setHalftonePaperMode('custom');
+  }, []);
+
+  /** Apply Mosaic sidebar preset (e.g. Mask · B&W). */
+  const applyMosaicPreset = useCallback((index) => {
+    if (index == null || index < 0 || index >= MOSAIC_PRESETS.length) return;
+    const p = MOSAIC_PRESETS[index];
+    setMosaicPresetIndex(index);
+    if (p.palette != null) setPalette(p.palette);
+    if (p.bgShade != null) setBgShade(p.bgShade);
+    if (p.bgColorMode != null) setBgColorMode(p.bgColorMode);
+    if (p.rectColorSource != null) setRectColorSource(p.rectColorSource);
+    if (p.patternIndex != null) setPatternIndex(p.patternIndex);
+    if (p.patternWarpShade != null) setPatternWarpShade(p.patternWarpShade);
+    if (p.patternWeftShade != null) setPatternWeftShade(p.patternWeftShade);
+    if (p.mosaicHalftoneOn != null) setMosaicHalftoneOn(!!p.mosaicHalftoneOn);
+    if (p.mosaicBgGaps != null) setMosaicBgGaps(!!p.mosaicBgGaps);
+    if (p.cellGeometryMode != null) setCellGeometryMode(p.cellGeometryMode);
+    if (p.stitchLumaMax != null) setStitchLumaMax(p.stitchLumaMax);
   }, []);
 
   /** Visible capture target only — no fallback to an unmounted/offscreen canvas when halftone is on. */
@@ -1094,6 +1113,7 @@ export default function AppV2({
     const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
     const randInt = (lo, hi) => lo + Math.floor(Math.random() * (hi - lo + 1));
     const rand = (lo, hi) => lo + Math.random() * (hi - lo);
+    setMosaicPresetIndex(null);
     setGridSize(pick(GRID_SNAPS));
     setPalette(randInt(0, 4));
     setBgShade(randInt(0, 4));
@@ -1183,6 +1203,7 @@ export default function AppV2({
     setStitchRevealBleedDraftCoupled(IMAGE_RECTS_URL_DEFAULTS.stitchRevealBleedDraftCoupled);
     setMediaTextureKind('staticImage');
     setMosaicHalftoneOn(false);
+    setMosaicPresetIndex(null);
     setHalftonePresetIndex(HALFTONE_DEFAULTS.presetIndex);
     setHalftoneSize(HALFTONE_DEFAULTS.size);
     setHalftoneSoftness(HALFTONE_DEFAULTS.softness);
@@ -1653,14 +1674,35 @@ export default function AppV2({
           <div className={sidebarGroup}>
             <div className={sidebarGroupTitle}>Weave & colorway</div>
             <div className="flex flex-wrap items-center gap-2">
+              <GroupIcon name="tune" title="Preset" />
+              <AppSelect
+                id="mosaic-preset-v2"
+                labelText="Preset"
+                value={mosaicPresetIndex != null ? mosaicPresetIndex : 'custom'}
+                onValueChange={(v) => (v === 'custom' ? setMosaicPresetIndex(null) : applyMosaicPreset(Number(v)))}
+                options={[
+                  { value: 'custom', label: 'Custom' },
+                  ...MOSAIC_PRESETS.map((p, i) => ({ value: i, label: p.label })),
+                ]}
+                title="Mosaic preset (Mask B&W sets Quartz black stitches on white with background gaps)"
+                placeholder="Preset…"
+              />
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
               <GroupIcon name="tune" title="Mode" />
               <AppSelect
                 id="rect-color-source-v2"
                 labelText="Stitch color from"
                 value={rectColorSource}
-                onValueChange={(v) => setRectColorSource(Number(v))}
+                onValueChange={(v) => {
+                  setMosaicPresetIndex(null);
+                  setRectColorSource(Number(v));
+                }}
                 defaultValue={IMAGE_RECTS_URL_DEFAULTS.rectColorSource}
-                onReset={() => setRectColorSource(IMAGE_RECTS_URL_DEFAULTS.rectColorSource)}
+                onReset={() => {
+                  setMosaicPresetIndex(null);
+                  setRectColorSource(IMAGE_RECTS_URL_DEFAULTS.rectColorSource);
+                }}
                 options={RECT_COLOR_SOURCE_OPTIONS}
                 title="Brand palette, image RGB, warp/weft thread shades from the draft below, or tile-art weave ramp"
                 placeholder="Color source"
