@@ -87,7 +87,44 @@ export const PRESETS = [
     shimmerNoiseMax: 1,
     shimmerBlendMode: 2,
   },
+  {
+    id: 'mask-bw-plain',
+    label: 'Mask · B&W · Plain',
+    pattern: 0,
+    palette: 4,
+    bgShade: 2,
+    warpShade: 0,
+    weftShade: 0,
+    warpGradient: flatGrad(0),
+    weftGradient: flatGrad(0),
+    useAllColorways: false,
+    shimmer: false,
+  },
 ];
+
+/**
+ * Shared black/white mask look for Mosaic (Quartz: black stitches on near-white BG).
+ * Background gaps + stitch-by-darkness turn the image into a B&W silhouette mask.
+ * Mirrors Weave preset `mask-bw-plain`.
+ */
+export const MOSAIC_MASK_BW_PRESET = {
+  id: 'mask-bw-plain',
+  label: 'Mask · B&W · Plain',
+  palette: 4,
+  bgShade: 2,
+  bgColorMode: 0,
+  rectColorSource: 2,
+  patternIndex: 0,
+  patternWarpShade: 0,
+  patternWeftShade: 0,
+  mosaicHalftoneOn: false,
+  mosaicBgGaps: true,
+  cellGeometryMode: 1,
+  stitchLumaMax: 0.55,
+};
+
+/** Mosaic sidebar presets (currently Mask B&W; extend as needed). */
+export const MOSAIC_PRESETS = [MOSAIC_MASK_BW_PRESET];
 
 /** Default rect aspect 36×40 (warp orientation). Shared by App, ShaderCanvas, useShaderSandbox. */
 export const RECT_ASPECT_DEFAULT = 36 / 40;
