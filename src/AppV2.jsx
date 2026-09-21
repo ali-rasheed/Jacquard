@@ -71,7 +71,6 @@ import {
   PALETTE_NAMES,
   PALETTE_SWATCH_COLORS,
   SHADE_NAMES,
-  SHADE_TRANSPARENT_ICON,
   typeBase,
   typeLabel,
   controlLabel,
@@ -81,7 +80,6 @@ import {
   iconResetGlyph,
   iconResetGlyphMd,
   btnGhost,
-  pill,
   sidebarGroup,
   sidebarGroupSticky,
   sidebarGroupTitle,
@@ -107,12 +105,6 @@ const TILE_ART_COLOR_MODE_OPTIONS = [
   { value: 0, label: 'Mono' },
   { value: 1, label: 'Brand' },
   { value: 2, label: 'Tint' },
-];
-
-/** How cell color is banded when quantize steps ≥ 2 (see fragmentImageRects.glsl). */
-const QUANTIZE_MODE_OPTIONS = [
-  { value: 0, label: 'RGB' },
-  { value: 1, label: 'HSV' },
 ];
 
 /** Animate colored stitches from background-only: isotropic FBM order vs dye-bleed streaks. */
@@ -721,6 +713,11 @@ export default function AppV2({
       copyFeedbackTimeoutRef.current = setTimeout(() => setCopyFeedback(null), 3000);
     }
   }, [copyFormat, copyScale, captureImageBlob]);
+
+  /** Clipboard write only accepts image/png in Chromium — hide WebP while Print is on. */
+  useEffect(() => {
+    if (mosaicHalftoneOn && copyFormat === 'webp') setCopyFormat('png');
+  }, [mosaicHalftoneOn, copyFormat]);
 
   const handleExport = useCallback(async () => {
     if (exportFeedbackTimeoutRef.current) clearTimeout(exportFeedbackTimeoutRef.current);
@@ -2618,6 +2615,7 @@ export default function AppV2({
           onDownload={handleExport}
           downloadFeedback={exportFeedback}
           onOpenConfigExport={() => setConfigExportOpen(true)}
+          imageFormats={mosaicHalftoneOn ? ['png'] : ['png', 'webp']}
           recordFormat={recordFormat}
           setRecordFormat={setRecordFormat}
           isRecording={isRecording}
@@ -2655,59 +2653,6 @@ export default function AppV2({
           hasKeyframeB={!!mosaicAfter && Object.keys(mosaicAfter).length > 0}
         />
 
-        <footer className="relative h-[100px] shrink-0 overflow-hidden border-t border-border-subtle bg-surface-elevated">
-          <div className="flex h-full min-h-9 flex-wrap items-center gap-2 overflow-y-auto px-3 py-2">
-            <span className={pill}>
-              {imageSource
-                ? (mediaTextureKind === 'video' ? 'Video playing' : mediaTextureKind === 'gif' ? 'GIF playing' : 'Image loaded')
-                : 'Pick image, video, or GIF'}
-            </span>
-            {rectColorSource !== 3 ? (
-              <span className={pill}>Weave: {PATTERNS[patternIndex]?.name ?? '—'}</span>
-            ) : (
-              <>
-                <span className={pill}>Ramp: {tileArtLevels} bands</span>
-                <span className={pill}>{tileArtGeom === 1 ? 'Rounded' : 'Flat'} stitches</span>
-                <span className={pill}>{tileArtUniformGrid === 1 ? `Uniform ${TILE_ART_UNIFORM_TILE_W}×${TILE_ART_UNIFORM_TILE_H}` : 'Pattern cells'}</span>
-                {tileArtDensity === 1 ? <span className={pill}>Density on</span> : null}
-              </>
-            )}
-            <span className={pill}>Color: {RECT_COLOR_SOURCE_OPTIONS.find((o) => o.value === rectColorSource)?.label ?? '—'}</span>
-            {(rectColorSource === 2 || rectColorSource === 3) && (
-              <span className={pill}>W/W: {SHADE_NAMES[patternWarpShade]} / {SHADE_NAMES[patternWeftShade]}</span>
-            )}
-            {lumaSizeMix > 0.01 ? (
-              <span className={pill}>Luma size {lumaSizeMix.toFixed(2)}{lumaSizeInvert ? ' (bright−)' : ' (dark−)'}</span>
-            ) : null}
-            {cellGeometryMode === 1 ? (
-              <span className={pill}>Stitches ≤ {stitchLumaMax.toFixed(2)}</span>
-            ) : null}
-            {stitchRevealMode > 0 ? (
-              <span className={pill}>
-                Stitch-in: {STITCH_REVEAL_MODE_OPTIONS.find((o) => o.value === stitchRevealMode)?.label ?? '—'} · {stitchRevealProgress >= 0.999 ? 'done' : `${Math.round(stitchRevealProgress * 100)}%`}
-              </span>
-            ) : null}
-            <span className={pill}>Quantize: {quantizeSteps === 0 ? 'off' : `${quantizeSteps} · ${QUANTIZE_MODE_OPTIONS[quantizeMode]?.label ?? 'RGB'}`}</span>
-            {quantizeSteps >= 2 ? (
-              <>
-                <span className={pill}>γ {quantizeGamma.toFixed(2)}</span>
-                <span className={pill}>Dither {quantizeDither.toFixed(2)}</span>
-              </>
-            ) : null}
-            <span className={pill}>{PALETTE_NAMES[palette]}</span>
-            <span className={pill}>
-              BG: {bgColorMode === 1
-                ? bgCustomColor.toUpperCase()
-                : (bgShade === 4 ? <><Icon name={SHADE_TRANSPARENT_ICON} className={iconXs} /></> : SHADE_NAMES[bgShade])}
-            </span>
-            <span className={pill}>Grid: {gridSize}</span>
-            <div className="ml-auto flex items-center gap-2">
-              {mosaicHalftoneOn ? <span className={pill}>Halftone on</span> : null}
-              <span className={pill}>WebGL 1</span>
-            </div>
-          </div>
-          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-6 bg-linear-to-t from-surface-elevated to-transparent" aria-hidden />
-        </footer>
       </div>
       <RecordingDownloadBanner
         pending={pendingDownload}

@@ -997,6 +997,12 @@ export default function App() {
     }
   }, [copyFormat, copyScale, captureImageBlob]);
 
+  /** Clipboard write only accepts image/png in Chromium — hide WebP while Print/halftone is on. */
+  const printCopyActive = weaveHalftoneOn || view === 'imageRectsHalftone';
+  useEffect(() => {
+    if (printCopyActive && copyFormat === 'webp') setCopyFormat('png');
+  }, [printCopyActive, copyFormat]);
+
   const handleExport = useCallback(async () => {
     if (exportFeedbackTimeoutRef.current) clearTimeout(exportFeedbackTimeoutRef.current);
     setExportFeedback(null);
@@ -3100,6 +3106,7 @@ export default function App() {
             showEmbedExport={view === 'weaving'}
             onOpenEmbedExport={() => setEmbedExportOpen(true)}
             onOpenConfigExport={() => setConfigExportOpen(true)}
+            imageFormats={printCopyActive ? ['png'] : ['png', 'webp']}
             recordFormat={recordFormat}
             setRecordFormat={setRecordFormat}
             isRecording={isRecording}

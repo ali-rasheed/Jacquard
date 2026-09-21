@@ -34,6 +34,8 @@ export function CaptureToolbar({
   onOpenEmbedExport,
   showConfigExport = true,
   onOpenConfigExport,
+  /** Formats shown in the Image type control. Print/halftone hides WebP — clipboard cannot write image/webp. */
+  imageFormats = ['png', 'webp'],
 }) {
   const recordTitle = isProcessing
     ? 'Processing…'
@@ -71,10 +73,10 @@ export function CaptureToolbar({
                 </div>
               </SegmentedControl>
             </AppTooltip>
-            <AppTooltip content="PNG or WebP for copy and download">
+            <AppTooltip content={imageFormats.length > 1 ? 'PNG or WebP for copy and download' : 'PNG for copy and download (WebP clipboard unsupported in Print)'}>
               <SegmentedControl>
                 <div className="flex h-full">
-                  {['png', 'webp'].map((fmt) => (
+                  {imageFormats.map((fmt) => (
                     <SegmentedControlButton
                       key={fmt}
                       format
