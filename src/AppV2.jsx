@@ -122,12 +122,6 @@ const STITCH_REVEAL_MODE_OPTIONS = [
   { value: 2, label: 'Bleed' },
 ];
 
-/** BG color source for Mosaic: palette shade presets or a custom picked color. */
-const BG_COLOR_MODE_OPTIONS = [
-  { value: 0, label: 'Preset' },
-  { value: 1, label: 'Color' },
-];
-
 function normalizeHexColor(hex, fallback = '#f2f2f2') {
   const value = typeof hex === 'string' ? hex.trim() : '';
   if (/^#[0-9a-fA-F]{6}$/.test(value)) return value.toLowerCase();
@@ -551,6 +545,12 @@ export default function AppV2({
   const keyframeUrlHydrateRef = useRef(null);
   const mosaicKeyframeSkipAfterSyncRef = useRef(false);
   const mosaicKeyframeStitchOverrideRef = useRef(false);
+  /** Look fields before last preset apply — restored when returning to Look: Custom. */
+  const mosaicLookBeforePresetRef = useRef(null);
+  const mosaicPresetIndexRef = useRef(mosaicPresetIndex);
+  mosaicPresetIndexRef.current = mosaicPresetIndex;
+  /** Live look snapshot for Mask leave/restore without stale closures. */
+  const mosaicLookLiveRef = useRef(null);
 
   const IMAGE_RECTS_DPR = 2; // matches useImageRectsSandbox DPR
 
@@ -606,10 +606,66 @@ export default function AppV2({
     setHalftonePaperMode('custom');
   }, []);
 
-  /** Apply Mosaic sidebar preset (e.g. Mask · B&W). */
+  /** Capture current Weave & colorway + stitch look (fields Mask / Look presets overwrite). */
+  const captureMosaicLook = useCallback(() => ({
+    palette,
+    bgShade,
+    bgColorMode,
+    bgCustomColor,
+    rectColorSource,
+    patternIndex,
+    patternWarpShade,
+    patternWeftShade,
+    mosaicHalftoneOn,
+    mosaicBgGaps,
+    cellGeometryMode,
+    stitchLumaMax,
+  }), [
+    palette, bgShade, bgColorMode, bgCustomColor, rectColorSource, patternIndex,
+    patternWarpShade, patternWeftShade, mosaicHalftoneOn, mosaicBgGaps, cellGeometryMode, stitchLumaMax,
+  ]);
+
+  mosaicLookLiveRef.current = captureMosaicLook();
+
+  /** Restore look saved before the last preset (or defaults if none). */
+  const restoreMosaicLookCustom = useCallback(() => {
+    const s = mosaicLookBeforePresetRef.current;
+    setMosaicPresetIndex(null);
+    if (!s) {
+      setPalette(IMAGE_RECTS_URL_DEFAULTS.palette);
+      setBgShade(IMAGE_RECTS_URL_DEFAULTS.bgShade);
+      setBgColorMode(IMAGE_RECTS_URL_DEFAULTS.bgColorMode);
+      setBgCustomColor(IMAGE_RECTS_URL_DEFAULTS.bgCustomColor);
+      setRectColorSource(IMAGE_RECTS_URL_DEFAULTS.rectColorSource);
+      setPatternIndex(IMAGE_RECTS_URL_DEFAULTS.patternIndex);
+      setPatternWarpShade(IMAGE_RECTS_URL_DEFAULTS.patternWarpShade);
+      setPatternWeftShade(IMAGE_RECTS_URL_DEFAULTS.patternWeftShade);
+      setMosaicBgGaps(IMAGE_RECTS_URL_DEFAULTS.mosaicBgGaps ?? false);
+      setCellGeometryMode(IMAGE_RECTS_URL_DEFAULTS.cellGeometryMode);
+      setStitchLumaMax(IMAGE_RECTS_URL_DEFAULTS.stitchLumaMax);
+      return;
+    }
+    setPalette(s.palette);
+    setBgShade(s.bgShade);
+    setBgColorMode(s.bgColorMode);
+    setBgCustomColor(s.bgCustomColor);
+    setRectColorSource(s.rectColorSource);
+    setPatternIndex(s.patternIndex);
+    setPatternWarpShade(s.patternWarpShade);
+    setPatternWeftShade(s.patternWeftShade);
+    setMosaicHalftoneOn(!!s.mosaicHalftoneOn);
+    setMosaicBgGaps(!!s.mosaicBgGaps);
+    setCellGeometryMode(s.cellGeometryMode);
+    setStitchLumaMax(s.stitchLumaMax);
+  }, []);
+
+  /** Apply Mosaic sidebar preset (e.g. Mask · B&W). Snapshots Custom look first. */
   const applyMosaicPreset = useCallback((index) => {
     if (index == null || index < 0 || index >= MOSAIC_PRESETS.length) return;
     const p = MOSAIC_PRESETS[index];
+    if (mosaicPresetIndexRef.current == null && mosaicLookLiveRef.current) {
+      mosaicLookBeforePresetRef.current = mosaicLookLiveRef.current;
+    }
     setMosaicPresetIndex(index);
     if (p.palette != null) setPalette(p.palette);
     if (p.bgShade != null) setBgShade(p.bgShade);
@@ -1409,78 +1465,75 @@ export default function AppV2({
           {viewTitle}
         </h1>
         <div className="flex flex-col gap-3">
+          {/* Frame: grid density + canvas inset (+ Fit/Fill when not driven by App shell). */}
           <div className={`${sidebarGroup} ${sidebarGroupSticky}`}>
-            <div className={sidebarGroupTitle}>Resolution</div>
-            <div className="flex flex-wrap items-center gap-2">
-              <GroupIcon name="grid_on" title="Tile size (grid cells)" />
-              <Label.Root className="sr-only" htmlFor="grid-slider-v2">Resolution</Label.Root>
-              <SliderWithInput
-                id="grid-slider-v2"
-                value={gridSize}
-                onValueChange={setGridSize}
-                defaultValue={IMAGE_RECTS_URL_DEFAULTS.gridSize}
-                onReset={() => setGridSize(IMAGE_RECTS_URL_DEFAULTS.gridSize)}
-                min={8}
-                max={256}
-                step={1}
-                snapValues={GRID_SNAPS}
-                snapPointCount={GRID_SNAPS.length}
-                aria-label="Tile size (grid cells)"
-              />
-            </div>
-          </div>
-          {!patternFitExternal && (
-            <div className={`${sidebarGroup} ${sidebarGroupSticky}`}>
-              <div className={sidebarGroupTitle}>Viewport</div>
+            <div className={sidebarGroupTitle}>Frame</div>
+            <div className="flex flex-col gap-2">
               <div className="flex flex-wrap items-center gap-2">
-                <GroupIcon name="fit_screen" title="Canvas size in stage" />
-                <SegmentedControl>
-                  <div className="flex h-full">
-                    <SegmentedControlButton
-                      active={patternFit === 'fit'}
-                      aria-pressed={patternFit === 'fit'}
-                      aria-label="Fit canvas in view"
-                      onClick={() => setPatternFit('fit')}
-                    >
-                      Fit
-                    </SegmentedControlButton>
-                    <SegmentedControlButton
-                      active={patternFit === 'fill'}
-                      aria-pressed={patternFit === 'fill'}
-                      aria-label="Fill canvas to available space"
-                      onClick={() => setPatternFit('fill')}
-                    >
-                      Fill
-                    </SegmentedControlButton>
-                  </div>
-                </SegmentedControl>
+                <GroupIcon name="grid_on" title="Cell count" />
+                <Label.Root className="sr-only" htmlFor="grid-slider-v2">Cells</Label.Root>
+                <SliderWithInput
+                  id="grid-slider-v2"
+                  value={gridSize}
+                  onValueChange={setGridSize}
+                  defaultValue={IMAGE_RECTS_URL_DEFAULTS.gridSize}
+                  onReset={() => setGridSize(IMAGE_RECTS_URL_DEFAULTS.gridSize)}
+                  min={8}
+                  max={256}
+                  step={1}
+                  snapValues={GRID_SNAPS}
+                  snapPointCount={GRID_SNAPS.length}
+                  aria-label="Tile size (grid cells)"
+                />
               </div>
-            </div>
-          )}
-          <div className={`${sidebarGroup} ${sidebarGroupSticky}`}>
-            <div className={sidebarGroupTitle}>Canvas</div>
-            <div className="flex flex-wrap items-center gap-2">
-              <GroupIcon name="crop" title="Inset mosaic from canvas edges" />
-              <Label.Root className="sr-only" htmlFor="content-padding-v2">Canvas padding</Label.Root>
-              <SliderWithInput
-                id="content-padding-v2"
-                value={contentPadding}
-                onValueChange={setContentPadding}
-                defaultValue={IMAGE_RECTS_URL_DEFAULTS.contentPadding}
-                onReset={() => setContentPadding(IMAGE_RECTS_URL_DEFAULTS.contentPadding)}
-                min={0}
-                max={0.45}
-                step={0.01}
-                format={(n) => `${Math.round(n * 100)}%`}
-                parse={(s) => {
-                  const t = String(s).trim().replace(/%$/, '');
-                  if (t === '') return 0;
-                  const n = Number(t);
-                  if (!Number.isFinite(n)) return null;
-                  return n > 1 ? n / 100 : n;
-                }}
-                aria-label="Background inset on each canvas edge (mosaic draws in the inner area)"
-              />
+              <div className="flex flex-wrap items-center gap-2">
+                <GroupIcon name="crop" title="Inset mosaic from canvas edges" />
+                <Label.Root className="sr-only" htmlFor="content-padding-v2">Inset</Label.Root>
+                <SliderWithInput
+                  id="content-padding-v2"
+                  value={contentPadding}
+                  onValueChange={setContentPadding}
+                  defaultValue={IMAGE_RECTS_URL_DEFAULTS.contentPadding}
+                  onReset={() => setContentPadding(IMAGE_RECTS_URL_DEFAULTS.contentPadding)}
+                  min={0}
+                  max={0.45}
+                  step={0.01}
+                  format={(n) => `${Math.round(n * 100)}%`}
+                  parse={(s) => {
+                    const t = String(s).trim().replace(/%$/, '');
+                    if (t === '') return 0;
+                    const n = Number(t);
+                    if (!Number.isFinite(n)) return null;
+                    return n > 1 ? n / 100 : n;
+                  }}
+                  aria-label="Background inset on each canvas edge (mosaic draws in the inner area)"
+                />
+              </div>
+              {!patternFitExternal && (
+                <div className="flex flex-wrap items-center gap-2">
+                  <GroupIcon name="fit_screen" title="Canvas size in stage" />
+                  <SegmentedControl>
+                    <div className="flex h-full">
+                      <SegmentedControlButton
+                        active={patternFit === 'fit'}
+                        aria-pressed={patternFit === 'fit'}
+                        aria-label="Fit canvas in view"
+                        onClick={() => setPatternFit('fit')}
+                      >
+                        Fit
+                      </SegmentedControlButton>
+                      <SegmentedControlButton
+                        active={patternFit === 'fill'}
+                        aria-pressed={patternFit === 'fill'}
+                        aria-label="Fill canvas to available space"
+                        onClick={() => setPatternFit('fill')}
+                      >
+                        Fill
+                      </SegmentedControlButton>
+                    </div>
+                  </SegmentedControl>
+                </div>
+              )}
             </div>
           </div>
           <div className={`${sidebarGroup} ${sidebarGroupSticky}`}>
@@ -1512,10 +1565,13 @@ export default function AppV2({
               </label>
             </div>
           </div>
+          {/*
+            Print: one card for CMYK output — Look + Style + Paper, then Screen (dots), then Ink (tone + plates).
+            Replaces separate Preset / Dot & grid / Tone / Ink colors groups.
+          */}
           <div className={sidebarGroup}>
-            <div className="flex flex-wrap items-center gap-2">
-              <GroupIcon name="lens_blur" title="Halftone output" />
-              <span className={`${controlLabel} ${typeLabel}`}>Halftone</span>
+            <div className={`${sidebarGroupTitle} inline-flex w-full items-center gap-2`}>
+              <span className="flex-1">Print</span>
               <SegmentedControl>
                 <div className="flex h-full">
                   <SegmentedControlButton
@@ -1529,7 +1585,7 @@ export default function AppV2({
                   <SegmentedControlButton
                     active={mosaicHalftoneOn}
                     aria-pressed={mosaicHalftoneOn}
-                    aria-label="CMYK halftone over mosaic"
+                    aria-label="CMYK print over mosaic"
                     onClick={() => setMosaicHalftoneOn(true)}
                   >
                     On
@@ -1537,88 +1593,34 @@ export default function AppV2({
                 </div>
               </SegmentedControl>
             </div>
-          </div>
-          {mosaicHalftoneOn && (
-            <>
-              <div className={sidebarGroup}>
-                <div className={`${sidebarGroupTitle} inline-flex items-center gap-1`}><Icon name="lens_blur" className={iconXs} /> preset</div>
-                <AppSelect
-                  value={halftonePresetIndex}
-                  onValueChange={(v) => applyHalftonePreset(Number(v))}
-                  defaultValue={HALFTONE_DEFAULTS.presetIndex}
-                  onReset={() => applyHalftonePreset(HALFTONE_DEFAULTS.presetIndex)}
-                  options={halftoneCmykPresets.map((p, i) => ({ value: i, label: p.name }))}
-                  title="Halftone preset"
-                  placeholder="Preset"
-                />
-              </div>
-              <div className={sidebarGroup}>
-                <div className={`${sidebarGroupTitle} inline-flex items-center gap-1`}><Icon name="lens_blur" className={iconXs} /> dot & grid</div>
-                <div className="flex flex-col gap-1">
-                  <Label.Root className={typeLabel} htmlFor="mosaic-halftone-size">Size</Label.Root>
-                  <SliderWithInput id="mosaic-halftone-size" aria-label="Grid size" value={halftoneSize} onValueChange={setHalftoneSize} defaultValue={HALFTONE_DEFAULTS.size} onReset={() => setHalftoneSize(HALFTONE_DEFAULTS.size)} min={0.01} max={1} step={0.01} format={(n) => n.toFixed(2)} />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <Label.Root className={typeLabel} htmlFor="mosaic-halftone-softness">Softness</Label.Root>
-                  <SliderWithInput id="mosaic-halftone-softness" aria-label="Dot softness" value={halftoneSoftness} onValueChange={setHalftoneSoftness} defaultValue={HALFTONE_DEFAULTS.softness} onReset={() => setHalftoneSoftness(HALFTONE_DEFAULTS.softness)} min={0} max={1} step={0.05} format={(n) => n.toFixed(2)} />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <Label.Root className={typeLabel} htmlFor="mosaic-halftone-gridnoise">Grid noise</Label.Root>
-                  <SliderWithInput id="mosaic-halftone-gridnoise" aria-label="Grid noise" value={halftoneGridNoise} onValueChange={onHalftoneGridNoiseChange} defaultValue={HALFTONE_DEFAULTS.gridNoise} onReset={() => { setHalftoneGridNoise(HALFTONE_DEFAULTS.gridNoise); setHalftonePaperMode('custom'); }} min={0} max={1} step={0.05} format={(n) => n.toFixed(2)} />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <Label.Root className={typeLabel}>Type</Label.Root>
+            {mosaicHalftoneOn && (
+              <div className="flex flex-col gap-3">
+                <div className="flex flex-wrap items-center gap-2">
                   <AppSelect
+                    id="mosaic-print-look"
+                    labelText="Print look"
+                    value={halftonePresetIndex}
+                    onValueChange={(v) => applyHalftonePreset(Number(v))}
+                    options={halftoneCmykPresets.map((p, i) => ({ value: i, label: `Look: ${p.name}` }))}
+                    title="Print look preset"
+                    placeholder="Look…"
+                  />
+                  <AppSelect
+                    id="mosaic-print-style"
+                    labelText="Dot style"
                     value={halftoneType}
                     onValueChange={setHalftoneType}
-                    defaultValue={HALFTONE_DEFAULTS.type}
-                    onReset={() => setHalftoneType(HALFTONE_DEFAULTS.type)}
-                    options={[{ value: 'dots', label: 'Dots' }, { value: 'ink', label: 'Ink' }, { value: 'sharp', label: 'Sharp' }]}
-                    title="Dot type"
-                    placeholder="Type"
+                    options={[
+                      { value: 'dots', label: 'Style: Dots' },
+                      { value: 'ink', label: 'Style: Ink' },
+                      { value: 'sharp', label: 'Style: Sharp' },
+                    ]}
+                    title="How dots are drawn (Ink = splotchy)"
+                    placeholder="Style"
                   />
                 </div>
-              </div>
-              <div className={sidebarGroup}>
-                <div className={`${sidebarGroupTitle} inline-flex items-center gap-1`}><Icon name="lens_blur" className={iconXs} /> tone</div>
-                <div className="flex flex-col gap-1">
-                  <Label.Root className={typeLabel} htmlFor="mosaic-halftone-contrast">Contrast</Label.Root>
-                  <SliderWithInput id="mosaic-halftone-contrast" aria-label="Contrast" value={halftoneContrast} onValueChange={setHalftoneContrast} defaultValue={HALFTONE_DEFAULTS.contrast} onReset={() => setHalftoneContrast(HALFTONE_DEFAULTS.contrast)} min={0} max={2} step={0.05} format={(n) => n.toFixed(2)} />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <Label.Root className={typeLabel} htmlFor="mosaic-halftone-floodc">Flood C</Label.Root>
-                  <SliderWithInput id="mosaic-halftone-floodc" aria-label="Cyan flood" value={halftoneFloodC} onValueChange={onHalftoneFloodCChange} defaultValue={HALFTONE_DEFAULTS.floodC} onReset={() => { setHalftoneFloodC(HALFTONE_DEFAULTS.floodC); setHalftonePaperMode('custom'); }} min={0} max={1} step={0.05} format={(n) => n.toFixed(2)} />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <Label.Root className={typeLabel} htmlFor="mosaic-halftone-gainc">Gain C</Label.Root>
-                  <SliderWithInput id="mosaic-halftone-gainc" aria-label="Cyan gain" value={halftoneGainC} onValueChange={setHalftoneGainC} defaultValue={HALFTONE_DEFAULTS.gainC} onReset={() => setHalftoneGainC(HALFTONE_DEFAULTS.gainC)} min={-1} max={1} step={0.05} format={(n) => n.toFixed(2)} />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <Label.Root className={typeLabel} htmlFor="mosaic-halftone-gainy">Gain Y</Label.Root>
-                  <SliderWithInput id="mosaic-halftone-gainy" aria-label="Yellow gain" value={halftoneGainY} onValueChange={setHalftoneGainY} defaultValue={HALFTONE_DEFAULTS.gainY} onReset={() => setHalftoneGainY(HALFTONE_DEFAULTS.gainY)} min={-1} max={1} step={0.05} format={(n) => n.toFixed(2)} />
-                </div>
-              </div>
-              <div className={sidebarGroup}>
-                <div className={`${sidebarGroupTitle} inline-flex w-full items-center gap-1`}>
-                  <Icon name="lens_blur" className={iconXs} />
-                  <span className="flex-1">ink colors</span>
-                  <IconButton
-                    size="resetSm"
-                    onClick={() => {
-                      selectHalftonePaper('cream');
-                      setHalftoneColorC(HALFTONE_DEFAULTS.colorC);
-                      setHalftoneColorM(HALFTONE_DEFAULTS.colorM);
-                      setHalftoneColorY(HALFTONE_DEFAULTS.colorY);
-                      setHalftoneColorK(HALFTONE_DEFAULTS.colorK);
-                    }}
-                    title="Reset all ink colors to default"
-                    aria-label="Reset all ink colors to default"
-                  >
-                    <Icon name="restart_alt" className={iconResetGlyph} />
-                  </IconButton>
-                </div>
-                <div className="mb-2 flex flex-col gap-1">
-                  <Label.Root className={typeLabel}>Paper</Label.Root>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className={`${typeLabel} text-text-muted`}>Paper</span>
                   <SegmentedControl>
                     <div className="flex h-full">
                       <SegmentedControlButton
@@ -1640,170 +1642,255 @@ export default function AppV2({
                     </div>
                   </SegmentedControl>
                 </div>
-                <div className="grid grid-cols-2 gap-1.5">
-                  {[
-                    { label: 'Back', value: halftoneColorBack, set: onHalftoneColorBackChange, default: HALFTONE_DEFAULTS.colorBack },
-                    { label: 'C', value: halftoneColorC, set: setHalftoneColorC, default: HALFTONE_DEFAULTS.colorC },
-                    { label: 'M', value: halftoneColorM, set: setHalftoneColorM, default: HALFTONE_DEFAULTS.colorM },
-                    { label: 'Y', value: halftoneColorY, set: setHalftoneColorY, default: HALFTONE_DEFAULTS.colorY },
-                    { label: 'K', value: halftoneColorK, set: setHalftoneColorK, default: HALFTONE_DEFAULTS.colorK },
-                  ].map(({ label, value, set, default: inkDefault }) => (
-                    <div key={label} className="flex items-center gap-1">
-                      <span className={`${typeLabel} w-6 shrink-0`}>{label}</span>
-                      <input
-                        type="color"
-                        value={value}
-                        onChange={(e) => set(e.target.value)}
-                        className="h-7 w-10 shrink-0 cursor-pointer rounded border border-border-subtle bg-surface-input"
-                        aria-label={`${label} ink color`}
-                      />
-                      <IconButton
-                        size="resetSm"
-                        onClick={() => set(inkDefault)}
-                        title={`Reset ${label} ink to default`}
-                        aria-label={`Reset ${label} ink color to default`}
-                      >
-                        <Icon name="restart_alt" className={iconResetGlyph} />
-                      </IconButton>
-                    </div>
+                <div className="flex flex-col gap-1.5 border-t border-border-subtle pt-2">
+                  <span className={`${typeLabel} text-text-muted`}>Screen</span>
+                  <div className="flex flex-col gap-1">
+                    <Label.Root className={typeLabel} htmlFor="mosaic-halftone-size">Dot size</Label.Root>
+                    <SliderWithInput id="mosaic-halftone-size" aria-label="Dot size" value={halftoneSize} onValueChange={setHalftoneSize} defaultValue={HALFTONE_DEFAULTS.size} onReset={() => setHalftoneSize(HALFTONE_DEFAULTS.size)} min={0.01} max={1} step={0.01} format={(n) => n.toFixed(2)} />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <Label.Root className={typeLabel} htmlFor="mosaic-halftone-softness">Softness</Label.Root>
+                    <SliderWithInput id="mosaic-halftone-softness" aria-label="Dot softness" value={halftoneSoftness} onValueChange={setHalftoneSoftness} defaultValue={HALFTONE_DEFAULTS.softness} onReset={() => setHalftoneSoftness(HALFTONE_DEFAULTS.softness)} min={0} max={1} step={0.05} format={(n) => n.toFixed(2)} />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <Label.Root className={typeLabel} htmlFor="mosaic-halftone-gridnoise">Noise</Label.Root>
+                    <SliderWithInput id="mosaic-halftone-gridnoise" aria-label="Screen noise" value={halftoneGridNoise} onValueChange={onHalftoneGridNoiseChange} defaultValue={HALFTONE_DEFAULTS.gridNoise} onReset={() => { setHalftoneGridNoise(HALFTONE_DEFAULTS.gridNoise); setHalftonePaperMode('custom'); }} min={0} max={1} step={0.05} format={(n) => n.toFixed(2)} />
+                  </div>
+                </div>
+                <div className="flex flex-col gap-1.5 border-t border-border-subtle pt-2">
+                  <div className="inline-flex w-full items-center gap-1">
+                    <span className={`${typeLabel} flex-1 text-text-muted`}>Ink</span>
+                    <IconButton
+                      size="resetSm"
+                      onClick={() => {
+                        selectHalftonePaper('cream');
+                        setHalftoneContrast(HALFTONE_DEFAULTS.contrast);
+                        setHalftoneFloodC(HALFTONE_DEFAULTS.floodC);
+                        setHalftoneGainC(HALFTONE_DEFAULTS.gainC);
+                        setHalftoneGainY(HALFTONE_DEFAULTS.gainY);
+                        setHalftoneColorC(HALFTONE_DEFAULTS.colorC);
+                        setHalftoneColorM(HALFTONE_DEFAULTS.colorM);
+                        setHalftoneColorY(HALFTONE_DEFAULTS.colorY);
+                        setHalftoneColorK(HALFTONE_DEFAULTS.colorK);
+                      }}
+                      title="Reset ink tone and plate colors"
+                      aria-label="Reset ink tone and plate colors"
+                    >
+                      <Icon name="restart_alt" className={iconResetGlyph} />
+                    </IconButton>
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <Label.Root className={typeLabel} htmlFor="mosaic-halftone-contrast">Contrast</Label.Root>
+                    <SliderWithInput id="mosaic-halftone-contrast" aria-label="Contrast" value={halftoneContrast} onValueChange={setHalftoneContrast} defaultValue={HALFTONE_DEFAULTS.contrast} onReset={() => setHalftoneContrast(HALFTONE_DEFAULTS.contrast)} min={0} max={2} step={0.05} format={(n) => n.toFixed(2)} />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <Label.Root className={typeLabel} htmlFor="mosaic-halftone-floodc">Flood</Label.Root>
+                    <SliderWithInput id="mosaic-halftone-floodc" aria-label="Cyan flood" value={halftoneFloodC} onValueChange={onHalftoneFloodCChange} defaultValue={HALFTONE_DEFAULTS.floodC} onReset={() => { setHalftoneFloodC(HALFTONE_DEFAULTS.floodC); setHalftonePaperMode('custom'); }} min={0} max={1} step={0.05} format={(n) => n.toFixed(2)} />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <Label.Root className={typeLabel} htmlFor="mosaic-halftone-gainc">Cyan gain</Label.Root>
+                    <SliderWithInput id="mosaic-halftone-gainc" aria-label="Cyan gain" value={halftoneGainC} onValueChange={setHalftoneGainC} defaultValue={HALFTONE_DEFAULTS.gainC} onReset={() => setHalftoneGainC(HALFTONE_DEFAULTS.gainC)} min={-1} max={1} step={0.05} format={(n) => n.toFixed(2)} />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <Label.Root className={typeLabel} htmlFor="mosaic-halftone-gainy">Yellow gain</Label.Root>
+                    <SliderWithInput id="mosaic-halftone-gainy" aria-label="Yellow gain" value={halftoneGainY} onValueChange={setHalftoneGainY} defaultValue={HALFTONE_DEFAULTS.gainY} onReset={() => setHalftoneGainY(HALFTONE_DEFAULTS.gainY)} min={-1} max={1} step={0.05} format={(n) => n.toFixed(2)} />
+                  </div>
+                  <div className="mt-1 flex flex-wrap items-center gap-2">
+                    {[
+                      { label: 'Paper', value: halftoneColorBack, set: onHalftoneColorBackChange, default: HALFTONE_DEFAULTS.colorBack },
+                      { label: 'C', value: halftoneColorC, set: setHalftoneColorC, default: HALFTONE_DEFAULTS.colorC },
+                      { label: 'M', value: halftoneColorM, set: setHalftoneColorM, default: HALFTONE_DEFAULTS.colorM },
+                      { label: 'Y', value: halftoneColorY, set: setHalftoneColorY, default: HALFTONE_DEFAULTS.colorY },
+                      { label: 'K', value: halftoneColorK, set: setHalftoneColorK, default: HALFTONE_DEFAULTS.colorK },
+                    ].map(({ label, value, set, default: inkDefault }) => (
+                      <div key={label} className="flex items-center gap-0.5">
+                        <span className={`${typeLabel} shrink-0`}>{label}</span>
+                        <input
+                          type="color"
+                          value={value}
+                          onChange={(e) => set(e.target.value)}
+                          className="h-7 w-8 cursor-pointer rounded border border-border-subtle bg-surface-input"
+                          aria-label={`${label} ink color`}
+                        />
+                        <IconButton
+                          size="resetSm"
+                          onClick={() => set(inkDefault)}
+                          title={`Reset ${label}`}
+                          aria-label={`Reset ${label} color`}
+                        >
+                          <Icon name="restart_alt" className={iconResetGlyph} />
+                        </IconButton>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+          <div className={sidebarGroup}>
+            <div className={`${sidebarGroupTitle} inline-flex w-full items-center gap-1`}>
+              <span className="flex-1">Weave & colorway</span>
+              {(
+                mosaicPresetIndex != null
+                || rectColorSource !== IMAGE_RECTS_URL_DEFAULTS.rectColorSource
+                || patternIndex !== IMAGE_RECTS_URL_DEFAULTS.patternIndex
+                || palette !== IMAGE_RECTS_URL_DEFAULTS.palette
+                || bgColorMode !== IMAGE_RECTS_URL_DEFAULTS.bgColorMode
+                || bgShade !== IMAGE_RECTS_URL_DEFAULTS.bgShade
+                || bgCustomColor !== IMAGE_RECTS_URL_DEFAULTS.bgCustomColor
+                || patternWarpShade !== IMAGE_RECTS_URL_DEFAULTS.patternWarpShade
+                || patternWeftShade !== IMAGE_RECTS_URL_DEFAULTS.patternWeftShade
+              ) && (
+                <IconButton
+                  size="resetSm"
+                  onClick={() => {
+                    setMosaicPresetIndex(null);
+                    setRectColorSource(IMAGE_RECTS_URL_DEFAULTS.rectColorSource);
+                    setPatternIndex(IMAGE_RECTS_URL_DEFAULTS.patternIndex);
+                    setPalette(IMAGE_RECTS_URL_DEFAULTS.palette);
+                    setBgColorMode(IMAGE_RECTS_URL_DEFAULTS.bgColorMode);
+                    setBgShade(IMAGE_RECTS_URL_DEFAULTS.bgShade);
+                    setBgCustomColor(IMAGE_RECTS_URL_DEFAULTS.bgCustomColor);
+                    setPatternWarpShade(IMAGE_RECTS_URL_DEFAULTS.patternWarpShade);
+                    setPatternWeftShade(IMAGE_RECTS_URL_DEFAULTS.patternWeftShade);
+                  }}
+                  title="Reset weave & colorway"
+                  aria-label="Reset weave and colorway to defaults"
+                >
+                  <Icon name="restart_alt" className={iconResetGlyph} />
+                </IconButton>
+              )}
+            </div>
+            <div className="flex flex-col gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <AppSelect
+                  id="mosaic-preset-v2"
+                  labelText="Look"
+                  value={mosaicPresetIndex != null ? mosaicPresetIndex : 'custom'}
+                  onValueChange={(v) => (v === 'custom' ? restoreMosaicLookCustom() : applyMosaicPreset(Number(v)))}
+                  options={[
+                    { value: 'custom', label: 'Look: Custom' },
+                    ...MOSAIC_PRESETS.map((p, i) => ({ value: i, label: p.label })),
+                  ]}
+                  title="Look preset (Mask B&W: black stitches on transparent BG with gaps). Custom restores your previous look."
+                  placeholder="Look…"
+                />
+                <AppSelect
+                  id="rect-color-source-v2"
+                  labelText="Stitch color"
+                  value={rectColorSource}
+                  onValueChange={(v) => {
+                    setMosaicPresetIndex(null);
+                    setRectColorSource(Number(v));
+                  }}
+                  options={RECT_COLOR_SOURCE_OPTIONS.map((o) => ({
+                    ...o,
+                    label: o.value === 0 ? 'Color: Brand' : o.value === 1 ? 'Color: Image' : o.value === 2 ? 'Color: Warp / weft' : 'Color: Tile art',
+                  }))}
+                  title="Where stitch color comes from"
+                  placeholder="Color"
+                />
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                {rectColorSource !== 3 && (
+                  <AppSelect
+                    id="weave-pattern-v2"
+                    labelText="Draft"
+                    value={patternIndex}
+                    onValueChange={(v) => {
+                      setMosaicPresetIndex(null);
+                      setPatternIndex(Number(v));
+                    }}
+                    options={patternOptions}
+                    title="Weave draft (orientation; warp/weft colors when Color is Warp / weft)"
+                    placeholder="Draft"
+                  />
+                )}
+                <div className="flex items-center gap-1" role="group" aria-label="Palette">
+                  {PALETTE_SWATCH_COLORS.map((color, i) => (
+                    <button
+                      key={i}
+                      type="button"
+                      className={`${paletteSwatch} ${palette === i ? paletteSwatchSelected : paletteSwatchUnselected}`}
+                      style={{
+                        backgroundColor: color,
+                        borderColor: palette === i ? 'var(--color-accent)' : 'var(--color-border-subtle)',
+                      }}
+                      title={PALETTE_NAMES[i]}
+                      aria-label={`Palette: ${PALETTE_NAMES[i]}`}
+                      aria-pressed={palette === i}
+                      onClick={() => {
+                        setMosaicPresetIndex(null);
+                        setPalette(i);
+                      }}
+                    />
                   ))}
                 </div>
               </div>
-            </>
-          )}
-          <div className={sidebarGroup}>
-            <div className={sidebarGroupTitle}>Weave & colorway</div>
-            <div className="flex flex-wrap items-center gap-2">
-              <GroupIcon name="tune" title="Preset" />
-              <AppSelect
-                id="mosaic-preset-v2"
-                labelText="Preset"
-                value={mosaicPresetIndex != null ? mosaicPresetIndex : 'custom'}
-                onValueChange={(v) => (v === 'custom' ? setMosaicPresetIndex(null) : applyMosaicPreset(Number(v)))}
-                options={[
-                  { value: 'custom', label: 'Custom' },
-                  ...MOSAIC_PRESETS.map((p, i) => ({ value: i, label: p.label })),
-                ]}
-                title="Mosaic preset (Mask B&W: Quartz black stitches on transparent BG with background gaps)"
-                placeholder="Preset…"
-              />
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <GroupIcon name="tune" title="Mode" />
-              <AppSelect
-                id="rect-color-source-v2"
-                labelText="Stitch color from"
-                value={rectColorSource}
-                onValueChange={(v) => {
-                  setMosaicPresetIndex(null);
-                  setRectColorSource(Number(v));
-                }}
-                defaultValue={IMAGE_RECTS_URL_DEFAULTS.rectColorSource}
-                onReset={() => {
-                  setMosaicPresetIndex(null);
-                  setRectColorSource(IMAGE_RECTS_URL_DEFAULTS.rectColorSource);
-                }}
-                options={RECT_COLOR_SOURCE_OPTIONS}
-                title="Brand palette, image RGB, warp/weft thread shades from the draft below, or tile-art weave ramp"
-                placeholder="Color source"
-              />
-              {rectColorSource !== 3 && (
-                <AppSelect
-                  id="weave-pattern-v2"
-                  labelText="Weave draft"
-                  value={patternIndex}
-                  onValueChange={(v) => setPatternIndex(Number(v))}
-                  defaultValue={IMAGE_RECTS_URL_DEFAULTS.patternIndex}
-                  onReset={() => setPatternIndex(IMAGE_RECTS_URL_DEFAULTS.patternIndex)}
-                  options={patternOptions}
-                  title="Weave draft: sets stitch orientation (and warp/weft thread colors when color source is Warp / weft)"
-                  placeholder="Draft"
-                />
-              )}
-              <div className="flex items-center gap-1" role="group" aria-label="Colorway palette">
-                {PALETTE_SWATCH_COLORS.map((color, i) => (
-                  <button
-                    key={i}
-                    type="button"
-                    className={`${paletteSwatch} ${palette === i ? paletteSwatchSelected : paletteSwatchUnselected}`}
-                    style={{
-                      backgroundColor: color,
-                      borderColor: palette === i ? 'var(--color-accent)' : 'var(--color-border-subtle)',
-                    }}
-                    title={PALETTE_NAMES[i]}
-                    aria-label={`Colorway: ${PALETTE_NAMES[i]}`}
-                    aria-pressed={palette === i}
-                    onClick={() => setPalette(i)}
-                  />
-                ))}
-                {palette !== IMAGE_RECTS_URL_DEFAULTS.palette && (
-                  <IconButton size="resetSm" onClick={() => setPalette(IMAGE_RECTS_URL_DEFAULTS.palette)} title="Reset palette" aria-label="Reset palette to default">
-                    <Icon name="restart_alt" className={iconResetGlyph} />
-                  </IconButton>
-                )}
-              </div>
               <div className="flex flex-wrap items-center gap-2">
                 <AppSelect
-                  id="bg-color-mode-v2"
-                  labelText="Background source"
-                  value={bgColorMode}
-                  onValueChange={(v) => setBgColorMode(Number(v))}
-                  defaultValue={IMAGE_RECTS_URL_DEFAULTS.bgColorMode}
-                  onReset={() => setBgColorMode(IMAGE_RECTS_URL_DEFAULTS.bgColorMode)}
-                  options={BG_COLOR_MODE_OPTIONS}
-                  title="Use palette shade presets or a custom picked color"
-                  placeholder="BG source"
+                  id="bg-unified-v2"
+                  labelText="Background"
+                  value={bgColorMode === 1 ? 'custom' : `s${bgShade}`}
+                  onValueChange={(v) => {
+                    setMosaicPresetIndex(null);
+                    if (v === 'custom') {
+                      setBgColorMode(1);
+                      return;
+                    }
+                    const n = Number(String(v).replace(/^s/, ''));
+                    if (Number.isFinite(n)) {
+                      setBgColorMode(0);
+                      setBgShade(n);
+                    }
+                  }}
+                  options={[
+                    ...SHADE_NAMES.map((name, i) => ({ value: `s${i}`, label: `BG: ${name}` })),
+                    { value: 'custom', label: 'BG: Custom…' },
+                  ]}
+                  title="Background shade or custom color"
+                  placeholder="BG"
                 />
-                {bgColorMode === 0 ? (
-                  <AppSelect
-                    id="bg-shade-v2"
-                    labelText="Background shade"
-                    value={bgShade}
-                    onValueChange={(v) => setBgShade(Number(v))}
-                    defaultValue={IMAGE_RECTS_URL_DEFAULTS.bgShade}
-                    onReset={() => setBgShade(IMAGE_RECTS_URL_DEFAULTS.bgShade)}
-                    options={shadeOptions('BG')}
-                    title="Background shade preset from current palette"
-                    placeholder="BG"
+                {bgColorMode === 1 && (
+                  <input
+                    type="color"
+                    value={bgCustomColor}
+                    onChange={(e) => {
+                      setMosaicPresetIndex(null);
+                      setBgCustomColor(normalizeHexColor(e.target.value, IMAGE_RECTS_URL_DEFAULTS.bgCustomColor));
+                    }}
+                    className="h-7 w-10 cursor-pointer rounded border border-border-subtle bg-surface-input"
+                    aria-label="Custom mosaic background color"
                   />
-                ) : (
-                  <label className={`inline-flex items-center gap-2 rounded border border-border-subtle bg-surface-input px-2 py-1 ${typeLabel}`}>
-                    <span className="text-text-muted">BG color</span>
-                    <input
-                      type="color"
-                      value={bgCustomColor}
-                      onChange={(e) => setBgCustomColor(normalizeHexColor(e.target.value, IMAGE_RECTS_URL_DEFAULTS.bgCustomColor))}
-                      className="h-7 w-10 cursor-pointer rounded border border-border-subtle bg-surface-input"
-                      aria-label="Custom mosaic background color"
-                    />
-                  </label>
                 )}
               </div>
               {(rectColorSource === 2 || rectColorSource === 3) && (
-                <>
+                <div className="flex flex-wrap items-center gap-2">
                   <AppSelect
                     id="pattern-warp-shade-v2"
-                    labelText="Warp thread shade"
+                    labelText="Warp"
                     value={patternWarpShade}
-                    onValueChange={(v) => setPatternWarpShade(Number(v))}
-                    defaultValue={IMAGE_RECTS_URL_DEFAULTS.patternWarpShade}
-                    onReset={() => setPatternWarpShade(IMAGE_RECTS_URL_DEFAULTS.patternWarpShade)}
+                    onValueChange={(v) => {
+                      setMosaicPresetIndex(null);
+                      setPatternWarpShade(Number(v));
+                    }}
                     options={shadeOptions('Warp')}
-                    title="Palette shade for warp-oriented rects"
+                    title="Warp thread shade"
                     placeholder="Warp"
                   />
                   <AppSelect
                     id="pattern-weft-shade-v2"
-                    labelText="Weft thread shade"
+                    labelText="Weft"
                     value={patternWeftShade}
-                    onValueChange={(v) => setPatternWeftShade(Number(v))}
-                    defaultValue={IMAGE_RECTS_URL_DEFAULTS.patternWeftShade}
-                    onReset={() => setPatternWeftShade(IMAGE_RECTS_URL_DEFAULTS.patternWeftShade)}
+                    onValueChange={(v) => {
+                      setMosaicPresetIndex(null);
+                      setPatternWeftShade(Number(v));
+                    }}
                     options={shadeOptions('Weft')}
-                    title="Palette shade for weft-oriented rects"
+                    title="Weft thread shade"
                     placeholder="Weft"
                   />
-                </>
+                </div>
               )}
             </div>
           </div>
@@ -2110,51 +2197,6 @@ export default function AppV2({
                   format={(n) => (n === 0 ? 'off' : String(n))}
                   parse={(s) => { if (s === 'off' || s === '') return 0; const n = Number(s); return Number.isFinite(n) ? n : null; }}
                   aria-label="Quantize steps (0 = off)"
-                />
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <AppSelect
-                  id="quantize-mode-v2"
-                  labelText="Quantize in color space"
-                  value={quantizeMode}
-                  onValueChange={(v) => setQuantizeMode(Number(v))}
-                  defaultValue={IMAGE_RECTS_URL_DEFAULTS.quantizeMode}
-                  onReset={() => setQuantizeMode(IMAGE_RECTS_URL_DEFAULTS.quantizeMode)}
-                  options={QUANTIZE_MODE_OPTIONS}
-                  title="Band colors in RGB (per channel) or HSV (posterize hue/sat/value)"
-                  placeholder="Space"
-                />
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <GroupIcon name="contrast" title="Gamma before banding" />
-                <Label.Root className="sr-only" htmlFor="quantize-gamma-v2">Quantize gamma</Label.Root>
-                <SliderWithInput
-                  id="quantize-gamma-v2"
-                  value={quantizeGamma}
-                  onValueChange={setQuantizeGamma}
-                  defaultValue={IMAGE_RECTS_URL_DEFAULTS.quantizeGamma}
-                  onReset={() => setQuantizeGamma(IMAGE_RECTS_URL_DEFAULTS.quantizeGamma)}
-                  min={0.25}
-                  max={4}
-                  step={0.05}
-                  format={(n) => n.toFixed(2)}
-                  aria-label="Gamma curve before quantize (1 = neutral)"
-                />
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <GroupIcon name="blur_linear" title="Dither" />
-                <Label.Root className="sr-only" htmlFor="quantize-dither-v2">Quantize dither</Label.Root>
-                <SliderWithInput
-                  id="quantize-dither-v2"
-                  value={quantizeDither}
-                  onValueChange={setQuantizeDither}
-                  defaultValue={IMAGE_RECTS_URL_DEFAULTS.quantizeDither}
-                  onReset={() => setQuantizeDither(IMAGE_RECTS_URL_DEFAULTS.quantizeDither)}
-                  min={0}
-                  max={1}
-                  step={0.05}
-                  format={(n) => n.toFixed(2)}
-                  aria-label="Per-cell dither before rounding (0 = off)"
                 />
               </div>
             </div>
