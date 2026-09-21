@@ -1740,10 +1740,14 @@ export default function AppV2({
                 || bgCustomColor !== IMAGE_RECTS_URL_DEFAULTS.bgCustomColor
                 || patternWarpShade !== IMAGE_RECTS_URL_DEFAULTS.patternWarpShade
                 || patternWeftShade !== IMAGE_RECTS_URL_DEFAULTS.patternWeftShade
+                || mosaicBgGaps !== IMAGE_RECTS_URL_DEFAULTS.mosaicBgGaps
+                || cellGeometryMode !== IMAGE_RECTS_URL_DEFAULTS.cellGeometryMode
+                || stitchLumaMax !== IMAGE_RECTS_URL_DEFAULTS.stitchLumaMax
               ) && (
                 <IconButton
                   size="resetSm"
                   onClick={() => {
+                    mosaicLookBeforePresetRef.current = null;
                     setMosaicPresetIndex(null);
                     setRectColorSource(IMAGE_RECTS_URL_DEFAULTS.rectColorSource);
                     setPatternIndex(IMAGE_RECTS_URL_DEFAULTS.patternIndex);
@@ -1753,6 +1757,9 @@ export default function AppV2({
                     setBgCustomColor(IMAGE_RECTS_URL_DEFAULTS.bgCustomColor);
                     setPatternWarpShade(IMAGE_RECTS_URL_DEFAULTS.patternWarpShade);
                     setPatternWeftShade(IMAGE_RECTS_URL_DEFAULTS.patternWeftShade);
+                    setMosaicBgGaps(IMAGE_RECTS_URL_DEFAULTS.mosaicBgGaps);
+                    setCellGeometryMode(IMAGE_RECTS_URL_DEFAULTS.cellGeometryMode);
+                    setStitchLumaMax(IMAGE_RECTS_URL_DEFAULTS.stitchLumaMax);
                   }}
                   title="Reset weave & colorway"
                   aria-label="Reset weave and colorway to defaults"
@@ -1772,7 +1779,7 @@ export default function AppV2({
                     { value: 'custom', label: 'Look: Custom' },
                     ...MOSAIC_PRESETS.map((p, i) => ({ value: i, label: p.label })),
                   ]}
-                  title="Look preset (Mask B&W: black stitches on transparent BG with gaps). Custom restores your previous look."
+                  title="Look preset (Mask B&W: black warp / light weft on transparent BG with gaps). Custom restores your previous look."
                   placeholder="Look…"
                 />
                 <AppSelect
@@ -1785,7 +1792,7 @@ export default function AppV2({
                   }}
                   options={RECT_COLOR_SOURCE_OPTIONS.map((o) => ({
                     ...o,
-                    label: o.value === 0 ? 'Color: Brand' : o.value === 1 ? 'Color: Image' : o.value === 2 ? 'Color: Warp / weft' : 'Color: Tile art',
+                    label: o.value === 0 ? 'Brand' : o.value === 1 ? 'Image' : o.value === 2 ? 'Warp / weft' : 'Tile art',
                   }))}
                   title="Where stitch color comes from"
                   placeholder="Color"
@@ -1845,8 +1852,8 @@ export default function AppV2({
                     }
                   }}
                   options={[
-                    ...SHADE_NAMES.map((name, i) => ({ value: `s${i}`, label: `BG: ${name}` })),
-                    { value: 'custom', label: 'BG: Custom…' },
+                    ...SHADE_NAMES.map((name, i) => ({ value: `s${i}`, label: name })),
+                    { value: 'custom', label: 'Custom…' },
                   ]}
                   title="Background shade or custom color"
                   placeholder="BG"
@@ -1892,6 +1899,54 @@ export default function AppV2({
                   />
                 </div>
               )}
+              {/* Gaps live with Look — Mask depends on them; keeps silhouette controls next to Color/Draft. */}
+              <div className="flex flex-col gap-1.5 border-t border-border-subtle pt-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    className={`${toggleBtn} ${mosaicBgGaps ? toggleBtnActive : ''}`}
+                    aria-pressed={mosaicBgGaps}
+                    aria-label="Background gaps: show canvas between dark stitch cells"
+                    title="Bright cells show background instead of stitches (silhouette / Mask)"
+                    onClick={() => {
+                      setMosaicPresetIndex(null);
+                      setMosaicBgGaps((g) => {
+                        const next = !g;
+                        if (next) setCellGeometryMode(1);
+                        else setCellGeometryMode(IMAGE_RECTS_URL_DEFAULTS.cellGeometryMode);
+                        return next;
+                      });
+                    }}
+                  >
+                    <Icon name="grid_4x4" className={iconSm} />
+                    <span className={typeLabel}>Gaps</span>
+                  </button>
+                  {cellGeometryMode === 1 && (
+                    <>
+                      <GroupIcon name="texture" title="Stitch darkness cutoff" />
+                      <Label.Root className="sr-only" htmlFor="stitch-luma-max-v2">Max brightness for stitches</Label.Root>
+                      <SliderWithInput
+                        id="stitch-luma-max-v2"
+                        value={stitchLumaMax}
+                        onValueChange={(v) => {
+                          setMosaicPresetIndex(null);
+                          setStitchLumaMax(v);
+                        }}
+                        defaultValue={IMAGE_RECTS_URL_DEFAULTS.stitchLumaMax}
+                        onReset={() => {
+                          setMosaicPresetIndex(null);
+                          setStitchLumaMax(IMAGE_RECTS_URL_DEFAULTS.stitchLumaMax);
+                        }}
+                        min={0}
+                        max={1}
+                        step={0.02}
+                        format={(n) => n.toFixed(2)}
+                        aria-label="Weave stitch only if cell luma is at or below this"
+                      />
+                    </>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
           {rectColorSource === 3 && (
@@ -2205,7 +2260,7 @@ export default function AppV2({
             <div className={sidebarGroupTitle}>Brightness & stitches</div>
             <div className="flex flex-col gap-2">
               <div className="flex flex-col gap-1.5">
-                <span className={`${typeLabel} text-text-muted`}>Size from brightness (per cell)</span>
+                <span className={`${typeLabel} text-text-muted`}>Size from brightness</span>
                 <div className="flex flex-wrap items-center gap-2">
                   <GroupIcon name="brightness_6" title="Luma drives size" />
                   <Label.Root className="sr-only" htmlFor="luma-size-mix-v2">Brightness size mix</Label.Root>
@@ -2222,75 +2277,38 @@ export default function AppV2({
                     aria-label="How much image brightness scales each rect (0 = off)"
                   />
                 </div>
-                <AppSelect
-                  id="luma-size-invert-v2"
-                  labelText="Bright vs dark smaller"
-                  value={lumaSizeInvert}
-                  onValueChange={(v) => setLumaSizeInvert(Number(v))}
-                  defaultValue={IMAGE_RECTS_URL_DEFAULTS.lumaSizeInvert}
-                  onReset={() => setLumaSizeInvert(IMAGE_RECTS_URL_DEFAULTS.lumaSizeInvert)}
-                  options={[
-                    { value: 0, label: 'Dark smaller' },
-                    { value: 1, label: 'Bright smaller' },
-                  ]}
-                  title="Which end of brightness maps to smaller rects"
-                  placeholder="Polarity"
-                />
-                <div className="flex flex-wrap items-center gap-2">
-                  <Label.Root className="sr-only" htmlFor="luma-size-floor-v2">Min rect scale</Label.Root>
-                  <SliderWithInput
-                    id="luma-size-floor-v2"
-                    value={lumaSizeFloor}
-                    onValueChange={setLumaSizeFloor}
-                    defaultValue={IMAGE_RECTS_URL_DEFAULTS.lumaSizeFloor}
-                    onReset={() => setLumaSizeFloor(IMAGE_RECTS_URL_DEFAULTS.lumaSizeFloor)}
-                    min={0.05}
-                    max={1}
-                    step={0.05}
-                    format={(n) => n.toFixed(2)}
-                    aria-label="Smallest rect scale vs base (at dark or bright end)"
-                  />
-                </div>
-              </div>
-              <div className="flex flex-col gap-1.5 border-t border-border-subtle pt-2">
-                <span className={`${typeLabel} text-text-muted`}>Stitch vs plain (by image darkness)</span>
-                <div className="flex flex-wrap items-center gap-2">
-                  <button
-                    type="button"
-                    className={`${toggleBtn} ${mosaicBgGaps ? toggleBtnActive : ''}`}
-                    aria-pressed={mosaicBgGaps}
-                    aria-label="Background gaps: show canvas between dark stitch cells"
-                    title="Non-stitch cells show background (legacy v5)"
-                    onClick={() => {
-                      setMosaicBgGaps((g) => {
-                        const next = !g;
-                        if (next) setCellGeometryMode(1);
-                        else setCellGeometryMode(IMAGE_RECTS_URL_DEFAULTS.cellGeometryMode);
-                        return next;
-                      });
-                    }}
-                  >
-                    <Icon name="grid_4x4" className={iconSm} />
-                    <span className={typeLabel}>Background gaps</span>
-                  </button>
-                </div>
-                {cellGeometryMode === 1 && (
-                  <div className="flex flex-wrap items-center gap-2">
-                    <GroupIcon name="texture" title="Stitch darkness cutoff" />
-                    <Label.Root className="sr-only" htmlFor="stitch-luma-max-v2">Max brightness for stitches</Label.Root>
-                    <SliderWithInput
-                      id="stitch-luma-max-v2"
-                      value={stitchLumaMax}
-                      onValueChange={setStitchLumaMax}
-                      defaultValue={IMAGE_RECTS_URL_DEFAULTS.stitchLumaMax}
-                      onReset={() => setStitchLumaMax(IMAGE_RECTS_URL_DEFAULTS.stitchLumaMax)}
-                      min={0}
-                      max={1}
-                      step={0.02}
-                      format={(n) => n.toFixed(2)}
-                      aria-label="Weave stitch only if cell luma is at or below this (plain tile if brighter)"
+                {lumaSizeMix > 0.01 && (
+                  <>
+                    <AppSelect
+                      id="luma-size-invert-v2"
+                      labelText="Bright vs dark smaller"
+                      value={lumaSizeInvert}
+                      onValueChange={(v) => setLumaSizeInvert(Number(v))}
+                      defaultValue={IMAGE_RECTS_URL_DEFAULTS.lumaSizeInvert}
+                      onReset={() => setLumaSizeInvert(IMAGE_RECTS_URL_DEFAULTS.lumaSizeInvert)}
+                      options={[
+                        { value: 0, label: 'Dark smaller' },
+                        { value: 1, label: 'Bright smaller' },
+                      ]}
+                      title="Which end of brightness maps to smaller rects"
+                      placeholder="Polarity"
                     />
-                  </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Label.Root className="sr-only" htmlFor="luma-size-floor-v2">Min rect scale</Label.Root>
+                      <SliderWithInput
+                        id="luma-size-floor-v2"
+                        value={lumaSizeFloor}
+                        onValueChange={setLumaSizeFloor}
+                        defaultValue={IMAGE_RECTS_URL_DEFAULTS.lumaSizeFloor}
+                        onReset={() => setLumaSizeFloor(IMAGE_RECTS_URL_DEFAULTS.lumaSizeFloor)}
+                        min={0.05}
+                        max={1}
+                        step={0.05}
+                        format={(n) => n.toFixed(2)}
+                        aria-label="Smallest rect scale vs base (at dark or bright end)"
+                      />
+                    </div>
+                  </>
                 )}
               </div>
               <div className="flex flex-col gap-1.5 border-t border-border-subtle pt-2">
