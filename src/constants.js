@@ -92,7 +92,7 @@ export const PRESETS = [
     label: 'Mask · B&W · Plain',
     pattern: 0,
     palette: 4,
-    bgShade: 2,
+    bgShade: 4,
     warpShade: 0,
     weftShade: 0,
     warpGradient: flatGrad(0),
@@ -103,15 +103,15 @@ export const PRESETS = [
 ];
 
 /**
- * Shared black/white mask look for Mosaic (Quartz: black stitches on near-white BG).
- * Background gaps + stitch-by-darkness turn the image into a B&W silhouette mask.
+ * Shared black/white mask look for Mosaic (Quartz: black stitches on transparent BG).
+ * Background gaps + stitch-by-darkness turn the image into a B&W silhouette cutout.
  * Mirrors Weave preset `mask-bw-plain`.
  */
 export const MOSAIC_MASK_BW_PRESET = {
   id: 'mask-bw-plain',
   label: 'Mask · B&W · Plain',
   palette: 4,
-  bgShade: 2,
+  bgShade: 4,
   bgColorMode: 0,
   rectColorSource: 2,
   patternIndex: 0,

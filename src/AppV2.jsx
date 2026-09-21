@@ -1684,7 +1684,7 @@ export default function AppV2({
                   { value: 'custom', label: 'Custom' },
                   ...MOSAIC_PRESETS.map((p, i) => ({ value: i, label: p.label })),
                 ]}
-                title="Mosaic preset (Mask B&W sets Quartz black stitches on white with background gaps)"
+                title="Mosaic preset (Mask B&W: Quartz black stitches on transparent BG with background gaps)"
                 placeholder="Preset…"
               />
             </div>
